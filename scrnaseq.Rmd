@@ -174,9 +174,9 @@ sc
 ```
 
 ## Normalisation, feature selection and scaling
-Feature selection: For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly in others. 
+Feature selection: For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
 
-Scaling: To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). This way, genes are equeally weighted for downstream analysis. 
+Scaling: To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis. 
 ```{r norm, message=FALSE, warning=FALSE, results="hide"}
 # Normalise data the original way
 sc = NormalizeData(sc, normalization.method = "LogNormalize", scale.factor = 10000)
@@ -208,7 +208,7 @@ plot2 = LabelPoints(plot=plot1, points=top10, repel=TRUE, cols=c("grey", param$c
 CombinePlots(plots=list(plot1, plot2))
 ```
 
-## Dimensional reduction
+## Dimensionality reduction
 A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. The biological manifold however can be described by far fewer dimensions than the number of genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
 
 We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
@@ -232,7 +232,7 @@ DimHeatmap(sc, dims=1:30, cells=500, balanced=TRUE)
 ```
 
 ## Dimensionality of the dataset
-We next need to decide how many PCs we want to use for downstream analyses. The following two plots are designed to help us take an informed decision. 
+We next need to decide how many PCs we want to use for downstream analyses. The following two plots are designed to help us make an informed decision. 
 
 The first plot is based on the "JackStraw" procedure: parts of the data is repeatedly randomly permuted and PCA is rerun, generating a "null distribution" of feature scores. Significant PCs are those with a strong enrichment of low p-value features. 
 
@@ -257,7 +257,7 @@ Seurat's clustering method first constructs a graph structure, where nodes are c
 # Note: I changed the seed in ./lib/python3.6/site-packages/leidenalg/functions.py to 11 for reproducibility
 # The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
 
-# Chose the number of PCs to use for clustering
+# Choose the number of PCs to use for clustering
 sc = FindNeighbors(sc, dims=1:param$pc.n)
 
 # Cluster using the Leiden algorithm
@@ -269,7 +269,7 @@ sc = FindClusters(sc, resolution=param$cluster.resolution, algorithm=4)
 ## Visualisation with UMAP
 We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP. 
 
-Beware not to mis-read a UMAP:  
+Take care not to mis-read a UMAP:  
 
 * Parameters influence the plot (we use defaults here)  
 * Cluster sizes relative to each other mean nothing, since the method has a local notion of distance  
@@ -287,7 +287,7 @@ DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_discrete("Cluster", lab
 ```
 
 ## Feature plots QC
-Do cells in individual clusters have particularaly high counts, detected genes or mitochondrial content?
+Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
 ```{r featurePlotQC}
 FeaturePlot(sc, features=c("nFeature_RNA", "nCount_RNA", "percent.mt"), cols=c("lightgrey", param$col))
 ```
@@ -346,7 +346,7 @@ rownames(sc.markers.filt.n) = c("Down", "Up")
 par(mar=c(5,6,4,2))
 barplot(sc.markers.filt.n, col=c("steelblue", "darkgoldenrod1"), 
         border=NA, las=1, xlab = "Cluster", 
-        ylab="Number of differentially expressed genes\n(blue for down-regulation, yellow for up-reglation)",
+        ylab="Number of differentially expressed genes\n(blue for down-regulated, yellow for up-regulated)",
         main=paste0("Number of differentially expressed genes\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"))
 
 ```
@@ -474,7 +474,7 @@ loupe.umap = loupe.umap[, c("Barcode", "UMAP_1", "UMAP_2")]
 colnames(loupe.umap) = c("Barcode", "UMAP-1", "UMAP-2")
 write.table(loupe.umap, file=paste0(path.out, "/Seurat2Loupe.Umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
-# Export categorial metadata
+# Export categorical metadata
 loupe.meta = as.data.frame(sc@meta.data[,c("orig.ident", "seurat_clusters", "Phase")])
 loupe.meta = cbind(Barcode=gsub(pattern="_", replacement="-", rownames(loupe.meta), fixed=TRUE), loupe.meta)
 if(length(grep(pattern="-$", x=loupe.meta$Barcode, perl=TRUE))==0) loupe.meta$Barcode=paste0(loupe.meta$Barcode, "-1")
