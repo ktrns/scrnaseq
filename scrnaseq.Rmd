@@ -56,6 +56,9 @@ if(!file.exists(path.out)) dir.create(path.out)
 # Biomart dataset to use for gene name translations
 param$mart.dataset = "hsapiens_gene_ensembl"
 
+# Biomart attributes for the annotation if no csv is given
+param$mart.attributes = c("ensembl_gene_id_version", "hgnc_symbol", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
+
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc.n = 7
 
@@ -145,8 +148,18 @@ write.table(gene.ids, file=paste0(path.out, "/GeneIds.txt"), sep="\t", row.names
 symbol.to.ensembl = setNames(gene.ids[,"Ensembl"], gene.ids[,"GeneSymbolEdited"])
 symbol.to.entrez = setNames(gene.ids[,"EntrezSymbol"], gene.ids[,"GeneSymbolEdited"])
 
-# Read Ensembl annotation
-annot.ensembl = read.delim(param$file.annot, row.names=1)
+# Read Ensembl annotation from csv or from ensembl and a tab seperated csv will be created
+if(param$file.annot != "" && file.exists(param$file.annot)){
+annot.ensembl = read.delim(param$file.annot)
+}else{
+  if(param$file.annot == ""){
+    param$file.annot = paste0(param$path, param$mart.dataset, '.annot.csv')
+  }
+  annot.mart = useMart("ensembl", dataset = param$mart.dataset)
+  annot.ensembl = getBM(mart = annot.mart, attributes = param$mart.attributes)
+  write.table(annot.ensembl, file = param$file.annot, sep = '\t', col.names = TRUE, row.names = FALSE, append = FALSE)
+  print(paste0("Gene annotation file was created at: ", param$file.annot))
+}
 ```
 
 # Pre-processing
