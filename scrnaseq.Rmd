@@ -48,7 +48,7 @@ param = list()
 # Project-specific paths
 param$path = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/"
 param$path.10x = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
-param$file.annot = "~/ensembl/hsapiens_gene_ensembl.98.csv"
+param$file.annot = NULL
 param$file.cellranger = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
 path.out = paste0(param$path, "/Seurat/")
 if(!file.exists(path.out)) dir.create(path.out)
@@ -149,10 +149,10 @@ symbol.to.ensembl = setNames(gene.ids[,"Ensembl"], gene.ids[,"GeneSymbolEdited"]
 symbol.to.entrez = setNames(gene.ids[,"EntrezSymbol"], gene.ids[,"GeneSymbolEdited"])
 
 # Read Ensembl annotation from csv or from ensembl and a tab seperated csv will be created
-if(param$file.annot != "" && file.exists(param$file.annot)){
+if(!is.null(param$file.annot) && file.exists(param$file.annot)){
 annot.ensembl = read.delim(param$file.annot)
 }else{
-  if(param$file.annot == ""){
+  if(is.null(param$file.annot)){
     param$file.annot = paste0(param$path, param$mart.dataset, '.annot.csv')
   }
   annot.mart = useMart("ensembl", dataset = param$mart.dataset)
