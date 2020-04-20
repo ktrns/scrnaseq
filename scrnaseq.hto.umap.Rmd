@@ -1,0 +1,11 @@
+```{r hto.plot.umap, message=FALSE, results="hide"}
+sc.all = RunPCA(sc.all, features=VariableFeatures(object=sc.all))
+sc.all = RunUMAP(sc.all, dims=1:param$pc.n)
+p = DimPlot(sc.all, reduction="umap", group.by="HTO_classification", cols=param$col.hto.all) 
+p = plot.mystyle(p, title="UMAP, cells coloured by HTO classification, including doublets and negatives", legend.title="Cell classification", legend.position="bottom")
+p
+
+p = DimPlot(sc, reduction="umap", group.by="HTO_classification", cols=param$col.hto.collapsed) 
+p = plot.mystyle(p, title="UMAP, cells coloured by HTO classification, singlets only", legend.title="Cell classification", legend.position="bottom")
+p
+```
