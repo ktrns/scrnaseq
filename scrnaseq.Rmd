@@ -82,9 +82,8 @@ if(!file.exists(param$path.out)) dir.create(param$path.out)
 
 # Input data path in case Cell Ranger was run 
 param$path.data = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
-
 param$file.mapping.stats = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
-param$file.annot = "~/ensembl/hsapiens_gene_ensembl.98.csv"
+param$file.annot = NULL
 
 # In case of HTO, readable names for Hashtag Oligos 
 # This could look like this, where HTO1-3 are the IDs included raw dataset
@@ -96,6 +95,9 @@ param$mt = "^MT-"
 
 # Biomart dataset to use for gene name translations
 param$mart.dataset = "hsapiens_gene_ensembl"
+
+# Biomart attributes for the annotation if no csv is given
+param$mart.attributes = c("ensembl_gene_id_version", "hgnc_symbol", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc.n = 7
@@ -168,17 +170,21 @@ gene.ids[,"GeneSymbol"] = make.unique(gene.ids[,"GeneSymbol"])
 gene.ids = cbind(gene.ids, GeneSymbolEdited=gsub(gene.ids[,"GeneSymbol"], pattern="_", replacement="-", fixed=TRUE))
 
 # Retrieve Entrez Gene Symbols; this is needed for EnrichR functional enrichment analysis
-#mart = useMart("ensembl", dataset=param$mart.dataset)
-#mapping = getBM(
-#  filters="ensembl_gene_id",
-#  attributes=c("ensembl_gene_id", "entrezgene_accession"),
-#  values=gene.ids[,"Ensembl"],
-#  mart=mart)
+# mart = useMart("ensembl", dataset=param$mart.dataset) # At point of merge, this did not work, biomart was unresponsive
+mart = useEnsembl("ensembl", dataset=param$mart.dataset, mirror="asia") 
+mapping = getBM(
+  filters="ensembl_gene_id",
+  attributes=c("ensembl_gene_id", "entrezgene_accession"),
+  values=gene.ids[,"Ensembl"],
+  mart=mart)
 
 # Note that we get the first Entrez Symbol that matches the Ensembl ID
-#mapping.match = match(gene.ids[,"Ensembl"], mapping[,"ensembl_gene_id"])
-#gene.ids = cbind(gene.ids, EntrezSymbol=mapping[mapping.match,"entrezgene_accession"])
-gene.ids = cbind(gene.ids, EntrezSymbol=gene.ids[,"GeneSymbol"])
+mapping.match = match(gene.ids[,"Ensembl"], mapping[,"ensembl_gene_id"])
+gene.ids = cbind(gene.ids, EntrezSymbol=mapping[mapping.match,"entrezgene_accession"])
+
+# If useMart hangs again, we can outcomment the upper part, and use this hack instead
+# This works for human
+# gene.ids = cbind(gene.ids, EntrezSymbol=gene.ids[,"GeneSymbol"])
 
 # Write table
 write.table(gene.ids, file=paste0(param$path.out, "/GeneIds.txt"), sep="\t", row.names=TRUE, col.names=TRUE, quote=FALSE)
@@ -187,8 +193,18 @@ write.table(gene.ids, file=paste0(param$path.out, "/GeneIds.txt"), sep="\t", row
 symbol.to.ensembl = setNames(gene.ids[,"Ensembl"], gene.ids[,"GeneSymbolEdited"])
 symbol.to.entrez = setNames(gene.ids[,"EntrezSymbol"], gene.ids[,"GeneSymbolEdited"])
 
-# Read Ensembl annotation
-annot.ensembl = read.delim(param$file.annot, row.names=1)
+# Read Ensembl annotation from csv or from ensembl and a tab seperated csv will be created
+if(!is.null(param$file.annot) && file.exists(param$file.annot)){
+annot.ensembl = read.delim(param$file.annot)
+} else{
+  if(is.null(param$file.annot)){
+    param$file.annot = paste0(param$path, param$mart.dataset, '.annot.csv')
+  }
+  annot.mart = useEnsembl("ensembl", dataset = param$mart.dataset, mirror="asia")
+  annot.ensembl = getBM(mart = annot.mart, attributes = param$mart.attributes)
+  write.table(annot.ensembl, file = param$file.annot, sep = '\t', col.names = TRUE, row.names = FALSE, append = FALSE)
+  print(paste0("Gene annotation file was created at: ", param$file.annot))
+}
 ```
 
 # Pre-processing
@@ -295,7 +311,7 @@ p
 if(run.hto) { 
   p = DimPlot(sc, reduction="pca", cols=param$col.hto.collapsed)
 } else {
-  p = DimPlot(sc, reduction="pca")
+  p = DimPlot(sc, reduction="pca", cols=param$col)
 }
 p = plot.mystyle(p, title="Cells arranged by the first two PCs", legend.title="HTO")
 p
@@ -540,9 +556,9 @@ How much do gene expression profiles in your dataset reflect the cell cycle phas
 
 ```{r cellCycleEffect, fig.width=10}
 # Use biomart to translate human cell cycle genes to the species of interest
-mart.human = useMart("ensembl", dataset="hsapiens_gene_ensembl")
-mart.myspecies = useMart("ensembl", dataset=param$mart.dataset)
- 
+mart.human = useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror="asia") 
+mart.myspecies = useEnsembl("ensembl", dataset=param$mart.dataset, mirror="asia") 
+
 genes.s = getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$s.genes, mart=mart.human, attributesL=c("external_gene_name"), martL=mart.myspecies, uniqueRows=TRUE)
 
 genes.g2m = getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$g2m.genes, mart=mart.human, attributesL=c("external_gene_name"), martL=mart.myspecies, uniqueRows=TRUE)
