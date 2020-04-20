@@ -1,0 +1,129 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+## HTO demultiplexing
+### Normalisation of HTO counts
+```{r hto.norm, message=FALSE}
+sc = NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
+```
+
+### Classification of cells based on HTO data
+```{r hto.demux, fig.width=10, results="asis"}
+# Demultiplex HTOs
+sc = HTODemux(sc, assay = "HTO", positive.quantile = 0.99)
+  
+# Sort Idents levels for nicer plotting
+levels = c("Negative", "Doublet", param$hto.names[length(param$hto.names):1])
+Idents(sc) = factor(Idents(sc), levels=levels)
+sc@meta.data$hash.ID = factor(sc@meta.data$hash.ID, levels=levels)
+names(param$col.hto.collapsed) = levels
+  
+# HTO classification results
+p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global), aes(x="", y=n, fill=HTO_classification.global)) + 
+  geom_bar(width=1, stat="identity") + coord_polar("y", start=0) + 
+  xlab("") + ylab("")
+p1 = plot.mystyle(p=p1, title="HTO global classification results", col=param$col.hto.global)
+  
+p2 = ggplot(sc@meta.data %>% dplyr::count(hash.ID), aes(x="", y=n, fill=hash.ID)) + 
+  geom_bar(width=1, stat="identity") + coord_polar("y", start=0) + 
+  xlab("") + ylab("")
+p2 = plot.mystyle(p=p2, title="HTO classification results", col=param$col.hto.collapsed)
+p = CombinePlots(list(p1, p2))
+p = plot.mystyle(p, title="HTO classification results")
+p
+
+# Print table
+hash.ID.table = sc@meta.data %>% dplyr::count(hash.ID) %>% dplyr::rename(HTO=hash.ID) %>% mutate(Perc=round(n/sum(n)*100,2)) %>% as.data.frame
+kable(hash.ID.table, align="l", caption="HTO classification results") %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```
+
+```{r hto.plot.counts.raw, fig.width=10}
+# Distribution of HTO counts before and after normalisation
+hto = list()
+hto$raw = sc@assays$HTO@counts %>% t %>% as.data.frame
+hto$raw.pseudo = hto$raw + 1
+hto$norm = sc@assays$HTO@data %>% t %>% as.data.frame
+
+p1 = ggplot(hto$raw.pseudo %>% pivot_longer(everything()), aes(x=name, y=value, fill=name)) + geom_violin() + scale_y_continuous(trans="log2") + xlab("") + ylab("") 
+p1 = plot.mystyle(p1, title="HTO raw counts", col=param$col.hto.collapsed, legend.title="HTO")
+  
+p2 = ggplot(hto$norm %>% pivot_longer(everything()), aes(x=name, y=value, fill=name)) + geom_violin() + xlab("") + ylab("")
+p2 = plot.mystyle(p2, title="HTO normalised counts", col=param$col.hto.collapsed, legend.title="HTO")
+p = CombinePlots(list(p1, p2), legend="bottom")  
+p = plot.mystyle(p, title="HTO counts before and after normalisation")
+p
+```
+
+```{r hto.plot.counts.norm, fig.width=10, fig.height=10, warnings=FALSE}
+# For now, we only plot HTOs against each other if there are at max 3
+# The test dataset with 8 HTOs became too big for CombinePlots, we would need another solution 
+if(length(param$hto.names) < 5) {
+  # HTO counts against each other
+  lim = hto$raw %>% max
+  p = list()
+  i = 1
+  for(x in 1:(length(param$hto.names)-1)){
+    for(y in (x+1):length(param$hto.names)){
+      p[[i]] = ggplot(cbind(hto$raw.pseudo, Class=Idents(sc)), aes_string(x=param$hto.names[x], y=param$hto.names[y], color="Class")) + geom_point() +
+        scale_y_continuous(trans="log2") + scale_x_continuous(trans="log2") + 
+        scale_color_manual(values=param$col.hto.collapsed)
+      p[[i]] = plot.mystyle(p[[i]], title="HTO raw counts", legend.title="Classified cells")
+      i = i + 1
+    }
+  }
+  p = CombinePlots(p, legend="bottom")
+  p = plot.mystyle(p, title="HTO raw counts plotted against each other")
+  p
+}
+```
+
+```{r hto.plot.norm, message=FALSE, fig.width=10, fig.height=10}
+# Group cells based on HTO classification
+p = RidgePlot(sc, assay="HTO", features=rownames(sc@assays$HTO), ncol = 1, same.y.lims=TRUE, cols=param$col.hto.collapsed, combine=FALSE)
+for(i in 1:length(p)) p[[i]] = plot.mystyle(p[[i]], legend.title="Classified cells")
+p = CombinePlots(p, ncol=2, legend="bottom")
+p = plot.mystyle(p, title="HTO normalised data")
+p
+```
+
+```{r hto.plot.norm.scatter, warnings=FALSE, fig.width=10, fig.height=10}  
+if(length(param$hto.names) < 5) {
+  
+  # Visualize pairs of HTO signals to confirm mutual exclusivity in singlets
+  lim = sc@assays$HTO@data %>% max
+  p = list()
+  i = 1
+  for(x in 1:(length(param$hto.names)-1)){
+    for(y in (x+1):length(param$hto.names)){
+      p[[i]] = FeatureScatter(sc, feature1=paste0("hto_", param$hto.names[x]), feature2=paste0("hto_", param$hto.names[y]), cols=param$col.hto.collapsed) + xlim(0, lim) + ylim(0, lim) + ylab("")
+      p[[i]] = plot.mystyle(p[[i]], legend.title="Classified cells")
+      i = i + 1
+    }
+  }
+  p = CombinePlots(p, ncol=2, legend="bottom")
+  p = plot.mystyle(p, title="HTO normalised data plotted against each other")
+  p
+}
+```
+
+```{r hto.plot.features, fig.width=10, fig.height=10}
+# Number of features in the different cells
+p1 = VlnPlot(sc, features="nFeature_RNA", idents=levels(Idents(sc)), ncol=3, pt.size=0) + xlab("") + geom_violin(color=NA)
+p1 = plot.mystyle(p1, title="nFeature_RNA", col=param$col.hto.collapsed, legend.title="Classified cells")
+  
+# Number of features in the different cells
+p2 = VlnPlot(sc, features="percent.mt", idents=levels(Idents(sc)), ncol=3, pt.size=0) + xlab("") + geom_violin(color=NA)
+p2 = plot.mystyle(p2, title="perent.mt", col=param$col.hto.collapsed, legend.title="Classified cells")
+p = CombinePlots(list(p1, p2), ncol=1, legend="bottom")
+p = plot.mystyle(p, title="Features of HTO-classified cells")
+```
+
+### Remove cells classified as doublet or negative
+```{r hto.subset}
+sc.all = sc
+sc = subset(sc, idents=c("Negative", "Doublet"), invert=TRUE)
+sc
+```
