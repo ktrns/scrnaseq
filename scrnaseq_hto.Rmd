@@ -48,18 +48,14 @@ param$project = "HTO_testDataset"
 
 # Project-specific paths
 param$path.out = "~/scrnaseq_Seurat_10x_pbmc_hto_GSE108313/"
-#param$path.out = "~/scrnaseq_bfx1256/Seurat/"
-
 if(!file.exists(param$path.out)) dir.create(param$path.out)
 
 # Input data path in case Cell Ranger was run 
 param$path.data = "~/scrnaseq/testDatasets/10x_pbmc_hto_GSE108313/cellranger/"
-#param$path.data = "~/scrnaseq_bfx1256/filtered_feature_bc_matrix/"
 
 # This could look like this, where HTO1-3 are the IDs included raw dataset
 # param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
 param$hto.names = NULL
-#param$hto.names = setNames(c("Parental", "BoneSeeking", "Reference"), c("HumanHashTag4", "HumanHashTag5", "HumanHashTag6"))
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
