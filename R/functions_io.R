@@ -45,7 +45,7 @@ read_10x_dataset = function(path, project = "SeuratProject", feature_column = 2,
   if("Antibody Capture" %in% names(feature_data) & length(hto_names)>0){
     # check to avoid special chars
     invalid = grep("[-_]",hto_names,v=T)
-    if(length(invalid)>0) flog.error("The 'hto_names' argument contains invalid (not allowed: -,_) names: %s!",first_n_elements_to_string(missed))
+    if(length(invalid)>0) flog.error("The 'hto_names' argument contains invalid (not allowed: -,_) names: %s!",first_n_elements_to_string(invalid))
     
     # if vector without names, just add values as names
     if(is.null(names(hto_names))) hto_names = setNames(hto_names,hto_names)
@@ -54,12 +54,16 @@ read_10x_dataset = function(path, project = "SeuratProject", feature_column = 2,
     missed = names(hto_names[!names(hto_names) %in% rownames(feature_data[["Antibody Capture"]])])
     if(length(missed)>0) flog.error("Some of names in the 'hto_names' argument are not present in the 'Antibody Capture' assay: %s!",first_n_elements_to_string(missed))
     
-    # split assay and rename if neccessary
+    # split assay
     is_hashtag = rownames(feature_data[["Antibody Capture"]]) %in% names(hto_names)
     feature_data[["_HashTags_"]] = feature_data[["Antibody Capture"]][is_hashtag,,drop=F]
     feature_data[["Antibody Capture"]] = feature_data[["Antibody Capture"]][!is_hashtag,,drop=F]
     
+    # rename if neccessary
     rownames(feature_data[["_HashTags_"]]) = hto_names[rownames(feature_data[["_HashTags_"]])]
+    nms = rownames(features_ids_types)
+    nms[nms %in% names(hto_names)] = hto_names[nms[nms %in% names(hto_names)]]
+    rownames(features_ids_types) = nms
     
     # this will be the HashTag assay
     feature_type_to_assay_name = c(feature_type_to_assay_name,c("_HashTags_" = "HTO"))
