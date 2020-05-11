@@ -11,15 +11,6 @@ output:
     code_folding: hide
 ---
 
-<!-- Hack by Mathias to increase the width of the plot area for widescreen -->
-<style type="text/css">
-.main-container {
-  max-width: 1800px;
-  margin-left: auto;
-  margin-right: auto;
-}
-</style>
-
 ```{r setup, message=FALSE, warning=FALSE}
 # R Options
 options(stringsAsFactors=FALSE)
@@ -45,9 +36,8 @@ source("R/functions_analysis.R")
 source("R/functions_util.R")
 
 # default options
-knitr::opts_chunk$set(echo = TRUE,dpi = 150,cache = FALSE,message = TRUE, warning = TRUE)
+knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
 options(stringsAsFactors = F)
-
 ```
 
 # Dataset description
@@ -58,25 +48,26 @@ options(stringsAsFactors = F)
 
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
-```{r project.parameters, message=FALSE}
+```{r project.parameters, class.source='fold-show'}
 param = list()
 
 # Project ID
 param$project = "HTO_testDataset"
 
-# Project-specific paths
-# note: add testDatasets/*/results to .gitignore
-param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
-if(!file.exists(param$path.out)) dir.create(param$path.out)
-
 # Input data path in case Cell Ranger was run 
 param$path.data = "testDatasets/10x_pbmc_hto_GSE108313/cellranger"
 
-# This could look like this, where HTO1-3 are the IDs included raw dataset
-# param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
-param$hto.names = c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")
-names(param$hto.names) = param$hto.names
+# Output path
+param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
+if(!file.exists(param$path.out)) dir.create(param$path.out)
 
+# HTO names
+#   HTOs have an ID that is included in the 'features.tsv' input file
+#   We additionally ask for readable names that are used throughout this report 
+#   This could look like this, where HTO1-3 are the IDs included raw dataset
+#     param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
+param$hto.names = setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), 
+                          c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")) # Name equals ID in this test case
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
@@ -84,25 +75,39 @@ param$mt = "^MT-"
 # Main color to use for plots
 param$col = "palevioletred"
 
-# Sample data to at most n cells (mainly for tests); set to 0 to deactivate
-param$sample_cells = 3000
-
+# Sample data to at most n cells (mainly for tests); set to NULL to deactivate
+param$sample_cells = 2000
 ```
 
+```{r col.hto}
+param$col.hto.global = pal_npg()(3)
+param$col.hto.all = pal_npg()(factorial(length(param$hto.names)) + 1)
+param$col.hto.collapsed = pal_npg()(length(param$hto.names) + 2)
+hto.levels = c("Negative", "Doublet", param$hto.names[length(param$hto.names):1])
+names(param$col.hto.collapsed) = hto.levels
+```
 
 # Read input data
-In this first section of the report, we read 10X data (*Gene Expression*, *Antibody Capture*, ..) from the files produced by CellRanger:   
-* barcodes.tsv.gz: All cell barcodes  
-* features.tsv.gz: (Ensembl) ID, name, and type for each feature  
-* matrix.mtx.gz: Counts for all features  
-and setup a Seurat object. It will already have the different types of data in separate assays: *Gene Expresssion* in assay 'RNA', *Antibody Capture* in 'ADT', *CRISPR Guide Capture* in 'Crispr' and *Custom* in 'Custom'. *Antibody Capture* features with hashtag oligo names will be saved separately in a 'HTO' assay.
-```{r hto.read, message=FALSE, warning=FALSE}
+In this first section of the report, we read 10X data from the files produced by CellRanger:  
 
+* **barcodes.tsv.gz**: All cell barcodes  
+* **features.tsv.gz**: (Ensembl) ID, name, and type for each feature  
+* **matrix.mtx.gz**: Counts for all features  
+
+and setup a Seurat object. This object includes different data types in separate assays:  
+
+* **Gene Expresssion** in assay **RNA**  
+* **Antibody Capture** in **HTO** and **ADT**,   
+* **CRISPR Guide Capture** in **Crispr**, and  
+* **Custom** in **Custom**.   
+
+Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
+```{r hto.read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
 sc = read_10x_dataset(param$path.data,hto_names = param$hto.names)
 
 # If requested: sample at most n cells
-if(param$sample_cells>0){
+if(!is.null(param$sample_cells)){
   sampled.barcodes = sample(Cells(sc),min(param$sample_cells,length(Cells(sc))))
   sc = subset(sc,cells = sampled.barcodes)
 }
@@ -117,38 +122,28 @@ names(assay_cells.hto) = assay.names
 joint.barcodes = unique(flatten_chr(map(assay_cells.hto,function(a){a[["with"]]})))
 
 # Subset Seurat object to all cells with HTO
-sc = subset(sc,cells=joint.barcodes)
-
-
-# Colors for HTO 
-n.hto = nrow(GetAssayData(sc,assay = "HTO"))
-param$col.hto.global = pal_npg()(3)
-param$col.hto.all = pal_npg()(factorial(n.hto) + 1)
-param$col.hto.collapsed = pal_npg()(n.hto + 2)
-
+sc = subset(sc, cells=joint.barcodes)
 sc
 ```
 
 ```{r hto.read.summary}
-datatable(
-  map_dfr(assay.names,function(a){
-  data.frame(assay = a,
-             "total" =  length(assay_cells.hto[[a]][["with"]]) + length(assay_cells.hto[[a]][["without"]]),
-             "with" = length(assay_cells.hto[[a]][["with"]]),
-             "without" = length(assay_cells.hto[[a]][["without"]]))
-    }),
-  caption = htmltools::tags$caption(style = 'caption-side: bottom; text-align: left;',"Assays, cells and hash tag oligos."),
-  colnames = c("Assay","Cells","With HTO reads","Without HTO reads"),rownames = F,options = list(dom = '')
-)
-```
+summary = map_dfr(assay.names, function(a){
+  data.frame(Assay = a,
+             CellsTotal = length(assay_cells.hto[[a]][["with"]]) + length(assay_cells.hto[[a]][["without"]]),
+             CellsWithHtoReads = length(assay_cells.hto[[a]][["with"]]),
+             CellsWithoutHtoReads = length(assay_cells.hto[[a]][["without"]]))
+  })
 
+kable(summary, align="l", caption="Dataset summary") %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```
 
 # Demutliplexing Hashtag Oligos (HTO)
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts
 We start the analysis by normalising raw HTO counts. HTO counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed. 
-```{r hto.norm, message=FALSE}
+```{r hto.norm}
 sc = NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
 
 # alternative: CLR
@@ -156,16 +151,14 @@ sc = NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
 ```
 
 ## Classification of cells based on normalised HTO data
-We assign cells to sample-of-origin, annotate negative cells that cannot be assigned to any sample, and doublet cells that are assigned to two samples. 
-```{r hto.demux, fig.width=10, results="asis"}
+We assign cells to their sample-of-origin, annotate negative cells that cannot be assigned to any sample, and doublet cells that are assigned to two samples. 
+```{r hto.demux, results="asis"}
 # Demultiplex HTOs
 sc = HTODemux(sc, assay = "HTO", positive.quantile = 0.99)
   
 # Sort Idents levels for nicer plotting
-levels = c("Negative", "Doublet", param$hto.names[length(param$hto.names):1])
-Idents(sc) = factor(Idents(sc), levels=levels)
-sc@meta.data$hash.ID = factor(sc@meta.data$hash.ID, levels=levels)
-names(param$col.hto.collapsed) = levels
+Idents(sc) = factor(Idents(sc), levels=hto.levels)
+sc@meta.data$hash.ID = factor(sc@meta.data$hash.ID, levels=hto.levels)
   
 # HTO classification results
 hash.ID.table = sc@meta.data %>% dplyr::count(hash.ID) %>% dplyr::rename(HTO=hash.ID) %>% mutate(Perc=round(n/sum(n)*100,2)) %>% as.data.frame
@@ -183,9 +176,9 @@ p2 = plot.mystyle(p=p2, title="HTO classification results", col=param$col.hto.co
 p1 + p2 + plot_annotation(title="HTO classification results") + gridExtra::tableGrob(hash.ID.table, rows=NULL)
 ```
 
-# Visualisation of raw and normalised HTO data
+# Visualisation of raw and normalised HTO data {.tabset}
 This section of the report visualises raw and normalised HTO data to understand whether the demultiplexing step has worked well. 
-```{r hto.plot.counts.raw, fig.width=10}
+```{r hto.plot.counts.raw}
 # Distribution of HTO counts before and after normalisation
 hto.t.raw = sc@assays$HTO@counts %>% as.data.frame %>% t %>% as.data.frame
 hto.t.raw.pseudo = hto.t.raw + 1
@@ -201,32 +194,11 @@ p = p1 + p2 & theme(legend.position="bottom")
 p + plot_annotation("HTO counts before and after normalisation") + plot_layout(guides = "collect")
 ```
 
-Pairs of raw (top) and normalised (bottom) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
-```{r hto.plot.counts.norm, fig.width=10, fig.height=10, warnings=FALSE}
-n = df.all.col.combinations(x=hto.t.raw.pseudo, cell.classification=sc$hash.ID)
-p = ggplot(n, aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
-  scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=param$col.hto.collapsed)
-p = plot.mystyle(p)
-p = p + facet_grid(name2~name1, drop=FALSE) + 
-  theme(axis.title.x = element_blank(),strip.text.x = element_text(size=10, color="black"),
-        axis.title.y = element_blank(),strip.text.y = element_text(size=10, color="black"),
-        strip.background = element_rect(colour="white", fill="lightgrey"),
-        legend.position="bottom") + 
-  plot_annotation("Raw HTO counts")
-p
-```
+Pairs of raw (left tab) and normalised (right tab) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
 
-```{r hto.plot.counts.norm.alt1, fig.width=10, fig.height=10, warnings=FALSE}
+## Raw HTO data
+```{r hto.plot.counts.norm, fig.height=10}
 n = df.all.col.combinations(x=hto.t.raw.pseudo, cell.classification=sc$hash.ID)
-
-# this should change the plot order so that the two levels are always on top, then doublet, negative, and then the other samples
-n$order = 0
-n[n$cell.classification == n$name1,"order"] = 3
-n[n$cell.classification == n$name2,"order"] = 3
-n[n$cell.classification == "Doublet","order"] = 2
-n[n$cell.classification == "Negative","order"] = 1
-n = n %>% group_by(name1,name2) %>% arrange(order)
 
 # plot
 p = ggplot(n, aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
@@ -237,37 +209,14 @@ p = p + facet_grid(name2~name1, drop=FALSE) +
   theme(axis.title.x = element_blank(),strip.text.x = element_text(size=10, color="black"),
         axis.title.y = element_blank(),strip.text.y = element_text(size=10, color="black"),
         strip.background = element_rect(colour="white", fill="lightgrey"),
-        legend.position="bottom") + 
+        legend.position="bottom", 
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5)) + 
   plot_annotation("Raw HTO counts")
 p
 ```
 
-```{r hto.plot.counts.norm.alt1, fig.width=10, fig.height=10, warnings=FALSE}
-n = df.all.col.combinations(x=hto.t.raw.pseudo, cell.classification=sc$hash.ID)
-
-# this should change the plot order so that the two levels are always on top, then doublet, negative, and then the other samples
-n$order = 0
-n[n$cell.classification == n$name1,"order"] = 3
-n[n$cell.classification == n$name2,"order"] = 3
-n[n$cell.classification == "Doublet","order"] = 2
-n[n$cell.classification == "Negative","order"] = 1
-n = n %>% group_by(name1,name2) %>% arrange(order)
-
-# plot only the two levels as well as negative and doublet
-p = ggplot(n %>% filter(cell.classification==name1 | cell.classification==name2 | cell.classification=="Doublet" | cell.classification=="Negative"), aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
-  scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=param$col.hto.collapsed)
-p = plot.mystyle(p)
-p = p + facet_grid(name2~name1, drop=FALSE) + 
-  theme(axis.title.x = element_blank(),strip.text.x = element_text(size=10, color="black"),
-        axis.title.y = element_blank(),strip.text.y = element_text(size=10, color="black"),
-        strip.background = element_rect(colour="white", fill="lightgrey"),
-        legend.position="bottom") + 
-  plot_annotation("Raw HTO counts")
-p
-```
-
-```{r hto.plot.norm.scatter, warning=FALSE, fig.width=10, fig.height=10}  
+## Normalized HTO data
+```{r hto.plot.norm.scatter, fig.height=10}  
 n = df.all.col.combinations(x=hto.t.norm, cell.classification=sc$hash.ID)
 p = ggplot(n, aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
@@ -283,20 +232,20 @@ p
 ```
 
 The following ridge plots visualise the enrichment of assigned sample-of-origin for the respective normalised HTO counts. 
-```{r hto.plot.norm, message=FALSE, fig.width=10, fig.height=10}
+```{r hto.plot.norm, fig.height=10}
 # Group cells based on HTO classification
-p = RidgePlot(sc, assay="HTO", features=rownames(sc@assays$HTO), ncol = 1, same.y.lims=TRUE, cols=param$col.hto.collapsed, combine=FALSE)
+p = RidgePlot(sc, assay="HTO", features=rownames(sc@assays$HTO), same.y.lims=TRUE, cols=param$col.hto.collapsed, combine=FALSE)
 for(i in 1:length(p)) p[[i]] = plot.mystyle(p[[i]], legend.title="Classified cells")
 p = wrap_plots(p, ncol = 2) + plot_annotation("Normalised HTO data")+ plot_layout(guides = "collect") & theme(legend.position="bottom") 
 p
 ```
 
 Lastly, we compare the number of features between classified cells. 
-```{r hto.plot.features, fig.width=10}
+```{r hto.plot.features}
 # Number of features in the different cells
 nfeature.metrics = grep("_HTO",grep("nFeature_",colnames(sc[[]]),v = T),v = T,invert = T)
 p = VlnPlot(sc, features = nfeature.metrics, idents=levels(Idents(sc)), ncol=3, pt.size=0) + xlab("") + geom_violin(color=NA)
-p = plot.mystyle(p, title="Feature numbers of HTO-classified cells", col=param$col.hto.collapsed, legend.title="Classified cells")
+p = plot.mystyle(p, title="Number of features for HTO-classified cells", col=param$col.hto.collapsed, legend.title="Classified cells")
 p
 ```
 
@@ -309,13 +258,13 @@ sc
 ```
 
 # Preliminary pre-processing of RNA data 
-This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the usual scRNA-seq workflow. 
-```{r prelim.analysis, warning=FALSE, message=FALSE, results='hide'}
+This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the standard scRNA-seq workflow. 
+```{r prelim.analysis, results='hide'}
 sc.all = prelim.analysis(sc = sc.all, mt = param$mt, pc.n = 10)
 sc = prelim.analysis(sc = sc, mt = param$mt, pc.n = 10)
 ```
 
-## Visualisation of demultiplexed RNA data 
+## Visualisation of demultiplexed RNA data {.tabset}
 We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the assigned sample-of-origin. 
 
 Take care not to mis-read a UMAP:  
@@ -326,12 +275,15 @@ Take care not to mis-read a UMAP:
 * You may need more than one plot  
   
 For a nice read to intuitively understand UMAP, see https://pair-code.github.io/understanding-umap/. 
+
+### Before filtering
 ```{r umap.before}
 p = DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=param$col.hto.all) 
 p = plot.mystyle(p, title="UMAP, cells coloured by HTO classification, including doublets and negatives", legend.title="Cell classification", legend.position="bottom")
 p
 ```
 
+### After filtering
 ```{r umap.after}
 # Plot UMAP after HTO filtering
 p = DimPlot(sc, reduction="umap", group.by="HTO_classification", cols=param$col.hto.collapsed) 
@@ -341,20 +293,19 @@ p
 
 # Write out demultiplexed data
 Finally, demultiplexed RNA data are written back to file. 
-
 ```{r hto.save_samples}
-
-# create a directory for the demultiplexed data
+# Create a directory for the demultiplexed data
 demux.base_dir = file.path(param$path.out,"demultiplexed_samples")
-dir.create(demux.base_dir,showWarnings = FALSE)
+dir.create(demux.base_dir, showWarnings=FALSE)
 demux.samples_paths = c()
 
-# now save each sample in a separate directory
+# Save each sample in a separate directory
 samples = levels(Idents(sc))
 for(s in samples){
-  p = export_seurat_assay_data_to_dir(sc[,Idents(sc)==s],dir=file.path(demux.base_dir,s),assays=original.assay.names,slot="counts",
-                                include_cell_metadata_cols=c("nCount_HTO","nFeature_HTO","HTO_maxID","HTO_secondID","HTO_classification"))
-  demux.samples_paths = c(demux.samples_paths,p)
+  p = export_seurat_assay_data_to_dir(sc[,Idents(sc)==s], dir=file.path(demux.base_dir,s), 
+                                      assays=original.assay.names, slot="counts",
+                                      include_cell_metadata_cols=c("HTO_maxID","HTO_classification","HTO_classification.global", "hash.ID"))
+  demux.samples_paths = c(demux.samples_paths, p)
 }
 
 print(demux.samples_paths)
