@@ -24,5 +24,16 @@ df.all.col.combinations = function(x, cell.classification) {
     }
   }
   colnames(out) = c("cell.classification", "name1", "value1", "name2", "value2")
+  
+  # Define plot order so that the two levels of interest are always on top, then negatives, doublets, 
+  #   and finally all other samples
+  out$order = 0
+  out[out$cell.classification==out$name1, "order"] = 3
+  out[out$cell.classification==out$name2, "order"] = 3
+  out[out$cell.classification=="Negative", "order"] = 2
+  out[out$cell.classification=="Doublet", "order"] = 1
+  out = out %>% group_by(name1, name2) %>% arrange(order)
+  out$order = NULL # remove column again -> only needed to order data points
+  
   return(out)
 }
