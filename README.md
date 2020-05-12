@@ -3,17 +3,17 @@
 
 # Workflow summary
 ## Pre-Workflow: Demultiplexing with hashtag oligos
-* Dataset description 
-  + Project-specific parameters  
-* Read input data  
-* Demutliplexing with hashtag oligos (HTOs)  
-  + Normalisation of HTO counts  
-  + Classification of cells based on normalised HTO data 
-* Visualisation of raw and normalised HTO data 
-* Remove cells classified as doublet or negative 
-* Preliminary pre-processing of RNA data 
-  + Visualisation of demultiplexed RNA data 
-* Write out demultiplexed data 
+* Dataset description
+  + Project-specific parameters
+* Read input data
+* Demutliplexing with hashtag oligos (HTOs)
+  + Normalisation of HTO counts
+  + Classification of cells based on normalised HTO data
+* Visualisation of raw and normalised HTO data
+* Remove cells classified as doublet or negative
+* Preliminary visualisation of demultiplexed RNA data
+  + Visualisation with UMAP
+* Write out demultiplexed data
 
 ## Workflow: Single-cell RNA-seq analysis 
 * Dataset description
