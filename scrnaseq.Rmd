@@ -1,7 +1,7 @@
 ---
 title: "Single-cell RNA-seq data analysis"
 author: "Dresden-concept Genome Center, TU Dresden"
-date: "April 2020"
+date: "May 2020"
 geometry: margin=2cm
 output:
    html_document:
@@ -16,40 +16,48 @@ output:
 options(stringsAsFactors=FALSE)
 
 # Required libraries
-library(dplyr)
-library(Seurat)
-library(ggplot2)
-library(openxlsx)
-library(reticulate)
-library(MAST)
-library(biomaRt)
-library(enrichR)
-library(ggpubr)
+# Main
 library(knitr)
-library(kableExtra)
+library(Seurat)
+
+# Data handling 
 library(dplyr)
 library(tidyr)
-library(ggsci)
+library(purrr)
 
+# Tables
+library(DT)
+library(kableExtra) # knitr tables
+
+# Plotting
+library(ggplot2) # plots
+library(patchwork) # combination of plots
+library(ggsci) # colors
+
+# Input/output
+library(openxlsx) # Excel files
+
+# Analysis
+library(biomaRt) # annotation
+library(reticulate) # python interface
+library(enrichR) # functional enrichment 
+# library(MAST) # marker genes -> we load and unload it in the chunk
+
+# Source plotting functions
+source("R/functions_io.R")
+source("R/functions_plotting.R")
+source("R/functions_analysis.R")
+source("R/functions_util.R")
+
+# Knitr default options
+knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+
+# Potentially needed for clustering, umap, other python packages
 use_python('/usr/bin/python')
-
-# ggplot style
-plot.mystyle = function(p, title=NULL, col=NULL, legend.title=NULL, legend.position=NULL) {
-  p = p + theme_light() + theme(panel.border = element_blank())
-  if(!is.null(title)) p = p + ggtitle(title) + theme(plot.title = element_text(hjust=0.5))
-  if(length(col) > 0) p = p + scale_fill_manual(values=col)
-  if(!is.null(legend.title)) {
-    p = p + labs(color=legend.title, fill=legend.title)
-  } else {
-    p = p + theme(legend.title = element_blank()) 
-  }
-  if(!is.null(legend.position)) p = p + theme(legend.position=legend.position)
-  return(p)
-}
 ```
 
-# Current project
-* 10X published dataset  
+# Dataset description
+* 10X published dataset, downloaded from [here](https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3) 
 * Single Cell Gene Expression Dataset by Cell Ranger 3.0.0  
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
 
@@ -62,12 +70,12 @@ param = list()
 param$project = "pbmc"
 
 # Project-specific paths
-param$path.out = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/Seurat/"
-if(!file.exists(param$path.out)) dir.create(param$path.out)
+param$path.out = "~/testDatasets_10x_pbmc_1k_healthyDonor_v3Chemistry_Seurat/"
+if(!file.exists(param$path.out)) dir.create(param$path.out, recursive=TRUE)
 
 # Input data path in case Cell Ranger was run 
-param$path.data = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
-param$file.mapping.stats = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
+param$path.data = "testDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
+param$file.mapping.stats = "testDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
 param$file.annot = NULL
 
 # Prefix of mitochondrial genes 
@@ -378,7 +386,10 @@ for(i in 1:length(param$known.markers)) {
 ## Differentially expressed genes
 We next identify genes that are differentially expressed in one cluster compared to all other clusters. Additional gene annotation is added, and the resulting tables are written to file. 
 ```{r DEG, message=FALSE, warning=FALSE, results="asis"}
-# Find markers for every cluster compared to all remaining cells, report only the positive ones
+# We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
+library(MAST)
+
+# Find markers for every cluster compared to all remaining cells, report positive and negative ones
 # min.pct = requires feature to be detected at this minimum percentage in either of the two groups of cells 
 # logfc.threshold = requires a feature to be differentially expressed on average by some amount between the two groups
 # only.pos = find only positive markers 
@@ -415,6 +426,9 @@ sc.markers.filt.n = cbind(Cluster=cluster.all,
 p = ggplot(sc.markers.filt.n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
 p = plot.mystyle(p, title=paste0("Number of DEGs per cell cluster\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"), col=c("steelblue", "darkgoldenrod1"))
 p
+
+# Unload the MAST R package
+detach("package:MAST", unload=TRUE)
 ```
 
 ## Visualisation of differentially expressed genes

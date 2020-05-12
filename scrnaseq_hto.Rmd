@@ -1,7 +1,7 @@
 ---
 title: "Single-cell RNA-seq data analysis, HTO demultiplexing"
 author: "Dresden-concept Genome Center, TU Dresden"
-date: "April 2020"
+date: "May 2020"
 geometry: margin=2cm
 output:
    html_document:
@@ -16,18 +16,26 @@ output:
 options(stringsAsFactors=FALSE)
 
 # Required libraries
+# Main
+library(knitr)
+library(Seurat)
+
+# Data handling 
 library(dplyr)
 library(tidyr)
-library(ggplot2)
-library(patchwork)
-library(openxlsx)
-library(ggpubr)
-library(ggsci)
-library(knitr)
-library(kableExtra)
-library(Seurat)
 library(purrr)
+
+# Tables
 library(DT)
+library(kableExtra) # knitr tables
+
+# Plotting
+library(ggplot2) # plots
+library(patchwork) # combination of plots
+library(ggsci) # colors
+
+# Input/output
+library(openxlsx) # Excel files
 
 # Source plotting functions
 source("R/functions_io.R")
@@ -35,9 +43,8 @@ source("R/functions_plotting.R")
 source("R/functions_analysis.R")
 source("R/functions_util.R")
 
-# default options
+# Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
-options(stringsAsFactors = F)
 ```
 
 # Dataset description
@@ -59,7 +66,7 @@ param$path.data = "testDatasets/10x_pbmc_hto_GSE108313/cellranger"
 
 # Output path
 param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
-if(!file.exists(param$path.out)) dir.create(param$path.out)
+if(!file.exists(param$path.out)) dir.create(param$path.out, recursive=TRUE)
 
 # HTO names
 #   HTOs have an ID that is included in the 'features.tsv' input file
@@ -76,7 +83,7 @@ param$mt = "^MT-"
 param$col = "palevioletred"
 
 # Sample data to at most n cells (mainly for tests); set to NULL to deactivate
-param$sample_cells = 2000
+param$sample_cells = NULL
 ```
 
 ```{r col.hto}
@@ -104,7 +111,7 @@ and setup a Seurat object. This object includes different data types in separate
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
 ```{r hto.read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = read_10x_dataset(param$path.data,hto_names = param$hto.names)
+sc = read_10x_dataset(param$path.data, hto_names = param$hto.names)
 
 # If requested: sample at most n cells
 if(!is.null(param$sample_cells)){
@@ -138,7 +145,7 @@ kable(summary, align="l", caption="Dataset summary") %>%
   kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-# Demutliplexing Hashtag Oligos (HTO)
+# Demutliplexing with hashtag oligos (HTOs)
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts
@@ -257,14 +264,14 @@ sc = subset(sc, idents = c("Negative", "Doublet"), invert=TRUE)
 sc
 ```
 
-# Preliminary pre-processing of RNA data 
+# Preliminary visualisation of demultiplexed RNA data
 This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the standard scRNA-seq workflow. 
 ```{r prelim.analysis, results='hide'}
 sc.all = prelim.analysis(sc = sc.all, mt = param$mt, pc.n = 10)
 sc = prelim.analysis(sc = sc, mt = param$mt, pc.n = 10)
 ```
 
-## Visualisation of demultiplexed RNA data {.tabset}
+## Visualisation with UMAP {.tabset}
 We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the assigned sample-of-origin. 
 
 Take care not to mis-read a UMAP:  
