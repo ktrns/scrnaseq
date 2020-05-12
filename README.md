@@ -40,15 +40,9 @@
 * Output files  
 
 # Quick start
-TODO: add this dataset into the repository and change text here
-The Rmd script is initialised and tested for the following published 10X dataset:  
-https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3
+You can have a quick start using a 10X Genomics PMBC dataset, downloaded from [here](https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3) and included in <code>testDatasets</code>. The workflow <code>scrnaseq.Rmd</code> is already initialised for this dataset, so all you have to do is to knit to html. 
 
-You need to download:  
-* Feature / cell matrix (filtered)
-* Summary CSV
-
-... and modify the section "Project-specific paths" in the code chunk "projectParameters". 
+The repository provides several other test datasets that you can use for a quick start. All you have to do is to modify the code chunk <code>Project-specific parameters</code>. 
 
 # Documentation 
 TODO
