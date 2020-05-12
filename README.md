@@ -6,7 +6,7 @@
 * Dataset description 
   + Project-specific parameters  
 * Read input data  
-* Demutliplexing Hashtag Oligos (HTO)  
+* Demutliplexing with hashtag oligos (HTOs)  
   + Normalisation of HTO counts  
   + Classification of cells based on normalised HTO data 
 * Visualisation of raw and normalised HTO data 
