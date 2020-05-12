@@ -53,20 +53,6 @@ plot.mystyle = function(p, title=NULL, col=NULL, legend.title=NULL, legend.posit
 * Single Cell Gene Expression Dataset by Cell Ranger 3.0.0  
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
 
----
-# Define which blocks to run and not to run
----
-```{r switches, include=FALSE}
-# 10X data?
-run.tenx = TRUE
-
-# Just one simple sc-RNA-seq sample, no HTO?
-run.standard = TRUE
-
-# HTO dataset?
-run.hto = FALSE
-```
-
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
 ```{r project.parameters, message=FALSE}
@@ -76,19 +62,13 @@ param = list()
 param$project = "pbmc"
 
 # Project-specific paths
-param$path = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/"
-param$path.out = paste0(param$path, "/Seurat/")
+param$path.out = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/Seurat/"
 if(!file.exists(param$path.out)) dir.create(param$path.out)
 
 # Input data path in case Cell Ranger was run 
 param$path.data = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
 param$file.mapping.stats = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
 param$file.annot = NULL
-
-# In case of HTO, readable names for Hashtag Oligos 
-# This could look like this, where HTO1-3 are the IDs included raw dataset
-# param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
-param$hto.names = NULL
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
@@ -143,16 +123,13 @@ if(!is.null(param$file.mapping.stats)){
 
 ## Setup the Seurat object
 We next read the scRNA-seq counts table to initialise a Seurat object. 
-```{r read.standard, eval=run.standard, include=run.standard}
+```{r read.standard}
 # Load the dataset
 sc.data = Read10X(param$path.data)
 
 # Initialize the Seurat object with the raw (non-normalized data).
 sc = CreateSeuratObject(counts=sc.data, project=param$project, min.cells=3)
 sc
-```
-
-```{r read.hto, child = "scrnaseq.hto.read.Rmd", eval=run.hto}
 ```
 
 ## Read gene annotation
@@ -198,7 +175,7 @@ if(!is.null(param$file.annot) && file.exists(param$file.annot)){
 annot.ensembl = read.delim(param$file.annot)
 } else{
   if(is.null(param$file.annot)){
-    param$file.annot = paste0(param$path, param$mart.dataset, '.annot.csv')
+    param$file.annot = paste0(param$path.out, param$mart.dataset, '.annot.csv')
   }
   annot.mart = useEnsembl("ensembl", dataset = param$mart.dataset, mirror="asia")
   annot.ensembl = getBM(mart = annot.mart, attributes = param$mart.attributes)
@@ -287,12 +264,6 @@ p = plot.mystyle(p, title="Variable genes without (left) and with (right) labels
 p
 ```
 
----
-# HTO block
---- 
-```{r child = 'scrnaseq.hto.demux.Rmd', eval=run.hto}
-```
-
 ## Dimensionality reduction
 A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. The biological manifold however can be described by far fewer dimensions than the number of genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
 
@@ -308,11 +279,7 @@ p = CombinePlots(p)
 p = plot.mystyle(p, title="Top gene loadings of the first two PCs")
 p
 
-if(run.hto) { 
-  p = DimPlot(sc, reduction="pca", cols=param$col.hto.collapsed)
-} else {
-  p = DimPlot(sc, reduction="pca", cols=param$col)
-}
+p = DimPlot(sc, reduction="pca", cols=param$col)
 p = plot.mystyle(p, title="Cells arranged by the first two PCs", legend.title="HTO")
 p
 
@@ -382,12 +349,6 @@ cluster.labels = paste0(levels(sc@active.ident)," (", cluster.cells[levels(sc@ac
 p = DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_discrete("Cluster", labels=cluster.labels)
 p = plot.mystyle(p, "UMAP, cells coloured by cluster identity", legend.position="bottom")
 p
-```
-
----
-# UMAP coloured by HTO classification before and after filtering
---- 
-```{r child = 'scrnaseq.hto.umap.Rmd', eval=run.hto}
 ```
 
 ## Feature plots QC
@@ -553,7 +514,6 @@ for(i in 1:length(enriched)) {
 
 # Cell Cycle Effect
 How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in Tirosh et al. 2016, and human gene names are translated using biomaRt. 
-
 ```{r cellCycleEffect, fig.width=10}
 # Use biomart to translate human cell cycle genes to the species of interest
 mart.human = useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror="asia") 
@@ -594,7 +554,7 @@ CombinePlots(plots=list(p3, p4))
 
 # Loupe Cell Browser integration
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
-```{r loupe.integration, message=FALSE, eval=run.tenx}
+```{r loupe.integration, message=FALSE}
 # Export UMAP coordinates
 loupe.umap = as.data.frame(sc@reductions$umap@cell.embeddings)
 loupe.umap$Barcode = gsub(pattern="_", replacement="-", x=rownames(loupe.umap), fixed=TRUE)
@@ -605,7 +565,7 @@ write.table(loupe.umap, file=paste0(param$path.out, "/Seurat2Loupe.Umap.csv"), c
 
 # Export categorical metadata
 meta.to.export = c("orig.ident", "seurat_clusters", "Phase")
-if(run.hto) meta.to.export = c(meta.to.export, "HTO_maxID", "HTO_classification", "HTO_classification.global", "hash.ID")
+# if(run.hto) meta.to.export = c(meta.to.export, "HTO_maxID", "HTO_classification", "HTO_classification.global", "hash.ID")
 loupe.meta = as.data.frame(sc@meta.data[,meta.to.export])
 loupe.meta = cbind(Barcode=gsub(pattern="_", replacement="-", rownames(loupe.meta), fixed=TRUE), loupe.meta)
 if(length(grep(pattern="-$", x=loupe.meta$Barcode, perl=TRUE))==0) loupe.meta$Barcode=paste0(loupe.meta$Barcode, "-1")
