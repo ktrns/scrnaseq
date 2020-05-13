@@ -53,18 +53,13 @@ source("R/functions_util.R")
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
 
 # Potentially needed for clustering, umap, other python packages
-use_python('/usr/bin/python')
+reticulate::use_python('/usr/bin/python')
 ```
 
 # Current project
 * 10X published dataset  
 * Single Cell Gene Expression Dataset by Cell Ranger 3.0.0  
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
-
-1. Annotation:
-- NULL: ensembl create full table (query all genes)
-- use first column to do file annot
-- 
 
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
@@ -75,14 +70,21 @@ param = list()
 param$project = "pbmc"
 
 # Project-specific paths
-param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
+param$path.out = "test_datasets/10x-smartseq2_pbmc_GSE132044/results"
 if(!file.exists(param$path.out)) dir.create(param$path.out)
 
 # Input data path(s)
-param$path.data = data.frame(name = "test", type = "smartseq2", path = c("../../../Desktop/work/Neuer Ordner/genecount/bfx1341.mm10.e98.txt"))
+param$path.data = data.frame(
+  name = c("test1","test2"),
+           type = c("10x","smartseq2"),
+           path = c("test_datasets/10x-smartseq2_pbmc_GSE132044/counts/10x","test_datasets/10x-smartseq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"))
 param$file.mapping.stats = NULL
 
 # Annotation
+# Biomart dataset to use for gene name translations
+param$mart.dataset = "hsapiens_gene_ensembl"
+
+# File to save annotation
 param$file.annot = NULL
 if(is.null(param$file.annot)){
   param$file.annot = file.path(param$path.out, paste0(param$mart.dataset, '.annot.csv'))
@@ -90,9 +92,6 @@ if(is.null(param$file.annot)){
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
-
-# Biomart dataset to use for gene name translations
-param$mart.dataset = "hsapiens_gene_ensembl"
 
 # Biomart attributes for the annotation if no csv is given
 param$mart.attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
@@ -132,8 +131,8 @@ We begin by printing mapping statistics that have been produced prior to this wo
 if(!is.null(param$file.mapping.stats)){
   mapping.stats = as.data.frame(t(read.delim(param$file.mapping.stats, sep=",", header=TRUE, check.names=FALSE)))
   colnames(mapping.stats) = "Value"
-  kable(mapping.stats, align="l", caption="Mapping statistics") %>% 
-    kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  knitr::kable(mapping.stats, align="l", caption="Mapping statistics") %>% 
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 } else { 
   message("Mapping statistics cannot be shown. No valid file provided.")
 }
@@ -143,7 +142,7 @@ if(!is.null(param$file.mapping.stats)){
 We read gene annotation from Ensembl, and translate Ensembl IDs to Entrez gene symbols. The resulting table is written to file. 
 ```{r read.annotation, message=FALSE}
 # Read annotation from csv or from Ensembl and a tab separated csv will be created
-if(!is.null(param$file.annot) && file.exists(param$file.annot)){
+if(file.exists(param$file.annot)){
   annot.ensembl = read.delim(param$file.annot)
   
   # we need these columns
@@ -152,14 +151,20 @@ if(!is.null(param$file.annot) && file.exists(param$file.annot)){
   }
   
 } else{
-  mart.attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession",param$mart.attributes))
-  annot.mart = useEnsembl("ensembl", dataset = param$mart.dataset,mirror="asia")
-  annot.ensembl = getBM(mart = annot.mart, attributes = mart.attributes)
-  write.table(annot.ensembl, file = param$file.annot, sep = '\t', col.names = TRUE, row.names = FALSE, append = FALSE)
+  mart.attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart.attributes))
+  annot.mart = biomaRt::useEnsembl("ensembl", dataset=param$mart.dataset)
+  annot.ensembl = biomaRt::getBM(mart=annot.mart, attributes=mart.attributes)
+  write.table(annot.ensembl, file=param$file.annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
   message(paste0("Gene annotation file was created at: ", param$file.annot))
 }
 
-ensembl.to.symbol = setNames(annot.ensembl$external_gene_name,annot.ensembl$ensembl_gene_id)
+# ensembl id to (seurat compatible) symbol
+ensembl_to_symbol = setNames(annot.ensembl$external_gene_name,annot.ensembl$ensembl_gene_id) %>% 
+  gsub(pattern="_", replacement="-", fixed=TRUE) %>%
+  make.unique() %>%
+  set_names(annot.ensembl$ensembl_gene_id)
+symbol_to_ensembl = setNames(names(ensembl_to_symbol),ensembl_to_symbol)
+
 ```
 
 ## Setup the Seurat object
@@ -177,23 +182,23 @@ for(i in seq(nrow(datasets))){
   # process 10x or smartseq2
   if(type == "10x"){
     # read into seurat object
-    sc[[name]] = read_10x_dataset(path,project=name)
+    #
+    # TO DECIDE: always use first column with ensembl ids, then convert for consistency with smartseq2?
+    sc[[name]] = Read10xDataset(path, project=name)
     
   
   } else if(type == "smartseq2"){
-    # 
-    
     # drop columns 2:6 and read into seurat object
-    sc[[name]] = read_smartseq2_dataset(path,project=name,columns_to_drop = 2:6)
+    sc[[name]] = ReadSmartseq2Dataset(path, project=name, convert_feature_names=ensembl_to_symbol)
     
     # parse plate information: sample name, plate number, plate row and plate column
-    plate_information = parse_plate_information(Cells(sc[[name]]),pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$',sample_name_group = 1, plate_number_group = 2, row_name_group = 3, col_name_group = 4)
+    plate_information = parse_plate_information(Cells(sc[[name]]), pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4)
     if(nrow(plate_information)>0){
       # add info to metadata
-      sc[[name]] = AddMetaData(sc[[name]],plate_information)
+      sc[[name]] = Seurat::AddMetaData(sc[[name]], plate_information)
       
       # also set identity
-      sc[[name]] = SetIdent(sc[[name]],value="SampleName")
+      sc[[name]] = Seurat::SetIdent(sc[[name]], value="SampleName")
     }
   } 
 }

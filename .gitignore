@@ -3,4 +3,6 @@
 .RData
 .Ruserdata
 *.Rproj
-testDatasets/*/results
+test_datasets/*/results
+test_datasets/*/counts
+test_datasets/*/*rds
