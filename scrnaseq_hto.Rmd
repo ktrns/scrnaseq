@@ -16,18 +16,32 @@ output:
 options(stringsAsFactors=FALSE)
 
 # Required libraries
+# Main
+library(knitr)
+library(Seurat)
+
+# Data handling 
 library(dplyr)
 library(tidyr)
-library(ggplot2)
-library(patchwork)
-library(openxlsx)
-library(ggpubr)
-library(ggsci)
-library(knitr)
-library(kableExtra)
-library(Seurat)
 library(purrr)
+
+# Tables
 library(DT)
+library(kableExtra) # knitr tables
+
+# Plotting
+library(ggplot2) # plots
+library(patchwork) # combination of plots
+library(ggsci) # colors
+
+# Input/output
+library(openxlsx) # Excel files
+
+# Analysis
+library(biomaRt) # annotation
+library(reticulate) # python interface
+library(MAST) # marker genes
+library(enrichR) # functional enrichment 
 
 # Source plotting functions
 source("R/functions_io.R")
@@ -35,9 +49,11 @@ source("R/functions_plotting.R")
 source("R/functions_analysis.R")
 source("R/functions_util.R")
 
-# default options
+# Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
-options(stringsAsFactors = F)
+
+# Potentially needed for clustering, umap, other python packages
+use_python('/usr/bin/python')
 ```
 
 # Dataset description

@@ -16,42 +16,55 @@ output:
 options(stringsAsFactors=FALSE)
 
 # Required libraries
-library(dplyr)
-library(Seurat)
-library(ggplot2)
-library(openxlsx)
-library(reticulate)
-library(MAST)
-library(biomaRt)
-library(enrichR)
-library(ggpubr)
+# Main
 library(knitr)
-library(kableExtra)
+library(Seurat)
+
+# Data handling 
 library(dplyr)
 library(tidyr)
-library(ggsci)
+library(purrr)
 
+# Tables
+library(DT)
+library(kableExtra) # knitr tables
+
+# Plotting
+library(ggplot2) # plots
+library(patchwork) # combination of plots
+library(ggsci) # colors
+
+# Input/output
+library(openxlsx) # Excel files
+
+# Analysis
+library(biomaRt) # annotation
+library(reticulate) # python interface
+#library(MAST) # marker genes: conflicts with Seurat
+library(enrichR) # functional enrichment 
+
+# Source plotting functions
+source("R/functions_io.R")
+source("R/functions_plotting.R")
+source("R/functions_analysis.R")
+source("R/functions_util.R")
+
+# Knitr default options
+knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+
+# Potentially needed for clustering, umap, other python packages
 use_python('/usr/bin/python')
-
-# ggplot style
-plot.mystyle = function(p, title=NULL, col=NULL, legend.title=NULL, legend.position=NULL) {
-  p = p + theme_light() + theme(panel.border = element_blank())
-  if(!is.null(title)) p = p + ggtitle(title) + theme(plot.title = element_text(hjust=0.5))
-  if(length(col) > 0) p = p + scale_fill_manual(values=col)
-  if(!is.null(legend.title)) {
-    p = p + labs(color=legend.title, fill=legend.title)
-  } else {
-    p = p + theme(legend.title = element_blank()) 
-  }
-  if(!is.null(legend.position)) p = p + theme(legend.position=legend.position)
-  return(p)
-}
 ```
 
 # Current project
 * 10X published dataset  
 * Single Cell Gene Expression Dataset by Cell Ranger 3.0.0  
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
+
+1. Annotation:
+- NULL: ensembl create full table (query all genes)
+- use first column to do file annot
+- 
 
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
@@ -62,13 +75,18 @@ param = list()
 param$project = "pbmc"
 
 # Project-specific paths
-param$path.out = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/Seurat/"
+param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
 if(!file.exists(param$path.out)) dir.create(param$path.out)
 
-# Input data path in case Cell Ranger was run 
-param$path.data = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/filtered_feature_bc_matrix/"
-param$file.mapping.stats = "~/scrnaseq_refDatasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
+# Input data path(s)
+param$path.data = data.frame(name = "test", type = "smartseq2", path = c("../../../Desktop/work/Neuer Ordner/genecount/bfx1341.mm10.e98.txt"))
+param$file.mapping.stats = NULL
+
+# Annotation
 param$file.annot = NULL
+if(is.null(param$file.annot)){
+  param$file.annot = file.path(param$path.out, paste0(param$mart.dataset, '.annot.csv'))
+}
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
@@ -77,7 +95,7 @@ param$mt = "^MT-"
 param$mart.dataset = "hsapiens_gene_ensembl"
 
 # Biomart attributes for the annotation if no csv is given
-param$mart.attributes = c("ensembl_gene_id_version", "hgnc_symbol", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
+param$mart.attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc.n = 7
@@ -121,75 +139,80 @@ if(!is.null(param$file.mapping.stats)){
 }
 ```
 
+## Read gene annotation
+We read gene annotation from Ensembl, and translate Ensembl IDs to Entrez gene symbols. The resulting table is written to file. 
+```{r read.annotation, message=FALSE}
+# Read annotation from csv or from Ensembl and a tab separated csv will be created
+if(!is.null(param$file.annot) && file.exists(param$file.annot)){
+  annot.ensembl = read.delim(param$file.annot)
+  
+  # we need these columns
+  if(any(!c("ensembl_gene_id", "external_gene_name","entrezgene_accession") %in% colnames(annot.ensembl))){
+    stop("The annotation table misses at least one of the following columns: 'ensembl_gene_id', 'external_gene_name','entrezgene_accession'.")
+  }
+  
+} else{
+  mart.attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession",param$mart.attributes))
+  annot.mart = useEnsembl("ensembl", dataset = param$mart.dataset,mirror="asia")
+  annot.ensembl = getBM(mart = annot.mart, attributes = mart.attributes)
+  write.table(annot.ensembl, file = param$file.annot, sep = '\t', col.names = TRUE, row.names = FALSE, append = FALSE)
+  message(paste0("Gene annotation file was created at: ", param$file.annot))
+}
+
+ensembl.to.symbol = setNames(annot.ensembl$external_gene_name,annot.ensembl$ensembl_gene_id)
+```
+
 ## Setup the Seurat object
 We next read the scRNA-seq counts table to initialise a Seurat object. 
-```{r read.standard}
-# Load the dataset
-sc.data = Read10X(param$path.data)
+```{r read.datasets}
+# will be a list with seurat objects
+sc = list()
 
-# Initialize the Seurat object with the raw (non-normalized data).
-sc = CreateSeuratObject(counts=sc.data, project=param$project, min.cells=3)
+datasets = param$path.data
+for(i in seq(nrow(datasets))){
+  name = datasets[i,"name"]
+  type = datasets[i,"type"]
+  path = datasets[i,"path"]
+  
+  # process 10x or smartseq2
+  if(type == "10x"){
+    # read into seurat object
+    sc[[name]] = read_10x_dataset(path,project=name)
+    
+  
+  } else if(type == "smartseq2"){
+    # 
+    
+    # drop columns 2:6 and read into seurat object
+    sc[[name]] = read_smartseq2_dataset(path,project=name,columns_to_drop = 2:6)
+    
+    # parse plate information: sample name, plate number, plate row and plate column
+    plate_information = parse_plate_information(Cells(sc[[name]]),pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$',sample_name_group = 1, plate_number_group = 2, row_name_group = 3, col_name_group = 4)
+    if(nrow(plate_information)>0){
+      # add info to metadata
+      sc[[name]] = AddMetaData(sc[[name]],plate_information)
+      
+      # also set identity
+      sc[[name]] = SetIdent(sc[[name]],value="SampleName")
+    }
+  } 
+}
+
 sc
 ```
 
-## Read gene annotation
-We finally read additional gene annotation from Ensembl, and translate Ensembl IDs to Entrez gene symbols. The resulting table is written to file. 
-```{r read.annotation, message=FALSE}
-# Read feature IDs: Ensembl ID, 10X gene symbol 
-gene.ids = read.delim(paste0(param$path.data, "features.tsv.gz"), header=FALSE)
-gene.ids = gene.ids[gene.ids[,3]=="Gene Expression", 1:2]
-colnames(gene.ids) = c("Ensembl", "GeneSymbol")
-
-# Seurat does this as well, so we need to replicate it
-gene.ids[,"GeneSymbol"] = make.unique(gene.ids[,"GeneSymbol"]) 
-
-# When you call "CreateSeuratObject", underscores "_" in gene names are replaced with minus "-"
-gene.ids = cbind(gene.ids, GeneSymbolEdited=gsub(gene.ids[,"GeneSymbol"], pattern="_", replacement="-", fixed=TRUE))
-
-# Retrieve Entrez Gene Symbols; this is needed for EnrichR functional enrichment analysis
-# mart = useMart("ensembl", dataset=param$mart.dataset) # At point of merge, this did not work, biomart was unresponsive
-mart = useEnsembl("ensembl", dataset=param$mart.dataset, mirror="asia") 
-mapping = getBM(
-  filters="ensembl_gene_id",
-  attributes=c("ensembl_gene_id", "entrezgene_accession"),
-  values=gene.ids[,"Ensembl"],
-  mart=mart)
-
-# Note that we get the first Entrez Symbol that matches the Ensembl ID
-mapping.match = match(gene.ids[,"Ensembl"], mapping[,"ensembl_gene_id"])
-gene.ids = cbind(gene.ids, EntrezSymbol=mapping[mapping.match,"entrezgene_accession"])
-
-# If useMart hangs again, we can outcomment the upper part, and use this hack instead
-# This works for human
-# gene.ids = cbind(gene.ids, EntrezSymbol=gene.ids[,"GeneSymbol"])
-
-# Write table
-write.table(gene.ids, file=paste0(param$path.out, "/GeneIds.txt"), sep="\t", row.names=TRUE, col.names=TRUE, quote=FALSE)
-
-# Create translation table
-symbol.to.ensembl = setNames(gene.ids[,"Ensembl"], gene.ids[,"GeneSymbolEdited"])
-symbol.to.entrez = setNames(gene.ids[,"EntrezSymbol"], gene.ids[,"GeneSymbolEdited"])
-
-# Read Ensembl annotation from csv or from ensembl and a tab seperated csv will be created
-if(!is.null(param$file.annot) && file.exists(param$file.annot)){
-annot.ensembl = read.delim(param$file.annot)
-} else{
-  if(is.null(param$file.annot)){
-    param$file.annot = paste0(param$path.out, param$mart.dataset, '.annot.csv')
-  }
-  annot.mart = useEnsembl("ensembl", dataset = param$mart.dataset, mirror="asia")
-  annot.ensembl = getBM(mart = annot.mart, attributes = param$mart.attributes)
-  write.table(annot.ensembl, file = param$file.annot, sep = '\t', col.names = TRUE, row.names = FALSE, append = FALSE)
-  print(paste0("Gene annotation file was created at: ", param$file.annot))
-}
+```{r integrate}
+# not yet implemented; only use the first element
+sc = sc[[1]]
 ```
+
 
 # Pre-processing
 ## Quality control 
 We start the analysis by removing unwanted cells from the dataset. Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature"), the total number of molecules detected in each cell ("nCount"), and the percentage of reads that map to the mitochrondrial genome ("percent.mt").
 ```{r qc, results="asis"}
 # Calculate percentage of reads that map to mitochondrial genome 
-sc <- PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
+sc = PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
 
 # Metadata 
 kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
