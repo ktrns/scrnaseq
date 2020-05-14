@@ -1,7 +1,7 @@
 ---
 title: "Single-cell RNA-seq data analysis"
 author: "Dresden-concept Genome Center, TU Dresden"
-date: "April 2020"
+date: "May 2020"
 geometry: margin=2cm
 output:
    html_document:
@@ -11,37 +11,27 @@ output:
     code_folding: hide
 ---
 
-```{r setup, message=FALSE, warning=FALSE}
+```{r setup, warning=FALSE, message=FALSE}
 # R Options
 options(stringsAsFactors=FALSE)
 
 # Required libraries
-# Main
-library(knitr)
-library(Seurat)
-
-# Data handling 
-library(dplyr)
-library(tidyr)
-library(purrr)
-
-# Tables
-library(DT)
-library(kableExtra) # knitr tables
-
-# Plotting
+library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
-library(ggsci) # colors
+library(magrittr) # %>% operator
+library(reticulate) # required for 'leiden' clustering
+library(enrichR) # functional enrichment
 
-# Input/output
-library(openxlsx) # Excel files
-
-# Analysis
-library(biomaRt) # annotation
-library(reticulate) # python interface
-#library(MAST) # marker genes: conflicts with Seurat
-library(enrichR) # functional enrichment 
+# Other libraries we use
+# Knit: knitr
+# Data handling: dplyr, tidyr, purrr
+# Tables: kableExtra
+# Plots: ggsci, ggpubr
+# IO: openxlsx
+# Annotation: biomaRt
+# DEG: mast
+# Functional enrichment: enrichR
 
 # Source plotting functions
 source("R/functions_io.R")
@@ -53,54 +43,45 @@ source("R/functions_util.R")
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
 
 # Potentially needed for clustering, umap, other python packages
-reticulate::use_python('/usr/bin/python')
+use_python('/usr/bin/python')
 ```
 
-# Current project
-* 10X published dataset  
+# Dataset description
+* 10X published dataset, downloaded from [here](https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3) 
 * Single Cell Gene Expression Dataset by Cell Ranger 3.0.0  
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
 
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
-```{r project.parameters, message=FALSE}
+```{r project_parameters, class.source='fold-show'}
 param = list()
 
 # Project ID
 param$project = "pbmc"
 
-# Project-specific paths
-param$path.out = "test_datasets/10x-smartseq2_pbmc_GSE132044/results"
-if(!file.exists(param$path.out)) dir.create(param$path.out)
+# Input data path in case Cell Ranger was run 
+param$path_data = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/counts/"
+param$file_mapping_stats = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
 
-# Input data path(s)
-param$path.data = data.frame(
-  name = c("test1","test2"),
-           type = c("10x","smartseq2"),
-           path = c("test_datasets/10x-smartseq2_pbmc_GSE132044/counts/10x","test_datasets/10x-smartseq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"))
-param$file.mapping.stats = NULL
-
-# Annotation
-# Biomart dataset to use for gene name translations
+# Annotation via biomart
 param$mart.dataset = "hsapiens_gene_ensembl"
-
-# File to save annotation
-param$file.annot = NULL
-if(is.null(param$file.annot)){
-  param$file.annot = file.path(param$path.out, paste0(param$mart.dataset, '.annot.csv'))
-}
+param$file_annot = NULL
+if(is.null(param$file_annot)){
+  param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, '.annot.csv'))
+param$mart_attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
+ 
+# Project-specific paths
+param$path_out = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/results"
+if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE)
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
 
-# Biomart attributes for the annotation if no csv is given
-param$mart.attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
-
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
-param$pc.n = 7
+param$pc_n = 7
 
 # Resolution of clusters; low values will lead to fewer clusters of cells 
-param$cluster.resolution=0.5
+param$cluster_resolution=0.5
 
 # Thresholds to define differentially expressed genes 
 param$padj = 0.05
@@ -108,17 +89,17 @@ param$log2fc = log2(1.5)
 
 # Marker genes based on literature 
 # https://icb-scanpy-tutorials.readthedocs-hosted.com/en/latest/visualizing-marker-genes.html
-param$known.markers = list()
-param$known.markers[["bcell"]] = c("CD79A", "MS4A1")
-param$known.markers[["tcell"]] = "CD3D"
-param$known.markers[["tcell.cd8+"]] = c("CD8A", "CD8B")
-param$known.markers[["nk"]] = c("GNLY", "NKG7")
-param$known.markers[["myeloid"]] = c("CST3", "LYZ")
-param$known.markers[["monocytes"]] = "FCGR3A"
-param$known.markers[["dendritic"]] = "FCER1A"
+param$known_markers = list()
+param$known_markers[["bcell"]] = c("CD79A", "MS4A1")
+param$known_markers[["tcell"]] = "CD3D"
+param$known_markers[["tcell.cd8+"]] = c("CD8A", "CD8B")
+param$known_markers[["nk"]] = c("GNLY", "NKG7")
+param$known_markers[["myeloid"]] = c("CST3", "LYZ")
+param$known_markers[["monocytes"]] = "FCGR3A"
+param$known_markers[["dendritic"]] = "FCER1A"
 
 # Enrichr databases of interest
-param$enrichr.dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
+param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
 
 # Main color to use for plots
 param$col = "palevioletred"
@@ -128,8 +109,8 @@ param$col = "palevioletred"
 ## Read and print mapping statistics
 We begin by printing mapping statistics that have been produced prior to this workflow. 
 ```{r mapping.stats, results="asis"}
-if(!is.null(param$file.mapping.stats)){
-  mapping.stats = as.data.frame(t(read.delim(param$file.mapping.stats, sep=",", header=TRUE, check.names=FALSE)))
+if (!is.null(param$file_mapping_stats)){
+  mapping.stats = as.data.frame(t(read.delim(param$file_mapping_stats, sep=",", header=TRUE, check.names=FALSE)))
   colnames(mapping.stats) = "Value"
   knitr::kable(mapping.stats, align="l", caption="Mapping statistics") %>% 
     kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
@@ -142,33 +123,33 @@ if(!is.null(param$file.mapping.stats)){
 We read gene annotation from Ensembl, and translate Ensembl IDs to Entrez gene symbols. The resulting table is written to file. 
 ```{r read.annotation, message=FALSE}
 # Read annotation from csv or from Ensembl and a tab separated csv will be created
-if(file.exists(param$file.annot)){
-  annot.ensembl = read.delim(param$file.annot)
+if(file.exists(param$file_annot)){
+  annot_ensembl = read.delim(param$file_annot)
   
   # we need these columns
-  if(any(!c("ensembl_gene_id", "external_gene_name","entrezgene_accession") %in% colnames(annot.ensembl))){
+  if(any(!c("ensembl_gene_id", "external_gene_name","entrezgene_accession") %in% colnames(annot_ensembl))){
     stop("The annotation table misses at least one of the following columns: 'ensembl_gene_id', 'external_gene_name','entrezgene_accession'.")
   }
   
 } else{
-  mart.attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart.attributes))
-  annot.mart = biomaRt::useEnsembl("ensembl", dataset=param$mart.dataset)
-  annot.ensembl = biomaRt::getBM(mart=annot.mart, attributes=mart.attributes)
-  write.table(annot.ensembl, file=param$file.annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
-  message(paste0("Gene annotation file was created at: ", param$file.annot))
+  mart_attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart_attributes))
+  annot_mart = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset)
+  annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=mart_attributes)
+  write.table(annot_ensembl, file=param$file_annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
+  message(paste0("Gene annotation file was created at: ", param$file_annot))
   # note: depending on the attributes, there might be more than one row per gene
 }
 
 # ensembl id to gene symbol
-ensembl_to_symbol = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+ensembl_to_symbol = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
 ensembl_to_symbol = setNames(ensembl_to_symbol$external_gene_name,ensembl_to_symbol$ensembl_gene_id)
 
 # gene symbol to ensembl id: named list to account with multiple genes having the same symbol
-symbol_to_ensembl = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+symbol_to_ensembl = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
 symbol_to_ensembl = split(symbol_to_ensembl$ensembl_gene_id,symbol_to_ensembl$external_gene_name)
 
 # ensembl id to seurat-compatible unique rowname
-ensembl_to_seurat_rowname = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+ensembl_to_seurat_rowname = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
 ensembl_to_seurat_rowname$external_gene_name = make.unique(gsub(pattern="_", replacement="-", x=ensembl_to_seurat_rowname$external_gene_name, fixed=T))
 ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname$external_gene_name,ensembl_to_seurat_rowname$ensembl_gene_id)
 
@@ -246,37 +227,35 @@ We start the analysis by removing unwanted cells from the dataset. Three commonl
 sc = PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
 
 # Metadata 
-kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-```{r qc.plot, message=FALSE, warnings=FALSE, fig.width=10}
+```{r qc_plot}
 # Filter cutoffs
-features.cut = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
+features_cut = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
 
 # Plot QC metrics
 features = c("nFeature_RNA", "nCount_RNA", "percent.mt")
 p = VlnPlot(sc, features=features, pt.size=0, col=param$col, combine=FALSE) 
 names(p) = features
-for(i in features) {
-  p[[i]] = plot.mystyle(p[[i]], title=i, legend.position="none") + xlab("")
-  if(!is.na(features.cut[i])) p[[i]] = p[[i]] + geom_hline(yintercept=features.cut[i], lty=2, col="darkgrey") 
+for (i in features) {
+  p[[i]] = PlotMystyle(p[[i]], title=i, legend_position="none") + xlab("")
+  if (!is.na(features_cut[i])) p[[i]] = p[[i]] + geom_hline(yintercept=features_cut[i], lty=2, col="darkgrey") 
 }
-p = CombinePlots(p, ncol=3)
-p = plot.mystyle(p, title="Distribution of feature values")
+p = patchwork::wrap_plots(p, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
 p 
 
 # Correlate QC metrics
 p = list()
-p[[1]] = FeatureScatter(sc, feature1=features[2], feature2=features[1], cols=param$col)
-p[[2]] = FeatureScatter(sc, feature1=features[2], feature2=features[3], cols=param$col)
-for(i in 1:length(p)) p[[i]] = plot.mystyle(p[[i]], legend.position="none")
-p = CombinePlots(p)
-p = plot.mystyle(p, title="Features plotted against each other")
+p[[1]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[1], cols=param$col)
+p[[2]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[3], cols=param$col)
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_position="none")
+p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other") 
 p
 
 # Actual filtering
-sc = subset(sc, subset=nFeature_RNA>features.cut["nFeature_RNA"] & percent.mt<features.cut["percent.mt"])
+sc = subset(sc, subset=nFeature_RNA>features_cut["nFeature_RNA"] & percent.mt<features_cut["percent.mt"])
 sc
 ```
 
@@ -284,37 +263,41 @@ sc
 Feature selection: For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
 
 Scaling: To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis. 
-```{r norm, message=FALSE, warning=FALSE, results="hide"}
+```{r norm, results="hide"}
 # Normalise data the original way
-sc = NormalizeData(sc, normalization.method = "LogNormalize", scale.factor = 10000)
+sc = Seurat::NormalizeData(sc, normalization.method = "LogNormalize", scale.factor = 10000)
 
 # Select features from normalised data
-sc = FindVariableFeatures(sc, selection.method = "vst", nfeatures = 2000)
+sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 2000)
 
 # Scale normalised data
-all.genes = rownames(sc)
-sc = ScaleData(sc, features=all.genes)
+sc = Seurat::ScaleData(sc, features=rownames(sc))
 ```
 
-```{r sctransform, message=FALSE, warning=FALSE, results="hide"}
+```{r sctransform, results="hide"}
 # Run sctransform
 # This is a new normalisation method that replaces previous Seurat functions 'NormalizeData', 'FindVariableFeatures', and 'ScaleData'. 
 # vignette: https://satijalab.org/seurat/v3.0/sctransform_vignette.html
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
 # normalised data end up here: sc@assays$SCT@data
 sc = SCTransform(sc)
+
+# Note: If I write Seurat::SCTransform, I get the following error message in the next chunk for
+#   Seurat::VariableFeaturePlot(sc, cols=c("grey", param$col)) 
+#   'vst' is Unable to find highly variable feature information for method 'vst'
 ```
 
-```{r plot.variable, message=FALSE, warning=FALSE, fig.width=10}
+```{r plot_variable_features, fig.width=10}
 # Show variable genes
-top10 = head(VariableFeatures(sc), 10)
+top10 = head(Seurat::VariableFeatures(sc), 10)
 
 # Plot variable features with and without labels
-p1 = VariableFeaturePlot(sc, cols=c("grey", param$col)) 
-p1 = plot.mystyle(p1)
-p2 = LabelPoints(plot=p1, points=top10, repel=TRUE, cols=c("grey", param$col))
-p = CombinePlots(plots=list(p1, p2), legend="bottom")
-p = plot.mystyle(p, title="Variable genes without (left) and with (right) labels")
+p1 = Seurat::VariableFeaturePlot(sc, cols=c("grey", param$col)) 
+p1 = PlotMystyle(p1)
+p2 = LabelPoints(plot=p1, points=top10, repel=TRUE) 
+p = p1 + p2 & theme(legend.position="bottom")
+p = p + patchwork::plot_annotation("Variable genes without (left) and with (right) labels") + 
+  patchwork::plot_layout(guides = "collect") 
 p
 ```
 
@@ -324,23 +307,22 @@ A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. The
 We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
 
 To decide how many PCs to include in downstream analyses, we visualize cells and genes that define the PCA. 
-```{r pca, message=FALSE}
-sc = RunPCA(sc, features=VariableFeatures(object=sc))
+```{r pca}
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc))
 
-p = VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
-for(i in 1:length(p)) p[[i]] = plot.mystyle(p[[i]])
-p = CombinePlots(p)
-p = plot.mystyle(p, title="Top gene loadings of the first two PCs")
+p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
+p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
 p = DimPlot(sc, reduction="pca", cols=param$col)
-p = plot.mystyle(p, title="Cells arranged by the first two PCs", legend.title="HTO")
+p = PlotMystyle(p, title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 
 DimHeatmap(sc, dims=1, cells=500, balanced=TRUE)
 ```
 
-```{r pca.heatmaps, fig.height=20, fig.width=10}
+```{r pca_heatmaps, fig.height=20}
 DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
 ```
 
@@ -351,36 +333,36 @@ The first plot is based on the "JackStraw" procedure: parts of the data is repea
 
 The second plot is an "Elbow plot": PCs are ranked based on the percentage of variance they explain. 
 
-For your dataset, we decided to go for `r param$pc.n` PCs. 
-```{r dimensionality, message=FALSE, warning=FALSE, results="hide"}
+For your dataset, we decided to go for `r param$pc_n` PCs. 
+```{r dimensionality, results="hide"}
 # NOTE: This process can take a long time for big datasets, comment out for expediency. More
 # approximate techniques such as those implemented in ElbowPlot() can be used to reduce
 # computation time
-sc = JackStraw(sc, num.replicate=100, dims=20)
-sc = ScoreJackStraw(sc, dims=1:20)
-p = JackStrawPlot(sc, dims=1:20)
-p = plot.mystyle(p, title="Jack Straw plot", legend.position="bottom")
+sc = Seurat::JackStraw(sc, num.replicate=100, dims=20)
+sc = Seurat::ScoreJackStraw(sc, dims=1:20)
+p = Seurat::JackStrawPlot(sc, dims=1:20)
+p = PlotMystyle(p, title="Jack Straw plot", legend_position="bottom")
 p
 
-p = ElbowPlot(sc, ndims=20)
-p = plot.mystyle(p, title="Elbow plot")
+p = Seurat::ElbowPlot(sc, ndims=20)
+p = PlotMystyle(p, title="Elbow plot")
 p
 ```
 
 # Downstream analysis
 ## Clustering
 Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm. 
-```{r clustering, message=FALSE}
+```{r clustering}
 # Note: I changed the seed in ./lib/python3.6/site-packages/leidenalg/functions.py to 11 for reproducibility
 # The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
 
 # Choose the number of PCs to use for clustering
-sc = FindNeighbors(sc, dims=1:param$pc.n)
+sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n)
 
 # Cluster using the Leiden algorithm
 # Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-sc = FindClusters(sc, resolution=param$cluster.resolution, algorithm=4)
+sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4)
 ```
 
 ## Visualisation with UMAP
@@ -395,44 +377,48 @@ Take care not to mis-read a UMAP:
   
 For a nice read to intuitively understand UMAP, see https://pair-code.github.io/understanding-umap/. 
 ```{r umap, message=FALSE, results="hide"}
-sc = RunUMAP(sc, dims=1:param$pc.n)
+sc = Seurat::RunUMAP(sc, dims=1:param$pc_n)
 
 # Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
-cluster.cells = table(sc@active.ident)
-cluster.labels = paste0(levels(sc@active.ident)," (", cluster.cells[levels(sc@active.ident)],")")
-p = DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_discrete("Cluster", labels=cluster.labels)
-p = plot.mystyle(p, "UMAP, cells coloured by cluster identity", legend.position="bottom")
+cluster_cells = table(sc@active.ident)
+cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
+p = Seurat::DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_discrete("Cluster", labels=cluster_labels)
+p = PlotMystyle(p, "UMAP, cells coloured by cluster identity", legend_position="bottom")
 p
 ```
 
 ## Feature plots QC
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
-```{r featurePlot.QC, fig.height=10, fig.width=10}
-p = FeaturePlot(sc, features=features, cols=c("lightgrey", param$col), combine=FALSE)
+```{r featurePlot_QC, fig.height=10}
+p = Seurat::FeaturePlot(sc, features=features, cols=c("lightgrey", param$col), combine=FALSE)
 names(p) = features
-for(i in features) p[[i]] = plot.mystyle(p[[i]], title=i)
-CombinePlots(p, ncol=2)
+for (i in features) p[[i]] = PlotMystyle(p[[i]], title=i)
+patchwork::wrap_plots(p, ncol=2)
 ```
 
 ## Feature plots for known marker genes
 Do cells in individual clusters express provided known marker genes?
-```{r featurePlot.markerGenes, eval=FALSE}
-g = unique(unlist(param$known.markers))
+```{r featurePlot_markerGenes, eval=FALSE}
+g = unique(unlist(param$known_markers))
 g = g[length(g):1]
-d = DotPlot(sc, features=g, cols=c("lightgrey", param$col))
-d + theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
+p = Seurat::DotPlot(sc, features=g, cols=c("lightgrey", param$col)) + 
+  theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
+p
 
-for(i in 1:length(param$known.markers)) {
-  f = FeaturePlot(sc, features=param$known.markers[[i]], cols=c("lightgrey", param$col))
-  f = ggpubr::annotate_figure(p=f, top = ggpubr::text_grob(label=names(param$known.markers)[i], face='bold'))
-  print(f)
+for (i in 1:length(param$known_markers)) {
+  p = FeaturePlot(sc, features=param$known_markers[[i]], cols=c("lightgrey", param$col))
+  p = ggpubr::annotate_figure(p=p, top=ggpubr::text_grob(label=names(param$known_markers)[i]))
+  print(p)
 }
 ```
 
 ## Differentially expressed genes
 We next identify genes that are differentially expressed in one cluster compared to all other clusters. Additional gene annotation is added, and the resulting tables are written to file. 
-```{r DEG, message=FALSE, warning=FALSE, results="asis"}
-# Find markers for every cluster compared to all remaining cells, report only the positive ones
+```{r DEG, results="asis"}
+# We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
+library(MAST)
+
+# Find markers for every cluster compared to all remaining cells, report positive and negative ones
 # min.pct = requires feature to be detected at this minimum percentage in either of the two groups of cells 
 # logfc.threshold = requires a feature to be differentially expressed on average by some amount between the two groups
 # only.pos = find only positive markers 
@@ -440,211 +426,245 @@ We next identify genes that are differentially expressed in one cluster compared
 # Review recommends using "MAST"; Mathias uses "LR"
 # ALWAYS USE: assay="RNA" or assay="SCT"
 # DONT USE: assay=integrated datasets; this data is normalised and contains only 2k genes
-sc.markers = FindAllMarkers(sc, assay="RNA", only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25, test.use="MAST")
-sc.markers.top2 = sc.markers %>% group_by(cluster) %>% top_n(n=2, wt=avg_logFC) %>% as.data.frame
-kable(sc.markers.top2, align="l", caption="Top 2 DEGs per cell cluster") %>% 
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25, test.use="MAST")
+sc_markers_top2 = sc_markers %>% 
+  dplyr::group_by(cluster) %>% 
+  dplyr::top_n(n=2, wt=avg_logFC) %>% 
+  as.data.frame
+
+# Show top 2 merkers per cluster
+knitr::kable(sc_markers_top2, align="l", caption="Top 2 DEGs per cell cluster") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 
 # Add Ensembl annotation
-sc.markers.ensembl = symbol.to.ensembl[sc.markers[,"gene"]]
-sc.markers.annot = cbind(sc.markers, annot.ensembl[sc.markers.ensembl,])
+sc_markers_ensembl = symbol_to_ensembl[sc_markers[,"gene"]]
+sc_markers_annot = cbind(sc_markers, annot_ensembl[sc_markers_ensembl,])
 
 # Output in Excel sheet
-sc.markers.lst = lapply(levels(sc.markers.annot$cluster), function(x){sc.markers.annot %>% dplyr::filter(cluster==x)})
-names(sc.markers.lst) = paste0("cluster", levels(sc.markers$cluster))
-write.xlsx(sc.markers.lst, file=paste0(param$path.out, "Markers.xlsx"))
+sc_markers_lst = lapply(levels(sc_markers_annot$cluster), function(x) {sc_markers_annot %>% dplyr::filter(cluster==x)})
+names(sc_markers_lst) = paste0("cluster", levels(sc_markers$cluster))
+openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "markers_xlsx"))
 
 # Filter markers based on p-value and fold-change 
-sc.markers.filt = sc.markers %>% dplyr::filter(p_val_adj <= param$padj) %>% dplyr::filter((avg_logFC <= -param$log2fc) | (avg_logFC >= param$log2fc)) %>% as.data.frame
-sc.markers.filt.down = sc.markers.filt %>% dplyr::filter(avg_logFC <= -param$log2fc) %>% as.data.frame
-sc.markers.filt.up = sc.markers.filt %>% dplyr::filter(avg_logFC >= param$log2fc) %>% as.data.frame
+sc_markers_filt = sc_markers %>% 
+  dplyr::filter(p_val_adj <= param$padj) %>% 
+  dplyr::filter((avg_logFC <= -param$log2fc) | (avg_logFC >= param$log2fc)) %>% 
+  as.data.frame
+sc_markers_filt_down = sc_markers_filt %>% 
+  dplyr::filter(avg_logFC <= -param$log2fc) %>% 
+  as.data.frame
+sc_markers_filt_up = sc_markers_filt %>% 
+  dplyr::filter(avg_logFC >= param$log2fc) %>% 
+  as.data.frame
 
 # Number of DEGs per cluster
-cluster.all = sort(unique(sc.markers[,"cluster"]))
-sc.markers.filt.n = cbind(Cluster=cluster.all, 
-                          sc.markers.filt.down %>% dplyr::count(cluster) %>% transmute(Down=n),
-                          sc.markers.filt.up %>% dplyr::count(cluster) %>% transmute(Up=n)) %>% 
-  pivot_longer(cols=c("Down", "Up"), names_to="Direction", values_to="n")
+cluster_all = sort(unique(sc_markers[,"cluster"]))
+sc_markers_filt_n = cbind(Cluster=cluster_all, 
+                          sc_markers_filt_down %>% dplyr::count(cluster) %>% dplyr::transmute(Down=n),
+                          sc_markers_filt_up %>% dplyr::count(cluster) %>% dplyr::transmute(Up=n)) %>% 
+  tidyr::pivot_longer(cols=c("Down", "Up"), names_to="Direction", values_to="n")
 
-p = ggplot(sc.markers.filt.n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
-p = plot.mystyle(p, title=paste0("Number of DEGs per cell cluster\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"), col=c("steelblue", "darkgoldenrod1"))
+p = ggplot(sc_markers_filt_n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
+p = PlotMystyle(p, 
+                title=paste0("Number of DEGs per cell cluster\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"), 
+                col=c("steelblue", "darkgoldenrod1"))
 p
+
+# Unload the MAST R package
+detach("package:MAST", unload=TRUE)
 ```
 
 ## Visualisation of differentially expressed genes
-The following plots are exemplary to how we can visualize differentially expressed genes using the "Seurat" R-package. The selected genes are the top differentially expressed genes for cluster 1 to 3, respectively. 
-```{r DEG.plot.umap, fig.width=10, fig.height=10}
+The following plots are exemplary to how we can visualize differentially expressed genes using the "Seurat" R-package. The selected genes are the top differentially expressed genes for all clusters, respectively. 
+```{r DEG_plot_umap, fig.height=10}
 # Get top gene per cluster and plot
-genes.example = sc.markers %>% group_by(cluster) %>% top_n(n=1, wt=avg_logFC) %>% pull(gene)
-genes.example = genes.example[1:3]
+genes_example = sc_markers %>% 
+  dplyr::group_by(cluster) %>% 
+  dplyr::top_n(n=1, wt=avg_logFC) %>% 
+  dplyr::pull(gene)
 
 # Shows gene expression on the UMAP
-p = FeaturePlot(sc, features=genes.example, cols=c("lightgrey", param$col), combine=FALSE)
-names(p) = genes.example
-for(i in names(p)) p[[i]] = plot.mystyle(p[[i]], title=i)
-p = CombinePlots(p)
-p = p + ggtitle("UMAP, cells coloured by normalised gene expression data") + theme(plot.title = element_text(hjust=0.5))
+p = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE)
+names(p) = genes_example
+for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i)
+p = patchwork::wrap_plots(p, ncol=2) + 
+  patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data")
 p
 ```
 
-```{r DEG.plot.ridge, message=FALSE, fig.width=10, fig.height=10}
-# Ridge plot of normalised gene expression data
-p = RidgePlot(sc, features=genes.example, combine=FALSE)
-names(p) = genes.example
-for(i in names(p)) p[[i]] = plot.mystyle(p[[i]], title=i, legend.title="Cell classification")
-p = CombinePlots(p, legend="bottom", ncol=2)
-p = plot.mystyle(p, "Ridge plot of normalised gene expression data") 
-p
-
+```{r DEG_plot_ridge, fig.height=10}
 # Ridge plot of raw gene expression counts
-p = RidgePlot(sc, features=genes.example[1:3], slot="counts", combine=FALSE)
-names(p) = genes.example
-for(i in names(p)) p[[i]] = plot.mystyle(p[[i]], title=i, legend.title="Cell classification")
-p = CombinePlots(p, legend="bottom", ncol=2)
-p = plot.mystyle(p, title="Ridge plot of raw gene expression counts")
+p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE)
+names(p) = genes_example
+for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity")
+p = patchwork::wrap_plots(p, ncol=2) + 
+  patchwork::plot_annotation(title="Ridge plot of raw gene expression counts") + 
+  patchwork::plot_layout(guides = "collect") &
+  theme(legend.position="bottom")
+p
+
+# Ridge plot of normalised gene expression data
+p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE)
+names(p) = genes_example
+for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity")
+p = patchwork::wrap_plots(p, ncol=2) + 
+  patchwork::plot_annotation(title="Ridge plot of normalised gene expression data") + 
+  patchwork::plot_layout(guides = "collect") &
+  theme(legend.position="bottom")
 p
 ```
 
-```{r DEG.plot.dot}
+```{r DEG_plot_dot}
 # Visualises how feature expression changes across different clusters
-p = DotPlot(sc, features=genes.example[3:1], cols=c("lightgrey", param$col))
-p = plot.mystyle(p, title="Dot plot of normalised gene expression data")
+p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col))
+p = PlotMystyle(p, title="Dot plot of normalised gene expression data")
 p
 ```
 
-```{r DEG.heatmap, fig.height=20, fig.width=10}
+```{r DEG_heatmap, fig.height=20}
 # Heatmap of top differentially expressed genes
-top = sc.markers %>% group_by(cluster) %>% top_n(n=10, wt=avg_logFC)
-DoHeatmap(sc, features=top$gene) + NoLegend()
+top = sc_markers %>% 
+  dplyr::group_by(cluster) %>% 
+  dplyr::top_n(n=10, wt=avg_logFC)
+p = Seurat::DoHeatmap(sc, features=top$gene) + NoLegend()
+p
 ```
 
 ## Functional enrichment analysis
 To gain first insights into potential functions of cells in a cluster, we test for over-representation of functional terms amongst up- and down-regulated genes of each cluster. Over-represented terms are written to file.  
 
 We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website https://amp.pharm.mssm.edu/Enrichr/. You can choose to test functional enrichment from a wide range of databases:
-```{r enrichr.databases, results="asis"}
-dbs.all = listEnrichrDbs()
-kable(dbs.all, align="l", caption="Enrichr databases") %>% 
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left") %>% 
-  scroll_box(width = "100%", height = "300px")
+```{r enrichr_databases, results="asis"}
+dbs_all = enrichR::listEnrichrDbs()
+knitr::kable(dbs_all, align="l", caption="Enrichr databases") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left") %>% 
+  kableExtra::scroll_box(width="100%", height="300px")
 ```
 
-```{r functionalEnrichment, message=FALSE, warning=FALSE, results="hide"}
+```{r functional_enrichment, results="hide"}
 # DEGs up and down per cluster
-cluster.all = sort(unique(sc.markers[,"cluster"]))
-genesets.up = lapply(cluster.all, function(x) {
-  tmp = sc.markers.filt.up %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
-  unique(na.exclude(symbol.to.entrez[tmp]))
+cluster_all = sort(unique(sc_markers[,"cluster"]))
+genesets_up = lapply(cluster_all, function(x) {
+  tmp = sc_markers_filt_up %>% 
+    dplyr::filter(cluster==x) %>% 
+    dplyr::pull(gene)
+  return(unique(na.exclude(symbol_to_entrez[tmp])))
 })
-genesets.down = lapply(cluster.all, function(x) {
-  tmp = sc.markers.filt.down %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
-  unique(na.exclude(symbol.to.entrez[tmp]))
+genesets_down = lapply(cluster_all, function(x) {
+  tmp = sc_markers_filt_down %>% 
+    dplyr::filter(cluster==x) %>% 
+    dplyr::pull(gene)
+  return(unique(na.exclude(symbol_to_entrez[tmp])))
 })
-names(genesets.up) = paste0("DEG_up_cluster_", cluster.all)
-names(genesets.down) = paste0("DEG_down_cluster_", cluster.all)
-genesets = c(genesets.up, genesets.down)
+names(genesets_up) = paste0("DEG_up_cluster_", cluster_all)
+names(genesets_down) = paste0("DEG_down_cluster_", cluster_all)
+genesets = c(genesets_up, genesets_down)
   
 # Loop through gene lists
 enriched = list()
-for(i in 1:length(genesets)) {
-  if(length(genesets[[i]]) >= 3) {
+for (i in 1:length(genesets)) {
+  if (length(genesets[[i]]) >= 3) {
     message("Geneset ", names(genesets)[i])
-    enriched[[i]] = enrichr(genesets[[i]], databases=param$enrichr.dbs)
+    enriched[[i]] = enrichR::enrichr(genesets[[i]], databases=param$enrichr_dbs)
   } else { 
     message("Geneset ", names(genesets)[i], " has less than 3 genes; skip enrichr")
-    enriched[[i]] = NULL
+    enriched[[i]] = NA
   }
 }
 names(enriched) = names(genesets)
 
 # Write enrichment results to file
-enriched.write = unlist(enriched, recursive=FALSE)
-for(i in 1:length(enriched)) { 
-  if(!is.null(enriched[[i]])) { 
-    write.xlsx(enriched[[i]], file=paste0(param$path.out, "/Functions_", names(enriched)[i], ".xlsx"))
+enriched_write = unlist(enriched, recursive=FALSE)
+for (i in 1:length(enriched)) { 
+  if (!is.null(enriched[[i]])) { 
+    openxlsx::write.xlsx(enriched[[i]], file=paste0(param$path_out, "/Functions_", names(enriched)[i], ".xlsx"))
   }
 }
 ```
 
 # Cell Cycle Effect
-How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in Tirosh et al. 2016, and human gene names are translated using biomaRt. 
-```{r cellCycleEffect, fig.width=10}
+How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers_ Scoring is based on the strategy described in Tirosh et al. 2016, and human gene names are translated using biomaRt. 
+```{r cellCycleEffect}
 # Use biomart to translate human cell cycle genes to the species of interest
-mart.human = useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror="asia") 
-mart.myspecies = useEnsembl("ensembl", dataset=param$mart.dataset, mirror="asia") 
+mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror="www") 
+mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror="www") 
 
-genes.s = getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$s.genes, mart=mart.human, attributesL=c("external_gene_name"), martL=mart.myspecies, uniqueRows=TRUE)
+genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$s.genes, mart=mart_human, attributesL=c("external_gene_name"), martL=mart_myspecies, uniqueRows=TRUE)
 
-genes.g2m = getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$g2m.genes, mart=mart.human, attributesL=c("external_gene_name"), martL=mart.myspecies, uniqueRows=TRUE)
+genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$g2m.genes, mart=mart_human, attributesL=c("external_gene_name"), martL=mart_myspecies, uniqueRows=TRUE)
 
 # Determine cell cycle effect
-sc = CellCycleScoring(object=sc, s.features=genes.s[,2], g2m.features=genes.g2m[,2], set.ident=FALSE)
+sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
 
 # Get a feeling for how many cells are affected
 p1 = ggplot(sc@meta.data, aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
   geom_point() + 
   scale_x_continuous("G1/S score") + 
   scale_y_continuous("G2/M score")
-p1 = plot.mystyle(p1)
-p2 = ggplot(sc@meta.data %>% group_by(seurat_clusters,Phase) %>% summarise(num_reads=length(Phase)), aes(x=seurat_clusters, y=num_reads, fill=Phase)) + 
+p1 = PlotMystyle(p1)
+p2 = ggplot(sc@meta.data %>% 
+              dplyr::group_by(seurat_clusters,Phase) %>% 
+              dplyr::summarise(num_reads=length(Phase)), 
+            aes(x=seurat_clusters, y=num_reads, fill=Phase)) + 
   geom_bar(stat="identity", position="fill") + 
   scale_x_discrete("Seurat clusters") + 
   scale_y_continuous("Fraction of cells")
-p2 = plot.mystyle(p2)
-p = CombinePlots(plots=list(p1, p2), legend="bottom")
-p = plot.mystyle(p, title="Cell cycle phases")
+p2 = PlotMystyle(p2)
+p = p1 + p2 & theme(legend.position="bottom")
+p = p + patchwork::plot_annotation(title="Cell cycle phases")
 p
 
 # UMAP with phases superimposed
-p3 = DimPlot(sc, group.by="Phase", pt.size=1)
-plot.mystyle(p3, title="UMAP, cells coloured by cell cycle phases", legend.title="Phase")
+p3 = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
+PlotMystyle(p3, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
 
-p3 = FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p3 = plot.mystyle(p3, title="UMAP, cells coloured by S phase")
-p4 = FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p4 = plot.mystyle(p4, title="UMAP, cells coloured by G2M phase")
-CombinePlots(plots=list(p3, p4))
+p3 = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p3 = PlotMystyle(p3, title="UMAP, cells coloured by S phase")
+p4 = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p4 = PlotMystyle(p4, title="UMAP, cells coloured by G2M phase")
+p = p3 + p4
+p 
 ```
 
 # Loupe Cell Browser integration
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
-```{r loupe.integration, message=FALSE}
+```{r loupe_integration}
 # Export UMAP coordinates
-loupe.umap = as.data.frame(sc@reductions$umap@cell.embeddings)
-loupe.umap$Barcode = gsub(pattern="_", replacement="-", x=rownames(loupe.umap), fixed=TRUE)
-if(length(grep(pattern="-$", x=loupe.umap$Barcode, perl=TRUE))==0) loupe.umap$Barcode=paste0(loupe.umap$Barcode, "-1")
-loupe.umap = loupe.umap[, c("Barcode", "UMAP_1", "UMAP_2")]
-colnames(loupe.umap) = c("Barcode", "UMAP-1", "UMAP-2")
-write.table(loupe.umap, file=paste0(param$path.out, "/Seurat2Loupe.Umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+loupe_umap = as.data.frame(sc@reductions$umap@cell.embeddings)
+loupe_umap$Barcode = gsub(pattern="_", replacement="-", x=rownames(loupe_umap), fixed=TRUE)
+if (length(grep(pattern="-$", x=loupe_umap$Barcode, perl=TRUE))==0) loupe_umap$Barcode=paste0(loupe_umap$Barcode, "-1")
+loupe_umap = loupe_umap[, c("Barcode", "UMAP_1", "UMAP_2")]
+colnames(loupe_umap) = c("Barcode", "UMAP-1", "UMAP-2")
+write.table(loupe_umap, file=paste0(param$path_out, "/Seurat2Loupe_Umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export categorical metadata
-meta.to.export = c("orig.ident", "seurat_clusters", "Phase")
-# if(run.hto) meta.to.export = c(meta.to.export, "HTO_maxID", "HTO_classification", "HTO_classification.global", "hash.ID")
-loupe.meta = as.data.frame(sc@meta.data[,meta.to.export])
-loupe.meta = cbind(Barcode=gsub(pattern="_", replacement="-", rownames(loupe.meta), fixed=TRUE), loupe.meta)
-if(length(grep(pattern="-$", x=loupe.meta$Barcode, perl=TRUE))==0) loupe.meta$Barcode=paste0(loupe.meta$Barcode, "-1")
-write.table(x=loupe.meta, file=paste0(param$path.out, "/Seurat2Loupe.metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+meta_to_export = c("orig.ident", "seurat_clusters", "Phase")
+# if (run.hto) meta.to.export = c(meta.to.export, "HTO_maxID", "HTO_classification", "HTO_classification.global", "hash.ID")
+loupe_meta = as.data.frame(sc@meta.data[,meta_to_export])
+loupe_meta = cbind(Barcode=gsub(pattern="_", replacement="-", rownames(loupe_meta), fixed=TRUE), loupe_meta)
+if (length(grep(pattern="-$", x=loupe_meta$Barcode, perl=TRUE))==0) loupe_meta$Barcode=paste0(loupe_meta$Barcode, "-1")
+write.table(x=loupe_meta, file=paste0(param$path_out, "/Seurat2Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export gene sets
-loupe.genesets = data.frame(List=paste0("DEG_up_cluster_", sc.markers.filt.up[,"cluster"]), 
-                            Name=sc.markers.filt.up[,"gene"], 
-                            Ensembl=symbol.to.ensembl[sc.markers.filt.up[,"gene"]])
-loupe.genesets = rbind(loupe.genesets, 
-                       data.frame(List=paste0("DEG_down_cluster_", sc.markers.filt.down[,"cluster"]), 
-                            Name=sc.markers.filt.down[,"gene"], 
-                            Ensembl=symbol.to.ensembl[sc.markers.filt.down[,"gene"]]))
+loupe_genesets = data.frame(List=paste0("DEG_up_cluster_", sc_markers_filt_up[,"cluster"]), 
+                            Name=sc_markers_filt_up[,"gene"], 
+                            Ensembl=symbol_to_ensembl[sc_markers_filt_up[,"gene"]])
+loupe_genesets = rbind(loupe_genesets, 
+                       data.frame(List=paste0("DEG_down_cluster_", sc_markers_filt_down[,"cluster"]), 
+                            Name=sc_markers_filt_down[,"gene"], 
+                            Ensembl=symbol_to_ensembl[sc_markers_filt_down[,"gene"]]))
 
-genesets.to.export = list(genes.cc.s.phase=genes.s[,2], genes.cc.g2m.phase=genes.g2m[,2])
-for(i in names(genesets.to.export)){
-  tmp.genes = genesets.to.export[[i]]
-  tmp.genes = tmp.genes[tmp.genes %in% names(symbol.to.ensembl)]
-  loupe.genesets = rbind(loupe.genesets,
+genesets_to_export = list(genes_cc_s_phase=genes_s[,2], genes_cc_g2m_phase=genes_g2m[,2])
+for (i in names(genesets_to_export)){
+  tmp_genes = genesets_to_export[[i]]
+  tmp_genes = tmp_genes[tmp_genes %in% names(symbol_to_ensembl)]
+  loupe_genesets = rbind(loupe_genesets,
                          data.frame(List=i,
-                                    Name=tmp.genes,
-                                    Ensembl=symbol.to.ensembl[tmp.genes]))
+                                    Name=tmp_genes,
+                                    Ensembl=symbol_to_ensembl[tmp_genes]))
 }
 
-write.table(loupe.genesets, file=paste0(param$path.out, "/Seurat2Loupe.genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
 # Output files
@@ -653,14 +673,14 @@ All files generated with this report are written into the Seurat output folder:
 * Gene identifiers  
   + Seurat/GeneIds.txt: Table that contains several identifiers (columns) per gene (rows)    
 * Differentially expressed genes  
-  + Seurat/Markers.xlsx: Excel file with one tab per cell cluster  
+  + Seurat/markers_xlsx: Excel file with one tab per cell cluster  
 * Loupe Cell Browser files  
-  + Seurat/Seurat2Loupe.Umap.csv: Seurat UMAP 2D visualisation  
-  + Seurat/Seurat2Loupe.metadata.csv: Seurat cell clusters  
-  + Seurat/Seurat2Loupe.genesets.csv: Seurat differentially expressed genes   
+  + Seurat/Seurat2Loupe_Umap.csv: Seurat UMAP 2D visualisation  
+  + Seurat/Seurat2Loupe_metadata.csv: Seurat cell clusters  
+  + Seurat/Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
 * Functional enrichment of differentially expressed genes per cell cluster  
   + Seurat/Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
   
 ```{r save, eval=FALSE}
-save.image(paste0(param$path.out, "/Seurat.scAnalysis.RData"))
+save.image(paste0(param$path_out, "/Seurat_scAnalysis.RData"))
 ```

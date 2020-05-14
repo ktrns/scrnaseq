@@ -1,7 +1,7 @@
 ---
 title: "Single-cell RNA-seq data analysis, HTO demultiplexing"
 author: "Dresden-concept Genome Center, TU Dresden"
-date: "April 2020"
+date: "May 2020"
 geometry: margin=2cm
 output:
    html_document:
@@ -16,32 +16,16 @@ output:
 options(stringsAsFactors=FALSE)
 
 # Required libraries
-# Main
-library(knitr)
-library(Seurat)
-
-# Data handling 
-library(dplyr)
-library(tidyr)
-library(purrr)
-
-# Tables
-library(DT)
-library(kableExtra) # knitr tables
-
-# Plotting
+library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
-library(ggsci) # colors
+library(magrittr) # %>% operator
 
-# Input/output
-library(openxlsx) # Excel files
-
-# Analysis
-library(biomaRt) # annotation
-library(reticulate) # python interface
-library(MAST) # marker genes
-library(enrichR) # functional enrichment 
+# Other libraries we use
+# Knit: knitr
+# Data handling: dplyr, tidyr, purrr
+# Tables: kableExtra
+# Plots: ggsci
 
 # Source plotting functions
 source("R/functions_io.R")
@@ -52,10 +36,6 @@ source("R/functions_util.R")
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
 
-# Potentially needed for clustering, umap, other python packages
-use_python('/usr/bin/python')
-```
-
 # Dataset description
 * Peripheral blood mononuclear cells (PBMCs) from 8 different donors
 * Cells from each donor are labeled with a hashing antibody
@@ -64,26 +44,26 @@ use_python('/usr/bin/python')
 
 ## Project-specific parameters
 Open this code chunk to read all parameters that are set specifically for your project. 
-```{r project.parameters, class.source='fold-show'}
+```{r project_parameters, class.source='fold-show'}
 param = list()
 
 # Project ID
 param$project = "HTO_testDataset"
 
 # Input data path in case Cell Ranger was run 
-param$path.data = "testDatasets/10x_pbmc_hto_GSE108313/cellranger"
+param$path_data = "test_datasets/10x_pbmc_hto_GSE108313/counts"
 
 # Output path
-param$path.out = "testDatasets/10x_pbmc_hto_GSE108313/results"
-if(!file.exists(param$path.out)) dir.create(param$path.out)
+param$path_out = "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed"
+if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE)
 
 # HTO names
 #   HTOs have an ID that is included in the 'features.tsv' input file
 #   We additionally ask for readable names that are used throughout this report 
 #   This could look like this, where HTO1-3 are the IDs included raw dataset
 #     param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
-param$hto.names = setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), 
-                          c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")) # Name equals ID in this test case
+param$hto_names = setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), 
+                           c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")) # Name equals ID in this test case
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
@@ -92,15 +72,15 @@ param$mt = "^MT-"
 param$col = "palevioletred"
 
 # Sample data to at most n cells (mainly for tests); set to NULL to deactivate
-param$sample_cells = 2000
+param$sample_cells = NULL
 ```
 
-```{r col.hto}
-param$col.hto.global = pal_npg()(3)
-param$col.hto.all = pal_npg()(factorial(length(param$hto.names)) + 1)
-param$col.hto.collapsed = pal_npg()(length(param$hto.names) + 2)
-hto.levels = c("Negative", "Doublet", param$hto.names[length(param$hto.names):1])
-names(param$col.hto.collapsed) = hto.levels
+```{r hto_colours}
+param$col_hto_global = ggsci::pal_npg()(3)
+param$col_hto_all = ggsci::pal_npg()(factorial(length(param$hto_names)) + 1)
+param$col_hto_collapsed = ggsci::pal_npg()(length(param$hto_names) + 2)
+hto_levels = c("Negative", "Doublet", param$hto_names[length(param$hto_names):1])
+names(param$col_hto_collapsed) = hto_levels
 ```
 
 # Read input data
@@ -118,49 +98,49 @@ and setup a Seurat object. This object includes different data types in separate
 * **Custom** in **Custom**.   
 
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
-```{r hto.read}
+```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = read_10x_dataset(param$path.data,hto_names = param$hto.names)
+sc = Read10xDataset(param$path_data, hto_names=param$hto_names, feature_name_column=1)
 
 # If requested: sample at most n cells
-if(!is.null(param$sample_cells)){
-  sampled.barcodes = sample(Cells(sc),min(param$sample_cells,length(Cells(sc))))
-  sc = subset(sc,cells = sampled.barcodes)
+if (!is.null(param$sample_cells)) {
+  sampled_barcodes = sample(Seurat::Cells(sc), min(param$sample_cells, length(Seurat::Cells(sc))))
+  sc = subset(sc, cells=sampled_barcodes)
 }
 
-# Check for cells in other assays which have no HTO counts
-original.assay.names = assay.names = setdiff(Assays(sc),"HTO") 
-assay_cells.hto = map(assay.names,function(a){
-  list(with = intersect(Cells(sc[[a]]),Cells(sc[["HTO"]])),
-       without = setdiff(Cells(sc[[a]]),Cells(sc[["HTO"]])))
-  })
-names(assay_cells.hto) = assay.names
-joint.barcodes = unique(flatten_chr(map(assay_cells.hto,function(a){a[["with"]]})))
+# Discard cells in other assays which have no HTO counts 
+original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
+assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>%
+  as.data.frame %>%
+  colSums() == 0 
+if (sum(assay_cells_hto_zero)>0) {
+  sc = subset(sc, cells=which(assay_cells_hto_zero))
+  warning("Discarded ", sum(assay_cells_hto_zero), " cells with 0 HTO counts.")
+}
 
-# Subset Seurat object to all cells with HTO
-sc = subset(sc, cells=joint.barcodes)
-sc
+# Remember original assay names
+original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
 ```
 
-```{r hto.read.summary}
-summary = map_dfr(assay.names, function(a){
-  data.frame(Assay = a,
-             CellsTotal = length(assay_cells.hto[[a]][["with"]]) + length(assay_cells.hto[[a]][["without"]]),
-             CellsWithHtoReads = length(assay_cells.hto[[a]][["with"]]),
-             CellsWithoutHtoReads = length(assay_cells.hto[[a]][["without"]]))
+```{r hto_cells_summary}
+summary = purrr::map_dfr(original_assay_names, function(a) {
+  data.frame(Assay=a,
+             CellsTotal=length(assay_cells_hto_zero),
+             CellsWithHtoReads=sum(!assay_cells_hto_zero),
+             CellsWithoutHtoReads=sum(assay_cells_hto_zero))
   })
 
-kable(summary, align="l", caption="Dataset summary") %>% 
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+knitr::kable(summary, align="l", caption="Dataset summary") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-# Demutliplexing Hashtag Oligos (HTO)
+# Demutliplexing with hashtag oligos (HTOs)
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts
 We start the analysis by normalising raw HTO counts. HTO counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed. 
-```{r hto.norm}
-sc = NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
+```{r hto_norm}
+sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
 
 # alternative: CLR
 # sc = NormalizeData(sc, assay="HTO", normalization.method="CLR") 
@@ -168,119 +148,155 @@ sc = NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
 
 ## Classification of cells based on normalised HTO data
 We assign cells to their sample-of-origin, annotate negative cells that cannot be assigned to any sample, and doublet cells that are assigned to two samples. 
-```{r hto.demux, results="asis"}
+```{r hto_demux, results="asis"}
 # Demultiplex HTOs
-sc = HTODemux(sc, assay = "HTO", positive.quantile = 0.99)
+sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.99)
   
 # Sort Idents levels for nicer plotting
-Idents(sc) = factor(Idents(sc), levels=hto.levels)
-sc@meta.data$hash.ID = factor(sc@meta.data$hash.ID, levels=hto.levels)
+Seurat::Idents(sc) = factor(Seurat::Idents(sc), levels=hto_levels)
+sc$hash.ID = factor(sc$hash.ID, levels=hto_levels)
   
 # HTO classification results
-hash.ID.table = sc@meta.data %>% dplyr::count(hash.ID) %>% dplyr::rename(HTO=hash.ID) %>% mutate(Perc=round(n/sum(n)*100,2)) %>% as.data.frame
+hash_ID_table = sc@meta.data %>% 
+  dplyr::count(hash.ID) %>% 
+  dplyr::rename(HTO=hash.ID) %>% 
+  dplyr::mutate(Perc=round(n/sum(n)*100,2)) %>% 
+  as.data.frame
 
-p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global), aes(x="", y=n, fill=HTO_classification.global)) + 
-  geom_bar(width=1, stat="identity") + coord_polar("y", start=0) + 
-  xlab("") + ylab("")
-p1 = plot.mystyle(p=p1, title="HTO global classification results", col=param$col.hto.global)
+p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global), 
+            aes(x="", y=n, fill=HTO_classification.global)) + 
+  geom_bar(width=1, stat="identity") + 
+  coord_polar("y", start=0) + 
+  xlab("") + ggplot2::ylab("")
+p1 = PlotMystyle(p=p1, title="HTO global classification results", col=param$col_hto_global)
   
-p2 = ggplot(sc@meta.data %>% dplyr::count(hash.ID), aes(x="", y=n, fill=hash.ID)) + 
-  geom_bar(width=1, stat="identity") + coord_polar("y", start=0) + 
+p2 = ggplot(sc@meta.data %>% dplyr::count(hash.ID), 
+            aes(x="", y=n, fill=hash.ID)) + 
+  geom_bar(width=1, stat="identity") + 
+  coord_polar("y", start=0) + 
   xlab("") + ylab("")
-p2 = plot.mystyle(p=p2, title="HTO classification results", col=param$col.hto.collapsed)
+p2 = PlotMystyle(p=p2, title="HTO classification results", col=param$col_hto_collapsed)
 
-p1 + p2 + plot_annotation(title="HTO classification results") + gridExtra::tableGrob(hash.ID.table, rows=NULL)
+p = p1 + p2 + 
+  patchwork::plot_annotation(title="HTO classification results") + 
+  gridExtra::tableGrob(hash_ID_table, rows=NULL)
+p
 ```
 
 # Visualisation of raw and normalised HTO data {.tabset}
 This section of the report visualises raw and normalised HTO data to understand whether the demultiplexing step has worked well. 
-```{r hto.plot.counts.raw}
+```{r hto_plot_counts_raw}
 # Distribution of HTO counts before and after normalisation
-hto.t.raw = sc@assays$HTO@counts %>% as.data.frame %>% t %>% as.data.frame
-hto.t.raw.pseudo = hto.t.raw + 1
-hto.t.norm = sc@assays$HTO@data %>% as.data.frame %>% t %>% as.data.frame
+hto_t_raw = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>% 
+  as.data.frame %>% t %>% as.data.frame
+hto_t_raw_pseudo = hto_t_raw + 1
+hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
+  as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto.t.raw.pseudo %>% pivot_longer(everything()), aes(x=name, y=value, fill=name)) + geom_violin() + scale_y_continuous(trans="log2") + xlab("") + ylab("") 
-p1 = plot.mystyle(p1, title="HTO raw counts", col=param$col.hto.collapsed, legend.title="HTO")
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(everything()), aes(x=name, y=value, fill=name)) + 
+  geom_violin() + 
+  scale_y_continuous(trans="log2") + 
+  xlab("") + ylab("") 
+p1 = PlotMystyle(p1, title="HTO raw counts", col=param$col_hto_collapsed, legend_title="HTO")
   
-p2 = ggplot(hto.t.norm %>% pivot_longer(everything()), aes(x=name, y=value, fill=name)) + geom_violin() + xlab("") + ylab("")
-p2 = plot.mystyle(p2, title="HTO normalised counts", col=param$col.hto.collapsed, legend.title="HTO")
+p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
+            aes(x=name, y=value, fill=name)) + 
+  geom_violin() + 
+  xlab("") + ylab("")
+p2 = PlotMystyle(p2, title="HTO normalised counts", col=param$col_hto_collapsed, legend_title="HTO")
 
 p = p1 + p2 & theme(legend.position="bottom") 
-p + plot_annotation("HTO counts before and after normalisation") + plot_layout(guides = "collect")
+p = p + patchwork::plot_annotation("HTO counts before and after normalisation") + 
+  patchwork::plot_layout(guides = "collect")
+p
 ```
 
 Pairs of raw (left tab) and normalised (right tab) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
 
 ## Raw HTO data
-```{r hto.plot.counts.norm, fig.height=10}
-n = df.all.col.combinations(x=hto.t.raw.pseudo, cell.classification=sc$hash.ID)
+```{r hto_plot_counts_norm, fig.height=10}
+n = DfAllColumnCombinations(x=hto_t_raw_pseudo, cell_classification=sc$hash.ID)
 
 # plot
-p = ggplot(n, aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
+p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
+  geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=param$col.hto.collapsed)
-p = plot.mystyle(p)
+  scale_color_manual(values=param$col_hto_collapsed)
+p = PlotMystyle(p)
 p = p + facet_grid(name2~name1, drop=FALSE) + 
-  theme(axis.title.x = element_blank(),strip.text.x = element_text(size=10, color="black"),
-        axis.title.y = element_blank(),strip.text.y = element_text(size=10, color="black"),
+  theme(axis.title.x=element_blank(), strip.text.x=element_text(size=10, color="black"),
+        axis.title.y=element_blank(), strip.text.y=element_text(size=10, color="black"),
         strip.background = element_rect(colour="white", fill="lightgrey"),
         legend.position="bottom", 
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 0.5)) + 
-  plot_annotation("Raw HTO counts")
+        axis.text.x=element_text(angle=45, hjust=1, vjust=0.5)) + 
+  patchwork::plot_annotation("Raw HTO counts")
 p
 ```
 
 ## Normalized HTO data
-```{r hto.plot.norm.scatter, fig.height=10}  
-n = df.all.col.combinations(x=hto.t.norm, cell.classification=sc$hash.ID)
-p = ggplot(n, aes(x=value1, y=value2, color=cell.classification)) + geom_point() + 
+```{r hto_plot_norm_scatter, fig.height=10}  
+n = DfAllColumnCombinations(x=hto_t_norm, cell_classification=sc$hash.ID)
+p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
+  geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=param$col.hto.collapsed)
-p = plot.mystyle(p)
+  scale_color_manual(values=param$col_hto_collapsed)
+p = PlotMystyle(p)
 p = p + facet_grid(name2~name1, drop=FALSE) + 
-  theme(axis.title.x = element_blank(),strip.text.x = element_text(size=10, color="black"),
-        axis.title.y = element_blank(),strip.text.y = element_text(size=10, color="black"),
+  theme(axis.title.x=element_blank(), strip.text.x=element_text(size=10, color="black"),
+        axis.title.y=element_blank(), strip.text.y=element_text(size=10, color="black"),
         strip.background = element_rect(colour="white", fill="lightgrey"),
         legend.position="bottom") + 
-  plot_annotation("Normalised HTO data")
+  patchwork::plot_annotation("Normalised HTO data")
 p
 ```
 
 The following ridge plots visualise the enrichment of assigned sample-of-origin for the respective normalised HTO counts. 
-```{r hto.plot.norm, fig.height=10}
-# Group cells based on HTO classification
-p = RidgePlot(sc, assay="HTO", features=rownames(sc@assays$HTO), same.y.lims=TRUE, cols=param$col.hto.collapsed, combine=FALSE)
-for(i in 1:length(p)) p[[i]] = plot.mystyle(p[[i]], legend.title="Classified cells")
-p = wrap_plots(p, ncol = 2) + plot_annotation("Normalised HTO data")+ plot_layout(guides = "collect") & theme(legend.position="bottom") 
+```{r hto_plot_norm, fig.height=10}
+# Group cells based on HTO classification 
+p = RidgePlot(sc, assay="HTO", features=rownames(Seurat::GetAssay(sc, assay="HTO")), 
+              same.y.lims=TRUE, cols=param$col_hto_collapsed, combine=FALSE)
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_title="Classified cells")
+p = patchwork::wrap_plots(p, ncol = 2) + 
+  patchwork::plot_annotation("Normalised HTO data") + 
+  patchwork::plot_layout(guides = "collect") & 
+  theme(legend.position="bottom") 
 p
 ```
 
 Lastly, we compare the number of features between classified cells. 
-```{r hto.plot.features}
+```{r hto_plot_features}
 # Number of features in the different cells
-nfeature.metrics = grep("_HTO",grep("nFeature_",colnames(sc[[]]),v = T),v = T,invert = T)
-p = VlnPlot(sc, features = nfeature.metrics, idents=levels(Idents(sc)), ncol=3, pt.size=0) + xlab("") + geom_violin(color=NA)
-p = plot.mystyle(p, title="Number of features for HTO-classified cells", col=param$col.hto.collapsed, legend.title="Classified cells")
+nfeature_metrics = grep("_HTO", 
+                        grep("nFeature_", colnames(sc[[]]), v=TRUE),
+                        v=TRUE,
+                        invert=TRUE)
+p = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), ncol=3, pt.size=0) + 
+  geom_violin(color=NA) +
+  xlab("") 
+
+p = PlotMystyle(p, 
+                title="Number of features for HTO-classified cells", 
+                col=param$col_hto_collapsed, 
+                legend_title="Classified cells")
 p
 ```
 
 # Remove cells classified as doublet or negative
 This section of the report states the number of cells that remain after negative and doublet cells are removed. 
-```{r hto.subset}
+```{r hto_subset}
 sc.all = sc
-sc = subset(sc, idents = c("Negative", "Doublet"), invert=TRUE)
+sc = subset(sc, idents=c("Negative", "Doublet"), invert=TRUE)
 sc
 ```
 
-# Preliminary pre-processing of RNA data 
+# Preliminary visualisation of demultiplexed RNA data
 This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the standard scRNA-seq workflow. 
-```{r prelim.analysis, results='hide'}
-sc.all = prelim.analysis(sc = sc.all, mt = param$mt, pc.n = 10)
-sc = prelim.analysis(sc = sc, mt = param$mt, pc.n = 10)
+```{r prelim_analysis, results='hide'}
+sc.all = prelim.analysis(sc=sc.all, mt=param$mt, pc_n=10)
+sc = prelim.analysis(sc=sc, mt=param$mt, pc_n=10)
 ```
 
-## Visualisation of demultiplexed RNA data {.tabset}
+## Visualisation with UMAP {.tabset}
 We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the assigned sample-of-origin. 
 
 Take care not to mis-read a UMAP:  
@@ -293,37 +309,48 @@ Take care not to mis-read a UMAP:
 For a nice read to intuitively understand UMAP, see https://pair-code.github.io/understanding-umap/. 
 
 ### Before filtering
-```{r umap.before}
-p = DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=param$col.hto.all) 
-p = plot.mystyle(p, title="UMAP, cells coloured by HTO classification, including doublets and negatives", legend.title="Cell classification", legend.position="bottom")
+```{r umap_before}
+p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=param$col.hto.all) 
+p = PlotMystyle(p, 
+                title="UMAP, cells coloured by HTO classification, including doublets and negatives", 
+                legend_title="Cell classification", 
+                legend_position="bottom")
 p
 ```
 
 ### After filtering
-```{r umap.after}
+```{r umap_after}
 # Plot UMAP after HTO filtering
-p = DimPlot(sc, reduction="umap", group.by="HTO_classification", cols=param$col.hto.collapsed) 
-p = plot.mystyle(p, title="UMAP, cells coloured by HTO classification, singlets only", legend.title="Cell classification", legend.position="bottom")
+p = Seurat::DimPlot(sc, reduction="umap", group.by="HTO_classification", cols=param$col_hto_collapsed) 
+p = PlotMystyle(p, 
+                title="UMAP, cells coloured by HTO classification, singlets only", 
+                legend_title="Cell classification", 
+                legend_position="bottom")
 p
 ```
 
 # Write out demultiplexed data
 Finally, demultiplexed RNA data are written back to file. 
-```{r hto.save_samples}
+```{r hto_save_samples}
 # Create a directory for the demultiplexed data
-demux.base_dir = file.path(param$path.out,"demultiplexed_samples")
-dir.create(demux.base_dir, showWarnings=FALSE)
-demux.samples_paths = c()
+demux_base_dir = file.path(param$path_out, "demultiplexed_samples")
+dir.create(demux_base_dir, showWarnings=FALSE)
+demux_samples_paths = c()
 
 # Save each sample in a separate directory
-samples = levels(Idents(sc))
-for(s in samples){
-  p = export_seurat_assay_data_to_dir(sc[,Idents(sc)==s], dir=file.path(demux.base_dir,s), 
-                                      assays=original.assay.names, slot="counts",
-                                      include_cell_metadata_cols=c("HTO_maxID","HTO_classification","HTO_classification.global", "hash.ID"))
-  demux.samples_paths = c(demux.samples_paths, p)
+samples = levels(Seurat::Idents(sc))
+for (s in samples) {
+  p = ExportSeuratAssayDataToDir(sc[,Seurat::Idents(sc)==s], 
+                                 dir=file.path(demux_base_dir, s), 
+                                 assays=original_assay_names, 
+                                 slot="counts",
+                                 include_cell_metadata_cols=c("HTO_maxID", 
+                                                              "HTO_classification", 
+                                                              "HTO_classification.global", 
+                                                              "hash.ID"))
+  demux_samples_paths = c(demux_samples_paths, p)
 }
 
-print(demux.samples_paths)
+message(demux_samples_paths)
 ```
 
