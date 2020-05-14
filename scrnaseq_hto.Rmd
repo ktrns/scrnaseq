@@ -35,6 +35,7 @@ source("R/functions_util.R")
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+```
 
 # Dataset description
 * Peripheral blood mononuclear cells (PBMCs) from 8 different donors
@@ -100,7 +101,7 @@ and setup a Seurat object. This object includes different data types in separate
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
 ```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = Read10xDataset(param$path_data, hto_names=param$hto_names, feature_name_column=1)
+sc = Read10xDataset(param$path_data, project=param$project, feature_name_column=1, hto_names=param$hto_names)
 
 # If requested: sample at most n cells
 if (!is.null(param$sample_cells)) {
@@ -193,7 +194,7 @@ hto_t_raw_pseudo = hto_t_raw + 1
 hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
   as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(everything()), aes(x=name, y=value, fill=name)) + 
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   xlab("") + ylab("") 
@@ -310,7 +311,7 @@ For a nice read to intuitively understand UMAP, see https://pair-code.github.io/
 
 ### Before filtering
 ```{r umap_before}
-p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=param$col.hto.all) 
+p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=param$col_hto_collapsed) 
 p = PlotMystyle(p, 
                 title="UMAP, cells coloured by HTO classification, including doublets and negatives", 
                 legend_title="Cell classification", 
@@ -321,7 +322,7 @@ p
 ### After filtering
 ```{r umap_after}
 # Plot UMAP after HTO filtering
-p = Seurat::DimPlot(sc, reduction="umap", group.by="HTO_classification", cols=param$col_hto_collapsed) 
+p = Seurat::DimPlot(sc, reduction="umap", group.by="hash.ID", cols=param$col_hto_collapsed) 
 p = PlotMystyle(p, 
                 title="UMAP, cells coloured by HTO classification, singlets only", 
                 legend_title="Cell classification", 
@@ -332,22 +333,18 @@ p
 # Write out demultiplexed data
 Finally, demultiplexed RNA data are written back to file. 
 ```{r hto_save_samples}
-# Create a directory for the demultiplexed data
-demux_base_dir = file.path(param$path_out, "demultiplexed_samples")
-dir.create(demux_base_dir, showWarnings=FALSE)
-demux_samples_paths = c()
-
 # Save each sample in a separate directory
 samples = levels(Seurat::Idents(sc))
+demux_samples_paths = c()
 for (s in samples) {
-  p = ExportSeuratAssayDataToDir(sc[,Seurat::Idents(sc)==s], 
-                                 dir=file.path(demux_base_dir, s), 
-                                 assays=original_assay_names, 
-                                 slot="counts",
-                                 include_cell_metadata_cols=c("HTO_maxID", 
-                                                              "HTO_classification", 
-                                                              "HTO_classification.global", 
-                                                              "hash.ID"))
+  p = ExportSeuratAssayData(sc[,Seurat::Idents(sc)==s], 
+                            dir=file.path(param$path_out, s), 
+                            assays=original_assay_names, 
+                            slot="counts",
+                            include_cell_metadata_cols=c("HTO_maxID", 
+                                                         "HTO_classification", 
+                                                         "HTO_classification.global", 
+                                                         "hash.ID"))
   demux_samples_paths = c(demux_samples_paths, p)
 }
 

@@ -69,11 +69,11 @@ param$file_mapping_stats = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/p
 param$path_out = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/results"
 if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE)
 
-# Annotation via biomart
+# Annotation via biomaRt
 param$mart_dataset = "hsapiens_gene_ensembl"
 param$file_annot = NULL
-if(is.null(param$file_annot)){
-  param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, '.annot.csv'))
+if (is.null(param$file_annot)) {
+  param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, ".annot.csv"))
 }
 param$mart_attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
 
@@ -111,12 +111,12 @@ param$col = "palevioletred"
 # Read data
 ## Read and print mapping statistics
 We begin by printing mapping statistics that have been produced prior to this workflow. 
-```{r mapping.stats, results="asis"}
-if (!is.null(param$file_mapping_stats)){
-  mapping.stats = as.data.frame(t(read.delim(param$file_mapping_stats, sep=",", header=TRUE, check.names=FALSE)))
-  colnames(mapping.stats) = "Value"
-  knitr::kable(mapping.stats, align="l", caption="Mapping statistics") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```{r mapping_stats, results="asis"}
+if (!is.null(param$file_mapping_stats)) {
+  mapping_stats = as.data.frame(t(read.delim(param$file_mapping_stats, sep=",", header=TRUE, check.names=FALSE)))
+  colnames(mapping_stats) = "Value"
+  knitr::kable(mapping_stats, align="l", caption="Mapping statistics") %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 } else { 
   message("Mapping statistics cannot be shown. No valid file provided.")
 }
@@ -124,74 +124,89 @@ if (!is.null(param$file_mapping_stats)){
 
 ## Read gene annotation
 We read gene annotation from Ensembl, and translate Ensembl IDs to Entrez gene symbols. The resulting table is written to file. 
-```{r read.annotation, message=FALSE}
+```{r read_annotation}
 # Read annotation from csv or from Ensembl and a tab separated csv will be created
-if(file.exists(param$file_annot)){
+if (file.exists(param$file_annot)) {
   annot_ensembl = read.delim(param$file_annot)
   
-  # we need these columns
-  if(any(!c("ensembl_gene_id", "external_gene_name","entrezgene_accession") %in% colnames(annot_ensembl))){
+  # Double-check whether all required columns are included
+  if (any(!c("ensembl_gene_id", "external_gene_name","entrezgene_accession") %in% colnames(annot_ensembl))) {
     stop("The annotation table misses at least one of the following columns: 'ensembl_gene_id', 'external_gene_name','entrezgene_accession'.")
   }
-  
-} else{
+} else {
   mart_attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart_attributes))
   annot_mart = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset)
   annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=mart_attributes)
   write.table(annot_ensembl, file=param$file_annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
-  message(paste0("Gene annotation file was created at: ", param$file_annot))
-  # note: depending on the attributes, there might be more than one row per gene
+  message("Gene annotation file was created at: ", param$file_annot)
+  # Note: depending on the attributes, there might be more than one row per gene
 }
 
-# ensembl id to gene symbol
+# Create translation tables
+# Ensembl id to gene symbol
 ensembl_to_symbol = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
-ensembl_to_symbol = setNames(ensembl_to_symbol$external_gene_name,ensembl_to_symbol$ensembl_gene_id)
+ensembl_to_symbol = setNames(ensembl_to_symbol$external_gene_name, ensembl_to_symbol$ensembl_gene_id)
 
-# gene symbol to ensembl id: named list to account with multiple genes having the same symbol
-symbol_to_ensembl = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
-symbol_to_ensembl = split(symbol_to_ensembl$ensembl_gene_id,symbol_to_ensembl$external_gene_name)
-
-# ensembl id to seurat-compatible unique rowname
-ensembl_to_seurat_rowname = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
+# Ensembl id to seurat-compatible unique rowname
+ensembl_to_seurat_rowname = unique(annot_ensembl[,c("ensembl_gene_id", "external_gene_name")])
 ensembl_to_seurat_rowname$external_gene_name = make.unique(gsub(pattern="_", replacement="-", x=ensembl_to_seurat_rowname$external_gene_name, fixed=T))
-ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname$external_gene_name,ensembl_to_seurat_rowname$ensembl_gene_id)
+ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname$external_gene_name, ensembl_to_seurat_rowname$ensembl_gene_id)
 
-# seurat-compatible unique rowname to ensembl id
-seurat_rowname_to_ensembl = setNames(names(ensembl_to_seurat_rowname),ensembl_to_seurat_rowname)
+# Seurat-compatible unique rowname to ensembl id
+seurat_rowname_to_ensembl = setNames(names(ensembl_to_seurat_rowname), ensembl_to_seurat_rowname)
 
-# gene symbol(s) to (seurat compatible unique) gene symbol: named list to account with multiple genes having the same symbol
-symbol_to_seurat_rowname = purrr::map(symbol_to_ensembl,function(i){unname(ensembl_to_seurat_rowname[i])})
+# Gene symbol to ensembl id: named LIST to account for genes where one symbol translates to multiple Ensembl IDs
+symbol_to_ensembl = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
+symbol_to_ensembl = split(symbol_to_ensembl$ensembl_gene_id, symbol_to_ensembl$external_gene_name)
+
+# Gene symbol to (seurat compatible unique) gene symbol: named LIST to account for genes with multiple names
+symbol_to_seurat_rowname = purrr::map(symbol_to_ensembl,function(i){unname(ensembl_to_seurat_rowname[unlist(i)])})
+
+# Ensembl to entrez
+ensembl_to_entrez = unique(annot_ensembl[, c("ensembl_gene_id", "entrezgene_accession")])
+ensembl_to_entrez$entrezgene_accession = ifelse(nchar(ensembl_to_entrez$entrezgene_accession) == 0, NA, ensembl_to_entrez$entrezgene_accession)
+ensembl_to_entrez = split(ensembl_to_entrez$entrezgene_accession, ensembl_to_entrez$ensembl_gene_id)
+
+# Seurat-compatible unique rowname to entrez
+seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl, function(i) ensembl_to_entrez[[i]])
 ```
 
 ## Setup the Seurat object
-We next read the scRNA-seq counts table to initialise a Seurat object. 
-```{r read.datasets}
-# will be a list with seurat objects
+We next read the scRNA-seq counts table(s) to initialise a Seurat object. 
+```{r read_datasets}
+# List of Seurat objects
 sc = list()
 
 datasets = param$path_data
-for(i in seq(nrow(datasets))){
+for (i in seq(nrow(datasets))) {
   name = datasets[i,"name"]
   type = datasets[i,"type"]
   path = datasets[i,"path"]
   
-  # process 10x or smartseq2
-  if(type == "10x"){
-    # read into seurat object
+  # Read 10X or smartseq2
+  if (type == "10x") {
+    
+    # Read 10X data into a Seurat object
     sc[[name]] = Read10xDataset(path, project=name, feature_name_column=2, convert_feature_names=ensembl_to_seurat_rowname)
     
-  
-  } else if(type == "smartseq2"){
-    # read into seurat object
+  } else if (type == "smartseq2") {
+    
+    # Read SmartSeq-2 data into a Seurat object
     sc[[name]] = ReadSmartseq2Dataset(path, project=name, convert_feature_names=ensembl_to_seurat_rowname)
     
-    # parse plate information: sample name, plate number, plate row and plate column
-    plate_information = parse_plate_information(Cells(sc[[name]]), pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4)
-    if(nrow(plate_information)>0){
-      # add info to metadata
+    # Parse plate information: sample name, plate number, plate row and plate column
+    plate_information = parse_plate_information(Seurat::Cells(sc[[name]]), 
+                                                pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', 
+                                                sample_name_group=1, 
+                                                plate_number_group=2, 
+                                                row_name_group=3, 
+                                                col_name_group=4)
+    if (nrow(plate_information) > 0) {
+      
+      # Add info to metadata
       sc[[name]] = Seurat::AddMetaData(sc[[name]], plate_information)
       
-      # also set identity
+      # Also set identity
       sc[[name]] = Seurat::SetIdent(sc[[name]], value="SampleName")
     }
   } 
@@ -209,18 +224,17 @@ sc
 #   - integrate: just merge or advanced methods
 
 # at the moment only simple merge based on raw counts is done
-if(is.list(sc) & length(sc)>1){
+if (is.list(sc) & length(sc)>1) {
   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
 }
 ```
 
 ```{r integrate_single_sample, eval=length(sc)==1, include=length(sc)==1}
 # this chunk is for single sample
-if(is.list(sc) & length(sc)==1){
+if (is.list(sc) & length(sc)==1) {
   sc = sc[[1]]
 }
 ```
-
 
 # Pre-processing
 ## Quality control 
@@ -318,15 +332,15 @@ for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
 p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
-p = DimPlot(sc, reduction="pca", cols=param$col)
+p = Seurat::DimPlot(sc, reduction="pca", cols=param$col)
 p = PlotMystyle(p, title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 
-DimHeatmap(sc, dims=1, cells=500, balanced=TRUE)
+Seurat::DimHeatmap(sc, dims=1, cells=500, balanced=TRUE)
 ```
 
 ```{r pca_heatmaps, fig.height=20}
-DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
+Seurat::DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
 ```
 
 ## Dimensionality of the dataset
@@ -433,39 +447,40 @@ sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", only.pos=FALSE, min.pct=0.2
 sc_markers_top2 = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=2, wt=avg_logFC) %>% 
-  as.data.frame
+  as.data.frame()
 
 # Show top 2 merkers per cluster
 knitr::kable(sc_markers_top2, align="l", caption="Top 2 DEGs per cell cluster") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 
 # Add Ensembl annotation
-sc_markers_ensembl = symbol_to_ensembl[sc_markers[,"gene"]]
+sc_markers_ensembl = seurat_rowname_to_ensembl[sc_markers[,"gene"]]
 sc_markers_annot = cbind(sc_markers, annot_ensembl[sc_markers_ensembl,])
 
 # Output in Excel sheet
 sc_markers_lst = lapply(levels(sc_markers_annot$cluster), function(x) {sc_markers_annot %>% dplyr::filter(cluster==x)})
 names(sc_markers_lst) = paste0("cluster", levels(sc_markers$cluster))
-openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "markers_xlsx"))
+openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "/markers_xlsx"))
 
 # Filter markers based on p-value and fold-change 
 sc_markers_filt = sc_markers %>% 
   dplyr::filter(p_val_adj <= param$padj) %>% 
   dplyr::filter((avg_logFC <= -param$log2fc) | (avg_logFC >= param$log2fc)) %>% 
-  as.data.frame
+  as.data.frame()
 sc_markers_filt_down = sc_markers_filt %>% 
   dplyr::filter(avg_logFC <= -param$log2fc) %>% 
-  as.data.frame
+  as.data.frame()
 sc_markers_filt_up = sc_markers_filt %>% 
   dplyr::filter(avg_logFC >= param$log2fc) %>% 
-  as.data.frame
+  as.data.frame()
 
 # Number of DEGs per cluster
 cluster_all = sort(unique(sc_markers[,"cluster"]))
 sc_markers_filt_n = cbind(Cluster=cluster_all, 
                           sc_markers_filt_down %>% dplyr::count(cluster) %>% dplyr::transmute(Down=n),
-                          sc_markers_filt_up %>% dplyr::count(cluster) %>% dplyr::transmute(Up=n)) %>% 
-  tidyr::pivot_longer(cols=c("Down", "Up"), names_to="Direction", values_to="n")
+                          sc_markers_filt_up %>% dplyr::count(cluster) %>% dplyr::transmute(Up=n)) %>% tidyr::pivot_longer(cols=c("Down", "Up"), 
+                      names_to="Direction", 
+                      values_to="n")
 
 p = ggplot(sc_markers_filt_n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
 p = PlotMystyle(p, 
@@ -551,13 +566,19 @@ genesets_up = lapply(cluster_all, function(x) {
   tmp = sc_markers_filt_up %>% 
     dplyr::filter(cluster==x) %>% 
     dplyr::pull(gene)
-  return(unique(na.exclude(symbol_to_entrez[tmp])))
+  # Pick the first matching Entrez symbol
+  tmp = sapply(tmp, function(x) seurat_rowname_to_entrez[[x]][1]) %>% 
+    na.exclude() %>% unique()
+  return(tmp)
 })
 genesets_down = lapply(cluster_all, function(x) {
   tmp = sc_markers_filt_down %>% 
     dplyr::filter(cluster==x) %>% 
     dplyr::pull(gene)
-  return(unique(na.exclude(symbol_to_entrez[tmp])))
+  # Pick the first matching Entrez symbol
+  tmp = sapply(tmp, function(x) seurat_rowname_to_entrez[[x]][1]) %>% 
+    na.exclude() %>% unique()
+  return(tmp)
 })
 names(genesets_up) = paste0("DEG_up_cluster_", cluster_all)
 names(genesets_down) = paste0("DEG_down_cluster_", cluster_all)
@@ -651,38 +672,38 @@ write.table(x=loupe_meta, file=paste0(param$path_out, "/Seurat2Loupe_metadata.cs
 # Export gene sets
 loupe_genesets = data.frame(List=paste0("DEG_up_cluster_", sc_markers_filt_up[,"cluster"]), 
                             Name=sc_markers_filt_up[,"gene"], 
-                            Ensembl=symbol_to_ensembl[sc_markers_filt_up[,"gene"]])
+                            Ensembl=seurat_rowname_to_ensembl[sc_markers_filt_up[,"gene"]])
 loupe_genesets = rbind(loupe_genesets, 
                        data.frame(List=paste0("DEG_down_cluster_", sc_markers_filt_down[,"cluster"]), 
-                            Name=sc_markers_filt_down[,"gene"], 
-                            Ensembl=symbol_to_ensembl[sc_markers_filt_down[,"gene"]]))
+                                  Name=sc_markers_filt_down[,"gene"], 
+                                  Ensembl=seurat_rowname_to_ensembl[sc_markers_filt_down[,"gene"]]))
 
 genesets_to_export = list(genes_cc_s_phase=genes_s[,2], genes_cc_g2m_phase=genes_g2m[,2])
-for (i in names(genesets_to_export)){
+for (i in names(genesets_to_export)) {
   tmp_genes = genesets_to_export[[i]]
   tmp_genes = tmp_genes[tmp_genes %in% names(symbol_to_ensembl)]
   loupe_genesets = rbind(loupe_genesets,
                          data.frame(List=i,
                                     Name=tmp_genes,
-                                    Ensembl=symbol_to_ensembl[tmp_genes]))
+                                    Ensembl=seurat_rowname_to_ensembl[tmp_genes]))
 }
 
 write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
 # Output files
-All files generated with this report are written into the Seurat output folder: 
+All files generated with this report are written into the provided output folder `r param$path_out`: 
 
-* Gene identifiers  
-  + Seurat/GeneIds.txt: Table that contains several identifiers (columns) per gene (rows)    
+* Annotation files  
+  + `r paste0(param$mart_dataset, ".annot.csv")`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
 * Differentially expressed genes  
-  + Seurat/markers_xlsx: Excel file with one tab per cell cluster  
+  + markers_xlsx: Excel file with one tab per cell cluster  
 * Loupe Cell Browser files  
-  + Seurat/Seurat2Loupe_Umap.csv: Seurat UMAP 2D visualisation  
-  + Seurat/Seurat2Loupe_metadata.csv: Seurat cell clusters  
-  + Seurat/Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
+  + Seurat2Loupe_Umap.csv: Seurat UMAP 2D visualisation  
+  + Seurat2Loupe_metadata.csv: Seurat cell clusters  
+  + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
 * Functional enrichment of differentially expressed genes per cell cluster  
-  + Seurat/Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
+  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
   
 ```{r save, eval=FALSE}
 save.image(paste0(param$path_out, "/Seurat_scAnalysis.RData"))

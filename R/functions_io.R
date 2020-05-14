@@ -163,7 +163,7 @@ Read10xDataset = function(path, project="SeuratProject", feature_name_column=2, 
   
   if (!file.exists(file.path(path, "matrix.mtx.gz"))) futile.logger::flog.error("Could not find file 'matrix.mtx.gz' at directory '%s'!", path)
   
-  # rename feature names if requested
+  # Rename feature names if requested
   if (!is.null(convert_feature_names) & length(convert_feature_names)>0) {
     convert_ids = which(features_ids_types[, "feature_name"] %in% names(convert_feature_names))
     features_ids_types[convert_ids, "feature_name"] = convert_feature_names[features_ids_types[convert_ids, "feature_name"]]
