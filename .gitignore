@@ -2,9 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
-*.Rproj
-test_datasets/*/results
-test_datasets/*/demultiplexed
-test_datasets/*/counts
-test_datasets/*/*rds
+.Rproj
+test_datasets/**/results/
+test_datasets/**/demultiplexed/
 .DS_Store
