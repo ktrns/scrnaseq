@@ -7,7 +7,7 @@
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
 #' @return A Seurat object.
-read_10x_dataset = function(path, project = "SeuratProject", feature_column = 2, feature_type_column = 3, unique_features = TRUE, feature_type_to_assay_name = NULL, hto_names = NULL){
+Read10xDataset = function(path, project = "SeuratProject", feature_column = 2, feature_type_column = 3, unique_features = TRUE, feature_type_to_assay_name = NULL, hto_names = NULL){
   # dplyr, Seurat, futile.logger; there may be a better solution
   library(dplyr)
   library(Seurat)
@@ -128,7 +128,7 @@ read_10x_dataset = function(path, project = "SeuratProject", feature_column = 2,
 #' @param include_cell_metadata_cols Vector with names of cell metadata columns to be written to the metadata.tsv.gz. Can be NULL in which case no file is created.
 #' @param include_feature_metadata_cols Vector with names of feature metadata columns to be written. Can be NULL in which case only the first three columns (feature id, feature symbol and feature type) are written.
 #' @return The path to the data directory.
-export_seurat_assay_data_to_dir = function(sc,dir="data",assays=NULL,slot="counts",assay_name_to_feature_type = NULL,include_cell_metadata_cols = NULL, include_feature_metadata_cols = NULL){
+ExportSeuratAssayDataToDir = function(sc,dir="data",assays=NULL,slot="counts",assay_name_to_feature_type = NULL,include_cell_metadata_cols = NULL, include_feature_metadata_cols = NULL){
   library(Seurat)
   library(Matrix)
   library(futile.logger)
