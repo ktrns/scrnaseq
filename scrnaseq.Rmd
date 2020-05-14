@@ -94,7 +94,7 @@ if(is.null(param$file.annot)){
 param$mt = "^MT-"
 
 # Biomart attributes for the annotation if no csv is given
-param$mart.attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "transcript_length", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
+param$mart.attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol", "entrezgene_accession", "chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description")
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc.n = 7
@@ -156,15 +156,27 @@ if(file.exists(param$file.annot)){
   annot.ensembl = biomaRt::getBM(mart=annot.mart, attributes=mart.attributes)
   write.table(annot.ensembl, file=param$file.annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
   message(paste0("Gene annotation file was created at: ", param$file.annot))
+  # note: depending on the attributes, there might be more than one row per gene
 }
 
-# ensembl id to (seurat compatible) symbol
-ensembl_to_symbol = setNames(annot.ensembl$external_gene_name,annot.ensembl$ensembl_gene_id) %>% 
-  gsub(pattern="_", replacement="-", fixed=TRUE) %>%
-  make.unique() %>%
-  set_names(annot.ensembl$ensembl_gene_id)
-symbol_to_ensembl = setNames(names(ensembl_to_symbol),ensembl_to_symbol)
+# ensembl id to gene symbol
+ensembl_to_symbol = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+ensembl_to_symbol = setNames(ensembl_to_symbol$external_gene_name,ensembl_to_symbol$ensembl_gene_id)
 
+# gene symbol to ensembl id: named list to account with multiple genes having the same symbol
+symbol_to_ensembl = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+symbol_to_ensembl = split(symbol_to_ensembl$ensembl_gene_id,symbol_to_ensembl$external_gene_name)
+
+# ensembl id to seurat-compatible unique rowname
+ensembl_to_seurat_rowname = unique(annot.ensembl[,c("ensembl_gene_id","external_gene_name")])
+ensembl_to_seurat_rowname$external_gene_name = make.unique(gsub(pattern="_", replacement="-", x=ensembl_to_seurat_rowname$external_gene_name, fixed=T))
+ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname$external_gene_name,ensembl_to_seurat_rowname$ensembl_gene_id)
+
+# seurat-compatible unique rowname to ensembl id
+seurat_rowname_to_ensembl = setNames(names(ensembl_to_seurat_rowname),ensembl_to_seurat_rowname)
+
+# gene symbol(s) to (seurat compatible unique) gene symbol: named list to account with multiple genes having the same symbol
+symbol_to_seurat_rowname = purrr::map(symbol_to_ensembl,function(i){unname(ensembl_to_seurat_rowname[i])})
 ```
 
 ## Setup the Seurat object
@@ -182,14 +194,12 @@ for(i in seq(nrow(datasets))){
   # process 10x or smartseq2
   if(type == "10x"){
     # read into seurat object
-    #
-    # TO DECIDE: always use first column with ensembl ids, then convert for consistency with smartseq2?
-    sc[[name]] = Read10xDataset(path, project=name)
+    sc[[name]] = Read10xDataset(path, project=name, feature_name_column=1, convert_feature_names=ensembl_to_seurat_rowname)
     
   
   } else if(type == "smartseq2"){
     # drop columns 2:6 and read into seurat object
-    sc[[name]] = ReadSmartseq2Dataset(path, project=name, convert_feature_names=ensembl_to_symbol)
+    sc[[name]] = ReadSmartseq2Dataset(path, project=name, convert_feature_names=ensembl_to_seurat_rowname)
     
     # parse plate information: sample name, plate number, plate row and plate column
     plate_information = parse_plate_information(Cells(sc[[name]]), pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4)
@@ -206,9 +216,25 @@ for(i in seq(nrow(datasets))){
 sc
 ```
 
-```{r integrate}
-# not yet implemented; only use the first element
-sc = sc[[1]]
+```{r integrate_multiple_samples, eval=length(sc)>1, include=length(sc)>1}
+#  this chunk is for integrating multiple samples
+
+# alternatives: 
+# a) merge raw counts and then normalise (less preferred)
+# b) do normalisation per sample, then integrate (better)
+#   - integrate: just merge or advanced methods
+
+# at the moment only simple merge based on raw counts is done
+if(is.list(sc) & length(sc)>1){
+  sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
+}
+```
+
+```{r integrate_single_sample, eval=length(sc)==1, include=length(sc)==1}
+# this chunk is for single sample
+if(is.list(sc) & length(sc)==1){
+  sc = sc[[1]]
+}
 ```
 
 
