@@ -19,6 +19,17 @@ pbmc_umi = pbmc_umi[,joint_barcodes]
 pbmc_hto = pbmc_hto[,joint_barcodes]
 pbmc_counts = rbind(pbmc_umi, pbmc_hto)
 
+# Map to Ensembl
+annot_mart = biomaRt::useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", mirror="www")
+annot_ensembl = biomaRt::getBM(mart = annot_mart, attributes = c("ensembl_gene_id", "external_gene_name"))
+idx = match(rownames(pbmc_counts), annot_ensembl$external_gene_name) # if multiple symbols match, take the first one
+genes_ensembl = setNames(annot_ensembl$ensembl_gene_id[idx], rownames(pbmc_counts))
+
+# Remove rows in the counts table with no Ensembl ID
+message("Number of gene symbols not found through biomaRt: ", sum(is.na(idx)))
+message("Number of genes with no Ensembl: ", sum(is.na(genes_ensembl)))
+pbmc_counts = pbmc_counts[!is.na(genes_ensembl),]
+
 # Write to 3 CellRanger output files
 DropletUtils::write10xCounts(path="./counts", x=pbmc_counts)
 
@@ -30,15 +41,7 @@ genes$Type = as.character(genes$Type)
 genes$Type[grep("^hto", genes$GeneSymbol, perl=TRUE)] = "Antibody Capture"
 
 # Add Ensembl IDs to features.tsv
-annot_mart = biomaRt::useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", mirror="www")
-annot_ensembl = biomaRt::getBM(mart = annot_mart, attributes = c("ensembl_gene_id", "external_gene_name"))
-idx = match(genes$GeneSymbol, annot_ensembl$external_gene_name) # if multiple symbols match, take the first one
-genes$Ensembl = annot_ensembl$ensembl_gene_id[idx]
-
-# Remove genes where Ensembl is NA
-message("Number of gene symbols not found through biomaRt: ", sum(is.na(idx)))
-message("Number of genes with no Ensembl: ", sum(is.na(genes$Ensembl)))
-genes = genes[!is.na(genes$Ensembl)]
+genes$Ensembl = genes_ensembl[genes$GeneSymbol]
 
 # Write genes to features.tsv
 write.table(genes, file="counts/features.tsv", sep="\t", row.names=FALSE, col.names=FALSE, quote=FALSE)
