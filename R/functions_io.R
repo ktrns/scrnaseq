@@ -2,17 +2,18 @@
 #' 
 #' @param path Path to a counts table.
 #' @param project A project name for the dataset ("SeuratProject").
-#' @param feature_name_column Name or index of the column which should be used for feature names (1).
-#' @param convert_feature_names Named vector for converting feature names (e.g. from Ensembl ids to gene symbols). Does not have to contain all feature names. Can be NULL in which case feature names are not converted.
+#' @param project A project name for the dataset.
+#' @param row_name_column Name or index of the column which should be used as row names in the Seurat object (2).
+#' @param convert_row_names Named vector for converting the row names (e.g. from Ensembl ids to gene symbols). Does not need to contain all row names. Can be NULL in which case row names are not converted.
 #' @param feature_type_column Name or index of the column which should be used for feature types (NULL). Can be NULL in which case feature types are "Gene expression" and "ERCC".
 #' @param columns_to_drop Names or indices of the columns which should be dropped (excluding feature_name_column or feature_type_column).
 #' @param drop_non_numeric_columns After dropping columns manually with columns_to_drop: Should any remaining non-numeric columns (excluding feature_name_column or feature_type_column) be droppped automatically? If TRUE, they will be dropped silently. If FALSE, then an error message will be printed. 
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param col_sep Separator used in the counts table (tab).
 #' @return A Seurat object.
-ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_name_column=1, convert_feature_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t") {
+ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t") {
   library(magrittr)
-
+  
   # defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA", 
                                                                           "Antibody Capture"="ADT", 
@@ -24,8 +25,8 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_n
   if (!file.exists(counts_table)) futile.logger::flog.error("The counts file %s does not exist!",counts_table)
   feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE)
   
-  #  feature_name_column, feature_type_column and feature_columns_to_drop: if (numeric) index, convert to column name (easier)
-  if (!is.null(feature_name_column) & is.numeric(feature_name_column)) feature_name_column = colnames(feature_data)[feature_name_column]
+  #  row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
+  if (!is.null(row_name_column) & is.numeric(row_name_column)) row_name_column = colnames(feature_data)[row_name_column]
   if (!is.null(feature_type_column) & is.numeric(feature_type_column)) feature_type_column = colnames(feature_data)[feature_type_column]
   if (!is.null(columns_to_drop) & length(columns_to_drop)>0 & is.numeric(columns_to_drop)) columns_to_drop = colnames(feature_data)[columns_to_drop]
   
@@ -36,7 +37,7 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_n
   
   # check if there are other non-numeric columns
   invalid = unlist(lapply(colnames(feature_data), function(n) {
-    !(n %in% c(feature_name_column, feature_type_column) | is.numeric(feature_data[, n, drop=TRUE]))
+    !(n %in% c(row_name_column, feature_type_column) | is.numeric(feature_data[, n, drop=TRUE]))
     }))
   if (sum(invalid)>0) {
     if (drop_non_numeric_columns) {
@@ -53,10 +54,10 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_n
   # create a data frame for feature id, feature name and feature type (similar to features.tsv in 10x datasets)
   # feature_type_column: indicates the type of feature; if null, assume, there is only "Gene Expression" features; 
   #   only check for ERCC controls which will be separate
-  features_ids_types = data.frame(feature_id = feature_data[, feature_name_column, drop=TRUE], 
-                                  feature_name = feature_data[, feature_name_column, drop=TRUE], 
+  features_ids_types = data.frame(feature_id = feature_data[, row_name_column, drop=TRUE], 
+                                  feature_name = feature_data[, row_name_column, drop=TRUE],
                                   stringsAsFactors=FALSE)
-  feature_data[, feature_name_column] = NULL
+  feature_data[, row_name_column] = NULL
   if (is.null(feature_type_column)) {
     features_ids_types$feature_type = ifelse(grepl(pattern="^ERCC-", x=features_ids_types$feature_name), "ERCC", "Gene Expression")
   } else{
@@ -64,21 +65,16 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_n
     feature_data[, feature_type_column] = NULL
   }
   
-  # rename feature names if requested
-  if (!is.null(convert_feature_names) & length(convert_feature_names)>0) {
-    convert_ids = which(features_ids_types[, "feature_name"] %in% names(convert_feature_names))
-    features_ids_types[convert_ids, "feature_name"] = convert_feature_names[features_ids_types[convert_ids, "feature_name"]]
+  # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
+  seurat_row_names = setNames(features_ids_types[, "feature_id"],features_ids_types[, "feature_id"])
+  if (!is.null(convert_row_names) & length(convert_row_names)>0) {
+    convert_ids = which(seurat_row_names %in% names(convert_row_names))
+    seurat_row_names[convert_ids] = convert_row_names[seurat_row_names[convert_ids]]
   }
+  seurat_row_names = setNames(make.unique(gsub(pattern="_", replacement="-", x=seurat_row_names, fixed=TRUE)),names(seurat_row_names))
+  rownames(features_ids_types) = unname(seurat_row_names)
   
-  # now make feature names Seurat compatible
-  features_ids_types$rowname = gsub(pattern="_", replacement="-", x=features_ids_types$feature_name, fixed=TRUE)
-  features_ids_types = features_ids_types %>% 
-    dplyr::group_by_at(feature_type_column) %>%
-    dplyr::mutate(rowname=make.unique(rowname)) %>% as.data.frame()
-  rownames(features_ids_types) = features_ids_types$rowname
-  features_ids_types$rowname = NULL
-  
-  # split by feature type
+  # split by feature type and add Seurat-compatible row names
   feature_data = as.data.frame(feature_data)
   rownames(feature_data) = rownames(features_ids_types)
   feature_data = split(feature_data, as.factor(features_ids_types$feature_type))
@@ -137,13 +133,13 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", feature_n
 #' 
 #' @param path Path to the directory with sparse matrix dataset. Must contain matrix.mtx.gz, features.tsv.gz and barcodes.tsv.gz. Can contain additional metadata in a file metadata.tsv.gz where the first column is the cell name.
 #' @param project A project name for the dataset.
-#' @param feature_name_column Name or index of the column which should be used for feature names (2).
-#' @param convert_feature_names Named vector for converting feature names (e.g. from Ensembl ids to gene symbols). Does not have to contain all feature names. Can be NULL in which case feature names are not converted.
+#' @param row_name_column Name or index of the column in features.tsv.gz which should be used as row names in the Seurat object (2).
+#' @param convert_row_names Named vector for converting the row names obtained from features.tsv.gz (e.g. from Ensembl ids to gene symbols). Does not need to contain all row names. Can be NULL in which case row names are not converted.
 #' @param feature_type_column Name or index of the column which should be used for feature types (3).
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
 #' @return A Seurat object.
-Read10xDataset = function(path, project="SeuratProject", feature_name_column=2, convert_feature_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
+Read10xDataset = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
   library(magrittr)
   
   # defaults
@@ -153,7 +149,7 @@ Read10xDataset = function(path, project="SeuratProject", feature_name_column=2, 
                                                                           "Custom"="Custom",
                                                                           "ERCC"="ERCC")
   
-  # Read barcodes.tsv.gz and features.tsv.gz separately
+  # Check that files exist and read barcodes.tsv.gz and features.tsv.gz separately
   if (!file.exists(file.path(path, "barcodes.tsv.gz"))) futile.logger::flog.error("Could not find file 'barcodes.tsv.gz' at directory '%s'!", path)
   barcodes = read.delim(file.path(path, "barcodes.tsv.gz"), header=FALSE, stringsAsFactors=FALSE)[, 1]
   
@@ -163,30 +159,27 @@ Read10xDataset = function(path, project="SeuratProject", feature_name_column=2, 
   
   if (!file.exists(file.path(path, "matrix.mtx.gz"))) futile.logger::flog.error("Could not find file 'matrix.mtx.gz' at directory '%s'!", path)
   
-  # Rename feature names if requested
-  if (!is.null(convert_feature_names) & length(convert_feature_names)>0) {
-    convert_ids = which(features_ids_types[, "feature_name"] %in% names(convert_feature_names))
-    features_ids_types[convert_ids, "feature_name"] = convert_feature_names[features_ids_types[convert_ids, "feature_name"]]
+  # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
+  seurat_row_names = setNames(features_ids_types[, row_name_column],features_ids_types[, row_name_column])
+  if (!is.null(convert_row_names) & length(convert_row_names)>0) {
+    convert_ids = which(seurat_row_names %in% names(convert_row_names))
+    seurat_row_names[convert_ids] = convert_row_names[seurat_row_names[convert_ids]]
   }
-  
-  # this will make the feature symbols Seurat-compatible
-  features_ids_types$rowname = gsub(pattern="_", replacement="-", x=features_ids_types[, feature_name_column], fixed=TRUE)
-  features_ids_types = features_ids_types %>% 
-    dplyr::group_by_at(feature_type_column) %>%
-    dplyr::mutate(rowname=make.unique(rowname)) %>% 
-    as.data.frame()
-  rownames(features_ids_types) = features_ids_types$rowname
-  features_ids_types$rowname = NULL
-  
-  # Read feature data in a list
-  feature_data = Seurat::Read10X(path, gene.column=feature_name_column)
+  seurat_row_names = setNames(make.unique(gsub(pattern="_", replacement="-", x=seurat_row_names, fixed=TRUE)),names(seurat_row_names))
+  rownames(features_ids_types) = unname(seurat_row_names)
+
+  # Read feature data in a list and change row names of the data so that they are Seurat compatible
+  feature_data = Seurat::Read10X(path, gene.column=row_name_column)
   if (!is.list(feature_data)) {
     # only one feature type: need to know which and convert into list
     feature_types = unique(features_ids_types[, feature_type_column]) 
     feature_data = list(feature_data)
     names(feature_data) = feature_types[1]
   }
-  
+  for (n in names(feature_data)) {
+    rownames(feature_data[[n]]) = unname(seurat_row_names[rownames(feature_data[[n]])])
+  }
+
   # special case: if hashtags are specified and if there is a Antibody Capture data, then split and add as separate assay
   if ("Antibody Capture" %in% names(feature_data) & length(hto_names)>0) {
     # check to avoid special chars

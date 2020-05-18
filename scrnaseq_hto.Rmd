@@ -101,7 +101,7 @@ and setup a Seurat object. This object includes different data types in separate
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
 ```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = Read10xDataset(param$path_data, project=param$project, feature_name_column=1, hto_names=param$hto_names)
+sc = Read10xDataset(param$path_data, project=param$project, row_name_column=2, hto_names=param$hto_names)
 
 # If requested: sample at most n cells
 if (!is.null(param$sample_cells)) {
