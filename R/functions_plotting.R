@@ -37,3 +37,38 @@ DfAllColumnCombinations = function(x, cell_classification) {
   
   return(out)
 }
+
+# Plot Relative log expression per cell 
+PlotRLE = function(x, col) { 
+  
+  # Median of a gene across all cells
+  genes.median = sapply(1:nrow(x), function(gene) median(x[gene,], na.rm=TRUE))
+  
+  # Subtract gene median from gene count
+  y = x - genes.median
+  
+  # Get statistics
+  y_stats = boxplot(y, plot=FALSE)
+  y_outlier_x = y_stats$group
+  y_outlier_y = y_stats$out
+  y_outlier = cbind(cell=y_outlier_x, out=y_outlier_y) %>% as.data.frame()
+  y_stats = y_stats$stats %>% t() %>% as.data.frame()
+  colnames(y_stats) = c("lowerWhisker", "q25", "med", "q75", "upperWhisker")
+  y_stats$cell = 1:nrow(y_stats) # convert x-axis to numeric
+  
+  # Actual plotting
+  p = ggplot(y_stats) +
+    geom_ribbon(aes(x=cell, ymin=q75, ymax=upperWhisker), fill="darkgrey") + 
+    geom_ribbon(aes(x=cell, ymin=med, ymax=q75), fill="lightgrey") + 
+    geom_ribbon(aes(x=cell, ymin=q25, ymax=med), fill="lightgrey") + 
+    geom_ribbon(aes(x=cell, ymin=lowerWhisker, ymax=q25), fill="darkgrey") + 
+    geom_line(aes(x=cell, y=med))
+  p = p + geom_point(data=y_outlier, aes(x=cell, y=out), colour=col, size=0.5)
+  p = PlotMystyle(p) + 
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank()) + 
+    xlab("Cells") + ylab("Relative log expression")
+  p
+  
+  return(p)
+}
