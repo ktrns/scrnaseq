@@ -22,6 +22,8 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
+library(future) # multicore support for Seurat
+plan("multiprocess", workers = 4)
 
 # Other libraries we use
 # Knit: knitr
@@ -156,11 +158,13 @@ ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname$external_gene_nam
 seurat_rowname_to_ensembl = setNames(names(ensembl_to_seurat_rowname), ensembl_to_seurat_rowname)
 
 # Gene symbol to ensembl id: named LIST to account for genes where one symbol translates to multiple Ensembl IDs
-symbol_to_ensembl = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
-symbol_to_ensembl = split(symbol_to_ensembl$ensembl_gene_id, symbol_to_ensembl$external_gene_name)
+symbol_to_ensembl_df = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
+symbol_to_ensembl = split(symbol_to_ensembl_df$ensembl_gene_id, symbol_to_ensembl_df$external_gene_name)
 
 # Gene symbol to (seurat compatible unique) gene symbol: named LIST to account for genes with multiple names
-symbol_to_seurat_rowname = purrr::map(symbol_to_ensembl,function(i){unname(ensembl_to_seurat_rowname[unlist(i)])})
+symbol_to_seurat_rowname = unique(annot_ensembl[,c("ensembl_gene_id","external_gene_name")])
+symbol_to_seurat_rowname$seurat_rowname = ensembl_to_seurat_rowname[symbol_to_seurat_rowname$ensembl_gene_id]
+symbol_to_seurat_rowname = split(symbol_to_seurat_rowname$seurat_rowname, symbol_to_seurat_rowname$external_gene_name)
 
 # Ensembl to entrez
 ensembl_to_entrez = unique(annot_ensembl[, c("ensembl_gene_id", "entrezgene_accession")])
@@ -168,7 +172,9 @@ ensembl_to_entrez$entrezgene_accession = ifelse(nchar(ensembl_to_entrez$entrezge
 ensembl_to_entrez = split(ensembl_to_entrez$entrezgene_accession, ensembl_to_entrez$ensembl_gene_id)
 
 # Seurat-compatible unique rowname to entrez
-seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl, function(i) ensembl_to_entrez[[i]])
+seurat_rowname_to_ensembl_match = match(seurat_rowname_to_ensembl,names(ensembl_to_entrez))
+names(seurat_rowname_to_ensembl_match) = names(seurat_rowname_to_ensembl)
+seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl_match, function(i) {unname(ensembl_to_entrez[[i]])})
 ```
 
 ## Setup the Seurat object

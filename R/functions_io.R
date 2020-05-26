@@ -1,6 +1,6 @@
 #' Reads a counts table (e.g. provided by smartseq2) and converts it into a Seurat object.
 #' 
-#' @param path Path to a counts table.
+#' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
 #' @param project A project name for the dataset.
 #' @param row_name_column Name or index of the column which should be used as row names in the Seurat object (2).
@@ -38,7 +38,7 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   # check if there are other non-numeric columns
   invalid = unlist(lapply(colnames(feature_data), function(n) {
     !(n %in% c(row_name_column, feature_type_column) | is.numeric(feature_data[, n, drop=TRUE]))
-    }))
+  }))
   if (sum(invalid)>0) {
     if (drop_non_numeric_columns) {
       # if yes and drop_non_numeric_columns: just remove them
@@ -81,13 +81,23 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   
   # Read metadata file (if available)
   metadata_table = NULL
+  metadata_file = file.path(dirname(path), "metadata.tsv.gz")
+  if (file.exists(metadata_file)) {
+    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
+    barcodes = colnames(feature_data[[1]])
+    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+                                                    first_n_elements_to_string(missed))
+    rownames(metadata_table) = metadata_table[, 1]
+  }
+  
   
   # feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
   if (length(missed)>0) futile.logger::flog.error("The 'feature_type_to_assay_name' argument misses some feature types: %s!", 
                                                   first_n_elements_to_string(missed))
-
+  
   # sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
   
