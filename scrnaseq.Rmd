@@ -3,6 +3,7 @@ title: "Single-cell RNA-seq data analysis"
 author: "Dresden-concept Genome Center, TU Dresden"
 date: "May 2020"
 geometry: margin=2cm
+bibliography: "references.bib"
 output:
    html_document:
     toc: true
@@ -13,7 +14,7 @@ output:
 
 ```{r setup, warning=FALSE, message=FALSE}
 # R Options
-options(stringsAsFactors=FALSE)
+options(stringsAsFactors=FALSE, "citation_format"="pandoc")
 
 # Required libraries
 library(Seurat) # main
@@ -44,6 +45,9 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 
 # Potentially needed for clustering, umap, other python packages
 use_python('/usr/bin/python')
+
+# biomaRt mirror
+mirror="asia"
 ```
 
 # Dataset description
@@ -52,7 +56,7 @@ use_python('/usr/bin/python')
 * 1k Peripheral blood mononuclear cells (PBMCs) from a healthy donor (v3 chemistry)  
 
 ## Project-specific parameters
-Open this code chunk to read all parameters that are set specifically for your project. 
+This code chunk contains all parameters that are set specifically for your project. 
 ```{r project_parameters, class.source='fold-show'}
 param = list()
 
@@ -81,7 +85,7 @@ param$mart_attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol"
 param$mt = "^MT-"
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
-param$pc_n = 7
+param$pc_n = 10
 
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
@@ -135,7 +139,7 @@ if (file.exists(param$file_annot)) {
   }
 } else {
   mart_attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart_attributes))
-  annot_mart = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset)
+  annot_mart = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror)
   annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=mart_attributes)
   write.table(annot_ensembl, file=param$file_annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
   message("Gene annotation file was created at: ", param$file_annot)
@@ -250,7 +254,8 @@ knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") 
 
 ```{r qc_plot}
 # Filter cutoffs
-features_cut = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
+cells_filter = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
+features_filter = 1 # feature has to be hit by at least one count in one cell 
 
 # Plot QC metrics
 features = c("nFeature_RNA", "nCount_RNA", "percent.mt")
@@ -258,7 +263,7 @@ p = VlnPlot(sc, features=features, pt.size=0, col=param$col, combine=FALSE)
 names(p) = features
 for (i in features) {
   p[[i]] = PlotMystyle(p[[i]], title=i, legend_position="none") + xlab("")
-  if (!is.na(features_cut[i])) p[[i]] = p[[i]] + geom_hline(yintercept=features_cut[i], lty=2, col="darkgrey") 
+  if (!is.na(cells_filter[i])) p[[i]] = p[[i]] + geom_hline(yintercept=cells_filter[i], lty=2, col="darkgrey") 
 }
 p = patchwork::wrap_plots(p, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
 p 
@@ -271,12 +276,16 @@ for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_position="none")
 p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other") 
 p
 
-# Actual filtering
-sc = subset(sc, subset=nFeature_RNA>features_cut["nFeature_RNA"] & percent.mt<features_cut["percent.mt"])
-sc
+# Filter cells
+sc = subset(sc, subset=nFeature_RNA>cells_filter["nFeature_RNA"] & percent.mt<cells_filter["percent.mt"])
+
+# Filter features
+features_count_sum = Matrix::rowSums(Seurat::GetAssayData(sc, slot="counts", assay="RNA"))
+features_keep = which(features_count_sum > features_filter)
+sc = subset(sc, features=features_keep)
 ```
 
-## Normalisation, feature selection and scaling
+## Normalisation, feature selection and scaling {.tabset}
 Feature selection: For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
 
 Scaling: To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis. 
@@ -299,6 +308,8 @@ sc = Seurat::ScaleData(sc, features=rownames(sc))
 # normalised data end up here: sc@assays$SCT@data
 sc = SCTransform(sc)
 
+# "SCT" is now the default assay (active.assay)
+
 # Note: If I write Seurat::SCTransform, I get the following error message in the next chunk for
 #   Seurat::VariableFeaturePlot(sc, cols=c("grey", param$col)) 
 #   'vst' is Unable to find highly variable feature information for method 'vst'
@@ -318,6 +329,43 @@ p = p + patchwork::plot_annotation("Variable genes without (left) and with (righ
 p
 ```
 
+```{r plot_norm}
+n_cells_plot = 200
+cells_random = sample(1:length(Seurat::Cells(sc)), n_cells_plot)
+
+raw = GetAssayData(sc, assay="RNA", slot="counts") %>% as.matrix()
+raw = raw[, cells_random]
+
+norm1 = GetAssayData(sc, assay="RNA", slot="data") %>% as.matrix()
+norm1 = norm1[, cells_random]
+
+norm2 = GetAssayData(sc, assay="SCT", slot="data") %>% as.matrix()
+norm2 = norm2[, cells_random]
+```
+
+To better understand the efficiency of the applied normalisation procedures, we plot the relative log expression of genes in `r n_cells_plot` randomly selected cells before and after normalisation. This type of plot reveals unwanted variation in your data. The concept is taken from `r knitcitations::citet("10.1371/journal.pone.0191629")`. In brief, we remove variation between genes, leaving only variation between samples. If expression levels of most genes are similar in all cell types, sample heterogeneity is a sign of unwanted variation. 
+
+For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (lightgrey), whiskers defined as 1.5 times the interquartile range (darkgrey), and outliers (`r param$col`). 
+
+### Raw counts
+```{r plot_norm_raw}
+raw = log2(raw + 1)
+p = PlotRLE(raw, col=param$col) + labs(title="log2(raw counts + 1)")
+p
+```
+
+### Standard normalisation
+```{r plot_norm_norm}
+p = PlotRLE(norm1, col=param$col) + labs(title="Normalised data")
+p 
+```
+
+### Advanced normalisation (SCT)
+```{r plot_norm_sct}
+p = PlotRLE(norm2, col=param$col) + labs(title="SCTransform'ed data")
+p 
+```
+
 ## Dimensionality reduction
 A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. The biological manifold however can be described by far fewer dimensions than the number of genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
 
@@ -325,6 +373,10 @@ We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noi
 
 To decide how many PCs to include in downstream analyses, we visualize cells and genes that define the PCA. 
 ```{r pca}
+# Run PCA for "RNA" assay; this is required for the JackStraw plot
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), assay="RNA")
+
+# Run PCA for the default "SCT" assay
 sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc))
 
 p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
@@ -355,7 +407,7 @@ For your dataset, we decided to go for `r param$pc_n` PCs.
 # NOTE: This process can take a long time for big datasets, comment out for expediency. More
 # approximate techniques such as those implemented in ElbowPlot() can be used to reduce
 # computation time
-sc = Seurat::JackStraw(sc, num.replicate=100, dims=20)
+sc = Seurat::JackStraw(sc, num.replicate=100, dims=20, assay="RNA")
 sc = Seurat::ScoreJackStraw(sc, dims=1:20)
 p = Seurat::JackStrawPlot(sc, dims=1:20)
 p = PlotMystyle(p, title="Jack Straw plot", legend_position="bottom")
@@ -392,7 +444,7 @@ Take care not to mis-read a UMAP:
 * Distances between clusters might not mean anything  
 * You may need more than one plot  
   
-For a nice read to intuitively understand UMAP, see https://pair-code.github.io/understanding-umap/. 
+For a nice read to intuitively understand UMAP, see `r knitcitations::citep("https://pair-code.github.io/understanding-umap/")`. 
 ```{r umap, message=FALSE, results="hide"}
 sc = Seurat::RunUMAP(sc, dims=1:param$pc_n)
 
@@ -460,7 +512,7 @@ sc_markers_annot = cbind(sc_markers, annot_ensembl[sc_markers_ensembl,])
 # Output in Excel sheet
 sc_markers_lst = lapply(levels(sc_markers_annot$cluster), function(x) {sc_markers_annot %>% dplyr::filter(cluster==x)})
 names(sc_markers_lst) = paste0("cluster", levels(sc_markers$cluster))
-openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "/markers_xlsx"))
+openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "/markers.xlsx"))
 
 # Filter markers based on p-value and fold-change 
 sc_markers_filt = sc_markers %>% 
@@ -551,7 +603,7 @@ p
 ## Functional enrichment analysis
 To gain first insights into potential functions of cells in a cluster, we test for over-representation of functional terms amongst up- and down-regulated genes of each cluster. Over-represented terms are written to file.  
 
-We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website https://amp.pharm.mssm.edu/Enrichr/. You can choose to test functional enrichment from a wide range of databases:
+We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website `r knitcitations::citep("https://amp.pharm.mssm.edu/Enrichr/")`. You can choose to test functional enrichment from a wide range of databases:
 ```{r enrichr_databases, results="asis"}
 dbs_all = enrichR::listEnrichrDbs()
 knitr::kable(dbs_all, align="l", caption="Enrichr databases") %>% 
@@ -607,11 +659,11 @@ for (i in 1:length(enriched)) {
 ```
 
 # Cell Cycle Effect
-How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers_ Scoring is based on the strategy described in Tirosh et al. 2016, and human gene names are translated using biomaRt. 
+How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers_ Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
 ```{r cellCycleEffect}
 # Use biomart to translate human cell cycle genes to the species of interest
-mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror="www") 
-mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror="www") 
+mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
+mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
 
 genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$s.genes, mart=mart_human, attributesL=c("external_gene_name"), martL=mart_myspecies, uniqueRows=TRUE)
 
@@ -707,4 +759,9 @@ All files generated with this report are written into the provided output folder
   
 ```{r save, eval=FALSE}
 save.image(paste0(param$path_out, "/Seurat_scAnalysis.RData"))
+```
+
+# References
+```{r bib}
+knitcitations::write.bibtex(file="references.bib")
 ```

@@ -6,3 +6,4 @@
 test_datasets/**/results/
 test_datasets/**/demultiplexed/
 .DS_Store
+references.bib
