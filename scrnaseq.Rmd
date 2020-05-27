@@ -24,7 +24,7 @@ library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
 library(future) # multicore support for Seurat
-plan("multiprocess", workers = 4)
+plan("multiprocess") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
 
 # Other libraries we use
 # Knit: knitr
@@ -49,7 +49,7 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 use_python('/usr/bin/python')
 
 # biomaRt mirror
-mirror="asia"
+mirror="www"
 ```
 
 # Dataset description
