@@ -255,7 +255,7 @@ knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") 
 ```{r qc_plot}
 # Filter cutoffs
 cells_filter = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
-features_filter = 1 # feature has to be hit by at least one count in one cell 
+features_filter = c(min_counts=1, min_cells=1) # feature has to be found by at least one count in one cell 
 
 # Plot QC metrics
 features = c("nFeature_RNA", "nCount_RNA", "percent.mt")
@@ -280,9 +280,11 @@ p
 sc = subset(sc, subset=nFeature_RNA>cells_filter["nFeature_RNA"] & percent.mt<cells_filter["percent.mt"])
 
 # Filter features
-features_count_sum = Matrix::rowSums(Seurat::GetAssayData(sc, slot="counts", assay="RNA"))
-features_keep = which(features_count_sum > features_filter)
+features_count_sum = Matrix::rowSums(Seurat::GetAssayData(sc, slot="counts", assay="RNA") >= features_filter["min_counts"])
+features_keep = which(features_count_sum > features_filter["min_cells"])
 sc = subset(sc, features=features_keep)
+
+sc
 ```
 
 ## Normalisation, feature selection and scaling {.tabset}
