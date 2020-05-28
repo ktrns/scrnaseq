@@ -23,8 +23,8 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
-library(future) # multicore support for Seurat
-plan("multiprocess", workers = 4)
+#library(future) # multicore support for Seurat
+#plan("multiprocess", workers = 4)
 
 # Other libraries we use
 # Knit: knitr
@@ -88,6 +88,9 @@ param$mt = "^MT-"
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc_n = 10
+
+# Whether or not to remove cell cycle effects
+param$cc_remove = TRUE
 
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
@@ -294,30 +297,86 @@ sc = subset(sc, features=features_keep)
 sc
 ```
 
-## Normalisation, feature selection and scaling {.tabset}
-Feature selection: For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
+## Normalisation, cell cycle scoring, scaling and variable features {.tabset}
+In this section, we subsequently run a series of Seurat functions:  
+1. We start by running a __standard log normalisation__, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.   
+2. To be able to compare normalised gene counts between genes, gene counts are further __scaled__ to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis.  
+3. __Variable features__ are selected. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
 
-Scaling: To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis. 
+In addition, we run:  
+4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, scaling and variable features__). Note that results are kept both for steps 1-3 ("RNA" assay), and step 4 ("SCT" assay), but downstream analyses will default to resulting data of step 4. 
+
+If specified in the above parameter section, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M ans S phase markers, after the basic normalisation (step 1). Cell cycle effects are then removed during scaling (step 2 and 4). Done for this report: `r param$cc_remove`. 
+
 ```{r norm, results="hide"}
 # Normalise data the original way
 sc = Seurat::NormalizeData(sc, normalization.method = "LogNormalize", scale.factor = 10000)
+```
 
+```{r cc_scores, eval=param$cc_remove}
+if(param$cc_remove) {
+
+# Use biomart to translate human cell cycle genes to the species of interest
+mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
+mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
+
+genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), 
+                          filters="external_gene_name", 
+                          values=cc.genes.updated.2019$s.genes, 
+                          mart=mart_human, 
+                          attributesL=c("external_gene_name"), 
+                          martL=mart_myspecies, 
+                          uniqueRows=TRUE)
+genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"), 
+                            filters="external_gene_name", 
+                            values=cc.genes.updated.2019$g2m.genes, 
+                            mart=mart_human, 
+                            attributesL=c("external_gene_name"), 
+                            martL=mart_myspecies, 
+                            uniqueRows=TRUE)
+
+# Determine cell cycle effect
+sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
+
+}
+```
+
+```{r scaling}
+# Scaling "RNA" normalised counts is required to run PCA, which again is required for the JackStraw plot
+if (param$cc_remove) {
+  
+  # Save "RNA" assay with cell cycle
+  sc[["RNA_with_cc"]] = sc[["RNA"]]
+
+  # Scale normalised data and regress out cell cycle effect -> overwrites "SCT" scaled data
+  sc = Seurat::ScaleData(sc, features=rownames(sc), vars.to.regress=c("S.Score", "G2M.Score"))
+} else { 
+  
+  # Scale normalised data
+  sc = Seurat::ScaleData(sc, features=rownames(sc))
+}
+```
+
+```{r variable, eval=FALSE}
+# Probably obsolete, not needed anywhere in this report
 # Select features from normalised data
 sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 2000)
-
-# Scale normalised data
-sc = Seurat::ScaleData(sc, features=rownames(sc))
 ```
 
 ```{r sctransform, results="hide"}
 # Run sctransform
+if (param$cc_remove) {
+  sc = SCTransform(sc, vars.to.regress=c("S.Score", "G2M.Score"))
+} else {
+  sc = SCTransform(sc)
+}
+
+# "SCT" is now the default assay (active.assay)
+
 # This is a new normalisation method that replaces previous Seurat functions 'NormalizeData', 'FindVariableFeatures', and 'ScaleData'. 
 # vignette: https://satijalab.org/seurat/v3.0/sctransform_vignette.html
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
-# normalised data end up here: sc@assays$SCT@data
-sc = SCTransform(sc)
-
-# "SCT" is now the default assay (active.assay)
+# Normalised data end up here: sc@assays$SCT@data
 
 # Note: If I write Seurat::SCTransform, I get the following error message in the next chunk for
 #   Seurat::VariableFeaturePlot(sc, cols=c("grey", param$col)) 
@@ -465,6 +524,66 @@ p = PlotMystyle(p, "UMAP, cells coloured by cluster identity", legend_position="
 p
 ```
 
+## Cell Cycle Effect
+How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
+```{r cellCycleEffect}
+# If not done in a previous chunk, get cell cycle genes translated
+if(!param$cc_remove) {
+  # Use biomart to translate human cell cycle genes to the species of interest
+  mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
+  mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
+
+  genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), 
+                            filters="external_gene_name", 
+                            values=cc.genes.updated.2019$s.genes, 
+                            mart=mart_human, 
+                            attributesL=c("external_gene_name"), 
+                            martL=mart_myspecies, 
+                            uniqueRows=TRUE)
+  genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"), 
+                              filters="external_gene_name", 
+                              values=cc.genes.updated.2019$g2m.genes, 
+                              mart=mart_human, 
+                              attributesL=c("external_gene_name"), 
+                              martL=mart_myspecies, 
+                              uniqueRows=TRUE)
+}
+
+# Determine cell cycle effect, this time based on default assay "SCT"
+sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
+
+# Get a feeling for how many cells are affected
+p1 = ggplot(sc@meta.data, aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
+  geom_point() + 
+  scale_x_continuous("G1/S score") + 
+  scale_y_continuous("G2/M score")
+p1 = PlotMystyle(p1)
+p2 = ggplot(sc@meta.data %>% 
+              dplyr::group_by(seurat_clusters,Phase) %>% 
+              dplyr::summarise(num_reads=length(Phase)), 
+            aes(x=seurat_clusters, y=num_reads, fill=Phase)) + 
+  geom_bar(stat="identity", position="fill") + 
+  scale_x_discrete("Seurat clusters") + 
+  scale_y_continuous("Fraction of cells")
+p2 = PlotMystyle(p2)
+p = p1 + p2 & theme(legend.position="bottom")
+p = p + patchwork::plot_annotation(title="Cell cycle phases")
+p
+
+# UMAP with phases superimposed
+p3 = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
+PlotMystyle(p3, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
+
+p3 = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p3 = PlotMystyle(p3, title="UMAP, cells coloured by S phase")
+p4 = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p4 = PlotMystyle(p4, title="UMAP, cells coloured by G2M phase")
+p = p3 + p4
+p 
+```
+
+
+
 ## Feature plots QC
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
 ```{r featurePlot_QC, fig.height=10}
@@ -560,7 +679,7 @@ The following plots are exemplary to how we can visualize differentially express
 genes_example = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=1, wt=avg_logFC) %>% 
-  dplyr::pull(gene)
+  dplyr::pull(gene) #UNIQUE
 
 # Shows gene expression on the UMAP
 p = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE)
@@ -665,50 +784,6 @@ for (i in 1:length(enriched)) {
     openxlsx::write.xlsx(enriched[[i]], file=paste0(param$path_out, "/Functions_", names(enriched)[i], ".xlsx"))
   }
 }
-```
-
-# Cell Cycle Effect
-How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers_ Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
-```{r cellCycleEffect}
-# Use biomart to translate human cell cycle genes to the species of interest
-mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
-mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
-
-genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$s.genes, mart=mart_human, attributesL=c("external_gene_name"), martL=mart_myspecies, uniqueRows=TRUE)
-
-genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"), filters="external_gene_name", values=cc.genes.updated.2019$g2m.genes, mart=mart_human, attributesL=c("external_gene_name"), martL=mart_myspecies, uniqueRows=TRUE)
-
-# Determine cell cycle effect
-sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
-
-# Get a feeling for how many cells are affected
-p1 = ggplot(sc@meta.data, aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
-  geom_point() + 
-  scale_x_continuous("G1/S score") + 
-  scale_y_continuous("G2/M score")
-p1 = PlotMystyle(p1)
-p2 = ggplot(sc@meta.data %>% 
-              dplyr::group_by(seurat_clusters,Phase) %>% 
-              dplyr::summarise(num_reads=length(Phase)), 
-            aes(x=seurat_clusters, y=num_reads, fill=Phase)) + 
-  geom_bar(stat="identity", position="fill") + 
-  scale_x_discrete("Seurat clusters") + 
-  scale_y_continuous("Fraction of cells")
-p2 = PlotMystyle(p2)
-p = p1 + p2 & theme(legend.position="bottom")
-p = p + patchwork::plot_annotation(title="Cell cycle phases")
-p
-
-# UMAP with phases superimposed
-p3 = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
-PlotMystyle(p3, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
-
-p3 = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p3 = PlotMystyle(p3, title="UMAP, cells coloured by S phase")
-p4 = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p4 = PlotMystyle(p4, title="UMAP, cells coloured by G2M phase")
-p = p3 + p4
-p 
 ```
 
 # Loupe Cell Browser integration
