@@ -73,7 +73,7 @@ param$mt = "^MT-"
 param$col = "palevioletred"
 
 # Sample data to at most n cells (mainly for tests); set to NULL to deactivate
-param$sample_cells = NULL
+param$sample_cells = 3000
 ```
 
 ```{r hto_colours}
@@ -98,10 +98,10 @@ and setup a Seurat object. This object includes different data types in separate
 * **CRISPR Guide Capture** in **Crispr**, and  
 * **Custom** in **Custom**.   
 
-Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and can be distinguised based on provided HTO names. 
+Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and are distinguished based on provided HTO names. 
 ```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = Read10xDataset(param$path_data, project=param$project, row_name_column=2, hto_names=param$hto_names)
+sc = Read10xDataset(param$path_data, project=param$project, row_name_column=1, hto_names=param$hto_names)
 
 # If requested: sample at most n cells
 if (!is.null(param$sample_cells)) {
@@ -151,7 +151,7 @@ sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
 We assign cells to their sample-of-origin, annotate negative cells that cannot be assigned to any sample, and doublet cells that are assigned to two samples. 
 ```{r hto_demux, results="asis"}
 # Demultiplex HTOs
-sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.99)
+sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.95)
   
 # Sort Idents levels for nicer plotting
 Seurat::Idents(sc) = factor(Seurat::Idents(sc), levels=hto_levels)
@@ -212,9 +212,8 @@ p = p + patchwork::plot_annotation("HTO counts before and after normalisation") 
 p
 ```
 
-Pairs of raw (left tab) and normalised (right tab) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
+Pairs of raw (top) and normalised (bottom) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
 
-## Raw HTO data
 ```{r hto_plot_counts_norm, fig.height=10}
 n = DfAllColumnCombinations(x=hto_t_raw_pseudo, cell_classification=sc$hash.ID)
 
@@ -234,7 +233,6 @@ p = p + facet_grid(name2~name1, drop=FALSE) +
 p
 ```
 
-## Normalized HTO data
 ```{r hto_plot_norm_scatter, fig.height=10}  
 n = DfAllColumnCombinations(x=hto_t_norm, cell_classification=sc$hash.ID)
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
@@ -271,14 +269,15 @@ nfeature_metrics = grep("_HTO",
                         grep("nFeature_", colnames(sc[[]]), v=TRUE),
                         v=TRUE,
                         invert=TRUE)
-p = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), ncol=3, pt.size=0) + 
+p = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), pt.size=0) + 
   geom_violin(color=NA) +
   xlab("") 
 
 p = PlotMystyle(p, 
                 title="Number of features for HTO-classified cells", 
                 col=param$col_hto_collapsed, 
-                legend_title="Classified cells")
+                legend_title="Classified cells",
+                legend_position="bottom")
 p
 ```
 
@@ -351,3 +350,11 @@ for (s in samples) {
 message(demux_samples_paths)
 ```
 
+# Software versions
+This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
+```{r versions}
+out = scrnaseq_session_info()
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```
