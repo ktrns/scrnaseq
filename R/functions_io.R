@@ -179,7 +179,7 @@ Read10xDataset = function(path, project="SeuratProject", row_name_column=2, conv
   rownames(features_ids_types) = unname(seurat_row_names)
 
   # Read feature data in a list and change row names of the data so that they are Seurat compatible
-  feature_data = Seurat::Read10X(path, gene.column=row_name_column, unique.features=FALSE)
+  feature_data = Seurat::Read10X(path, gene.column=row_name_column)
   if (!is.list(feature_data)) {
     # only one feature type: need to know which and convert into list
     feature_types = unique(features_ids_types[, feature_type_column]) 
