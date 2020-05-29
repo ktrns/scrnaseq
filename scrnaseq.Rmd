@@ -23,8 +23,8 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
-#library(future) # multicore support for Seurat
-#plan("multiprocess", workers = 4)
+library(future) # multicore support for Seurat
+plan("multiprocess") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
 
 # Other libraries we use
 # Knit: knitr
@@ -49,7 +49,7 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 use_python('/usr/bin/python')
 
 # biomaRt mirror
-mirror="asia"
+mirror="www"
 ```
 
 # Dataset description
@@ -90,7 +90,7 @@ param$mt = "^MT-"
 param$pc_n = 10
 
 # Whether or not to remove cell cycle effects
-param$cc_remove = TRUE
+param$cc_remove = FALSE
 
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
@@ -843,6 +843,15 @@ All files generated with this report are written into the provided output folder
   
 ```{r save, eval=FALSE}
 save.image(paste0(param$path_out, "/Seurat_scAnalysis.RData"))
+```
+
+# Software versions
+This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
+```{r versions}
+out = scrnaseq_session_info()
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
 # References
