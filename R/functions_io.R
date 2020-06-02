@@ -175,7 +175,7 @@ Read10xDataset = function(path, project="SeuratProject", row_name_column=2, conv
     convert_ids = which(seurat_row_names %in% names(convert_row_names))
     seurat_row_names[convert_ids] = convert_row_names[seurat_row_names[convert_ids]]
   }
-  seurat_row_names = setNames(make.unique(gsub(pattern="_", replacement="-", x=seurat_row_names, fixed=TRUE)),names(seurat_row_names))
+  seurat_row_names = setNames(make.unique(gsub(pattern="_", replacement="-", x=seurat_row_names, fixed=TRUE)), names(seurat_row_names))
   rownames(features_ids_types) = unname(seurat_row_names)
 
   # Read feature data in a list and change row names of the data so that they are Seurat compatible
