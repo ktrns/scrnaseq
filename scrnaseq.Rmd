@@ -619,17 +619,22 @@ library(MAST)
 # logfc.threshold = requires a feature to be differentially expressed on average by some amount between the two groups
 # only.pos = find only positive markers 
 
+# Should cell cycle effects be ignored?
+latent_vars=NULL
+if(param$cc_remove) {
+  if(param$cc_remove_all) {
+    latent_vars = c("S.Score", "G2M.Score")
+  } else {
+    latent_vars = "CC.Difference"
+  }
+} 
+
 # Review recommends using "MAST"; Mathias uses "LR"
 # ALWAYS USE: assay="RNA" or assay="SCT"
 # DONT USE: assay=integrated datasets; this data is normalised and contains only 2k genes
-if(!param$cc_remove) {
-  sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
-                                      only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25)
-} else { 
-  sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
-                                      only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
-                                      latent.vars=c("S.Score","G2M.Score"))
-}
+sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                                    only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+                                    latent.vars=latent_vars)
 
 sc_markers_top2 = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
