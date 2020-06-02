@@ -73,7 +73,7 @@ param$mt = "^MT-"
 param$col = "palevioletred"
 
 # Sample data to at most n cells (mainly for tests); set to NULL to deactivate
-param$sample_cells = 3000
+param$sample_cells = NULL
 ```
 
 ```{r hto_colours}

@@ -323,7 +323,7 @@ In addition, we run:
 
 If specified in the above parameter section, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). Cell cycle effects are then removed during scaling (step 4). Done for this report: `r param$cc_remove`. 
 
-```{r norm, results="hide"}
+```{r norm_scale_variableFeatures, results="hide"}
 # This function often crashes with multicore support, so stop for a moment
 future::plan("sequential")
 
@@ -332,11 +332,18 @@ sc = Seurat::NormalizeData(sc, normalization.method = "LogNormalize", scale.fact
 
 # Back to multicore support
 future::plan("multicore")
+
+# Scaling "RNA" normalised counts is required to run PCA, which again is required for the JackStraw plot
+# Note that we do NOT remove cell cycle effects in "RNA" scaled data, since this is very slow and 
+#   only used for the JackStraw plot
+sc = Seurat::ScaleData(sc, features=VariableFeatures(sc))
+
+# Probably obsolete, not needed anywhere in this report
+# Select features from normalised data (unaffected by scaling)
+sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
 ```
 
-```{r cc_scores, eval=param$cc_remove}
-if(param$cc_remove) {
-
+```{r cc_genes_translate}
 # Use biomart to translate human cell cycle genes to the species of interest
 mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
 mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
@@ -355,24 +362,18 @@ genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"),
                             attributesL=c("external_gene_name"), 
                             martL=mart_myspecies, 
                             uniqueRows=TRUE)
+```
 
+```{r cc_scores, eval=param$cc_remove}
+# If cell cycle effects should be removed, we first score cells 
+# The effect is then removed in the following chunk 
+if(param$cc_remove) {
 # Determine cell cycle effect
 sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
 
 # Determine difference between G2M and S phase scores
 sc$CC.Difference = sc$S.Score - sc$G2M.Score
 }
-```
-
-```{r scaling_variableFeatures}
-# Scaling "RNA" normalised counts is required to run PCA, which again is required for the JackStraw plot
-# Note that we do NOT remove cell cycle effects in "RNA" scaled data, since this is very slow and 
-#   only used for the JackStraw plot
-sc = Seurat::ScaleData(sc, features=VariableFeatures(sc))
-
-# Probably obsolete, not needed anywhere in this report
-# Select features from normalised data (unaffected by scaling)
-sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
 ```
 
 ```{r sctransform, results="hide"}
@@ -549,28 +550,6 @@ p
 ## Cell Cycle Effect
 How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
 ```{r cellCycleEffect}
-# If not done in a previous chunk, get cell cycle genes translated
-if(!param$cc_remove) {
-  # Use biomart to translate human cell cycle genes to the species of interest
-  mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
-  mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
-
-  genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), 
-                            filters="external_gene_name", 
-                            values=cc.genes.updated.2019$s.genes, 
-                            mart=mart_human, 
-                            attributesL=c("external_gene_name"), 
-                            martL=mart_myspecies, 
-                            uniqueRows=TRUE)
-  genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"), 
-                              filters="external_gene_name", 
-                              values=cc.genes.updated.2019$g2m.genes, 
-                              mart=mart_human, 
-                              attributesL=c("external_gene_name"), 
-                              martL=mart_myspecies, 
-                              uniqueRows=TRUE)
-}
-
 # Determine cell cycle effect, this time based on default assay "SCT"
 sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
 
@@ -643,7 +622,15 @@ library(MAST)
 # Review recommends using "MAST"; Mathias uses "LR"
 # ALWAYS USE: assay="RNA" or assay="SCT"
 # DONT USE: assay=integrated datasets; this data is normalised and contains only 2k genes
-sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25, test.use="MAST")
+if(!param$cc_remove) {
+  sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                                      only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25)
+} else { 
+  sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                                      only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+                                      latent.vars=c("S.Score","G2M.Score"))
+}
+
 sc_markers_top2 = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=2, wt=avg_logFC) %>% 
