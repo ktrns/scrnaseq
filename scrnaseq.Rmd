@@ -49,7 +49,7 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 use_python('/usr/bin/python')
 
 # biomaRt mirror
-mirror="www"
+mirror="asia"
 ```
 
 # Dataset description
@@ -92,6 +92,10 @@ param$pc_n = 10
 # Whether or not to remove cell cycle effects
 param$cc_remove = FALSE
 
+# Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
+# Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
+param$cc_remove_all = FALSE
+
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
 
@@ -113,19 +117,28 @@ param$known_markers[["dendritic"]] = "FCER1A"
 # Enrichr databases of interest
 param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
 
-# Main color to use for plots
+# Main colour(s) to use for plots
 param$col = "palevioletred"
+
+# The number of colours provided should match the number of datasets
+if (nrow(param$path_data) > 1) {
+  param$col_samples = ggsci::pal_npg()(nrow(param$path_data))
+  names(param$col_samples) = param$path_data$name
+} else { 
+  param$col_samples = param$col
+}
 ```
 
 # Read data
 ## Read and print mapping statistics
 We begin by printing mapping statistics that have been produced prior to this workflow. 
-```{r mapping_stats, results="asis"}
+```{r mapping_stats}
 if (!is.null(param$file_mapping_stats)) {
   mapping_stats = as.data.frame(t(read.delim(param$file_mapping_stats, sep=",", header=TRUE, check.names=FALSE)))
   colnames(mapping_stats) = "Value"
   knitr::kable(mapping_stats, align="l", caption="Mapping statistics") %>% 
-    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+ 
 } else { 
   message("Mapping statistics cannot be shown. No valid file provided.")
 }
@@ -253,13 +266,15 @@ if (is.list(sc) & length(sc)==1) {
 # Pre-processing
 ## Quality control 
 We start the analysis by removing unwanted cells from the dataset. Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature"), the total number of molecules detected in each cell ("nCount"), and the percentage of reads that map to the mitochrondrial genome ("percent.mt").
-```{r qc, results="asis"}
+```{r qc}
 # Calculate percentage of reads that map to mitochondrial genome 
 sc = PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
 
 # Metadata 
 knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%")
+
 ```
 
 ```{r qc_plot}
@@ -269,7 +284,7 @@ features_filter = c(min_counts=1, min_cells=1) # feature has to be found by at l
 
 # Plot QC metrics
 features = c("nFeature_RNA", "nCount_RNA", "percent.mt")
-p = VlnPlot(sc, features=features, pt.size=0, col=param$col, combine=FALSE) 
+p = VlnPlot(sc, features=features, pt.size=0, col=param$col_samples, combine=FALSE) 
 names(p) = features
 for (i in features) {
   p[[i]] = PlotMystyle(p[[i]], title=i, legend_position="none") + xlab("")
@@ -280,8 +295,8 @@ p
 
 # Correlate QC metrics
 p = list()
-p[[1]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[1], cols=param$col)
-p[[2]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[3], cols=param$col)
+p[[1]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[1], cols=param$col_samples)
+p[[2]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[3], cols=param$col_samples)
 for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_position="none")
 p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other") 
 p
@@ -304,13 +319,19 @@ In this section, we subsequently run a series of Seurat functions:
 3. __Variable features__ are selected. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others. 
 
 In addition, we run:  
-4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, scaling and variable features__). Note that results are kept both for steps 1-3 ("RNA" assay), and step 4 ("SCT" assay), but downstream analyses will default to resulting data of step 4. 
+4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, scaling and variable features__). Note that although results are kept for steps 1-3 ("RNA" assay), downstream analyses will default to resulting data of step 4 ("SCT" assay). 
 
-If specified in the above parameter section, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M ans S phase markers, after the basic normalisation (step 1). Cell cycle effects are then removed during scaling (step 2 and 4). Done for this report: `r param$cc_remove`. 
+If specified in the above parameter section, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). Cell cycle effects are then removed during scaling (step 4). Done for this report: `r param$cc_remove`. 
 
 ```{r norm, results="hide"}
+# This function often crashes with multicore support, so stop for a moment
+future::plan("sequential")
+
 # Normalise data the original way
 sc = Seurat::NormalizeData(sc, normalization.method = "LogNormalize", scale.factor = 10000)
+
+# Back to multicore support
+future::plan("multicore")
 ```
 
 ```{r cc_scores, eval=param$cc_remove}
@@ -338,35 +359,36 @@ genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"),
 # Determine cell cycle effect
 sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
 
+# Determine difference between G2M and S phase scores
+sc$CC.Difference = sc$S.Score - sc$G2M.Score
 }
 ```
 
-```{r scaling}
+```{r scaling_variableFeatures}
 # Scaling "RNA" normalised counts is required to run PCA, which again is required for the JackStraw plot
-if (param$cc_remove) {
-  
-  # Save "RNA" assay with cell cycle
-  sc[["RNA_with_cc"]] = sc[["RNA"]]
+# Note that we do NOT remove cell cycle effects in "RNA" scaled data, since this is very slow and 
+#   only used for the JackStraw plot
+sc = Seurat::ScaleData(sc, features=VariableFeatures(sc))
 
-  # Scale normalised data and regress out cell cycle effect -> overwrites "SCT" scaled data
-  sc = Seurat::ScaleData(sc, features=rownames(sc), vars.to.regress=c("S.Score", "G2M.Score"))
-} else { 
-  
-  # Scale normalised data
-  sc = Seurat::ScaleData(sc, features=rownames(sc))
-}
-```
-
-```{r variable, eval=FALSE}
 # Probably obsolete, not needed anywhere in this report
-# Select features from normalised data
-sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 2000)
+# Select features from normalised data (unaffected by scaling)
+sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000)
 ```
 
 ```{r sctransform, results="hide"}
 # Run sctransform
 if (param$cc_remove) {
-  sc = SCTransform(sc, vars.to.regress=c("S.Score", "G2M.Score"))
+
+  # Regress out cell cycle effect
+  if(param$cc_remove_all) {
+    
+    # Remove all signal associated to cell cycle
+    sc = SCTransform(sc, vars.to.regress=c("S.Score", "G2M.Score"))
+  } else { 
+    
+  # Remove only the difference between G2M and S phase
+    sc = SCTransform(sc, vars.to.regress="CC.Difference")
+  }
 } else {
   sc = SCTransform(sc)
 }
@@ -398,7 +420,7 @@ p
 ```
 
 ```{r plot_norm}
-n_cells_plot = 200
+n_cells_plot = min(200, length(Seurat::Cells(sc)))
 cells_random = sample(1:length(Seurat::Cells(sc)), n_cells_plot)
 
 raw = GetAssayData(sc, assay="RNA", slot="counts") %>% as.matrix()
@@ -452,7 +474,7 @@ for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
 p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
-p = Seurat::DimPlot(sc, reduction="pca", cols=param$col)
+p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples)
 p = PlotMystyle(p, title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 
@@ -571,18 +593,19 @@ p = p + patchwork::plot_annotation(title="Cell cycle phases")
 p
 
 # UMAP with phases superimposed
-p3 = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
-PlotMystyle(p3, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
+p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
+PlotMystyle(p, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
 
-p3 = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p3 = PlotMystyle(p3, title="UMAP, cells coloured by S phase")
-p4 = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
-p4 = PlotMystyle(p4, title="UMAP, cells coloured by G2M phase")
-p = p3 + p4
-p 
 ```
 
-
+```{r cellCycleEffect_featurePlot, fig.height=10}
+p1 = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p1 = PlotMystyle(p1, title="UMAP, cells coloured by S phase")
+p2 = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col))
+p2 = PlotMystyle(p2, title="UMAP, cells coloured by G2M phase")
+p = p1 + p2
+p 
+```
 
 ## Feature plots QC
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
@@ -595,23 +618,20 @@ patchwork::wrap_plots(p, ncol=2)
 
 ## Feature plots for known marker genes
 Do cells in individual clusters express provided known marker genes?
-```{r featurePlot_markerGenes, eval=FALSE}
+```{r featurePlot_markerGenes, eval=TRUE}
 g = unique(unlist(param$known_markers))
 g = g[length(g):1]
 p = Seurat::DotPlot(sc, features=g, cols=c("lightgrey", param$col)) + 
   theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
+p = PlotMystyle(p, title="Dot plot of known marker genes")
 p
 
-for (i in 1:length(param$known_markers)) {
-  p = FeaturePlot(sc, features=param$known_markers[[i]], cols=c("lightgrey", param$col))
-  p = ggpubr::annotate_figure(p=p, top=ggpubr::text_grob(label=names(param$known_markers)[i]))
-  print(p)
-}
+# Todo: add feature plots!
 ```
 
 ## Differentially expressed genes
 We next identify genes that are differentially expressed in one cluster compared to all other clusters. Additional gene annotation is added, and the resulting tables are written to file. 
-```{r DEG, results="asis"}
+```{r DEG}
 # We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
 library(MAST)
 
@@ -631,7 +651,7 @@ sc_markers_top2 = sc_markers %>%
 
 # Show top 2 merkers per cluster
 knitr::kable(sc_markers_top2, align="l", caption="Top 2 DEGs per cell cluster") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Add Ensembl annotation
 sc_markers_ensembl = seurat_rowname_to_ensembl[sc_markers[,"gene"]]
@@ -657,10 +677,13 @@ sc_markers_filt_up = sc_markers_filt %>%
 # Number of DEGs per cluster
 cluster_all = sort(unique(sc_markers[,"cluster"]))
 sc_markers_filt_n = cbind(Cluster=cluster_all, 
-                          sc_markers_filt_down %>% dplyr::count(cluster) %>% dplyr::transmute(Down=n),
-                          sc_markers_filt_up %>% dplyr::count(cluster) %>% dplyr::transmute(Up=n)) %>% tidyr::pivot_longer(cols=c("Down", "Up"), 
+                          Down=sapply(cluster_all, function(x) sum(sc_markers_filt_down$cluster == x)), 
+                          Up=sapply(cluster_all, function(x) sum(sc_markers_filt_up$cluster == x))) %>% 
+  as.data.frame() %>% 
+  tidyr::pivot_longer(cols=c("Down", "Up"), 
                       names_to="Direction", 
                       values_to="n")
+sc_markers_filt_n$Cluster = as.factor(sc_markers_filt_n$Cluster)
 
 p = ggplot(sc_markers_filt_n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
 p = PlotMystyle(p, 
@@ -679,7 +702,8 @@ The following plots are exemplary to how we can visualize differentially express
 genes_example = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=1, wt=avg_logFC) %>% 
-  dplyr::pull(gene) #UNIQUE
+  dplyr::pull(gene) %>% 
+  unique()
 
 # Shows gene expression on the UMAP
 p = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE)
@@ -732,10 +756,10 @@ p
 To gain first insights into potential functions of cells in a cluster, we test for over-representation of functional terms amongst up- and down-regulated genes of each cluster. Over-represented terms are written to file.  
 
 We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website `r knitcitations::citep("https://amp.pharm.mssm.edu/Enrichr/")`. You can choose to test functional enrichment from a wide range of databases:
-```{r enrichr_databases, results="asis"}
+```{r enrichr_databases}
 dbs_all = enrichR::listEnrichrDbs()
 knitr::kable(dbs_all, align="l", caption="Enrichr databases") %>% 
-  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
   kableExtra::scroll_box(width="100%", height="300px")
 ```
 
@@ -778,12 +802,34 @@ for (i in 1:length(genesets)) {
 names(enriched) = names(genesets)
 
 # Write enrichment results to file
-enriched_write = unlist(enriched, recursive=FALSE)
+enriched_top = matrix(NA, nrow=0, ncol=6)
+colnames(enriched_top) = c("GeneSet", "Database", "Term", "Overlap", "Adjusted_pval", "Genes")
 for (i in 1:length(enriched)) { 
   if (!is.null(enriched[[i]])) { 
     openxlsx::write.xlsx(enriched[[i]], file=paste0(param$path_out, "/Functions_", names(enriched)[i], ".xlsx"))
   }
 }
+```
+
+The following table contains the top enriched term per geneset and datqbase. 
+```{r functional_enrichment_results}
+for (i in 1:length(enriched)) { 
+  if ((!is.null(enriched[[i]])) & (!is.na(enriched[[i]]))) { 
+
+    # Remember top term per geneset
+    for(j in 1:length(enriched[[i]])) {
+        enriched_top = rbind(enriched_top, 
+                             c(names(enriched)[i], 
+                             names(enriched[[i]])[j], 
+                             enriched[[i]][[j]][1, c("Term", "Overlap", "Adjusted.P.value", "Genes")]))
+    }
+  }
+}
+
+# Print table of top terms per gene set
+knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%", height="700px")
 ```
 
 # Loupe Cell Browser integration
@@ -851,7 +897,7 @@ This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq
 out = scrnaseq_session_info()
 
 knitr::kable(out, align="l") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 # References
