@@ -66,13 +66,13 @@ param = list()
 param$project = "pbmc"
 
 # Input data path in case Cell Ranger was run 
-param$path_data = data.frame(name="pbmc",
-                             type="10x",
-                             path="test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/counts/")
-param$file_mapping_stats = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/pbmc_1k_v3_metrics_summary.csv"
+param$path_data = data.frame(name=c("set1","set2"),
+                             type=c("10x","smartseq2"),
+                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/","test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"))
+param$file_mapping_stats = NULL
 
 # Project-specific paths
-param$path_out = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/results"
+param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results"
 if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE)
 
 # Annotation via biomaRt
@@ -85,6 +85,11 @@ param$mart_attributes = c("ensembl_gene_id", "external_gene_name", "hgnc_symbol"
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
+
+# Filters
+param$cell_filter = list(nFeature_RNA=c(200,NA), nCount_RNA=NA, percent_mt=c(NA,20))
+param$features_filter = list(min_counts=1, min_cells=1) # feature has to be found by at least one count in one cell
+param$samples_to_drop = c("NC", "RNA") # cells from these samples will be dropped after initial QC
 
 # The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
 param$pc_n = 10
@@ -197,8 +202,8 @@ names(seurat_rowname_to_ensembl_match) = names(seurat_rowname_to_ensembl)
 seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl_match, function(i) {unname(ensembl_to_entrez[[i]])})
 ```
 
-## Setup the Seurat object
-We next read the scRNA-seq counts table(s) to initialise a Seurat object. 
+## Setup
+We next read the scRNA-seq dataset(s) into Seurat. 
 ```{r read_datasets}
 # List of Seurat objects
 sc = list()
@@ -242,6 +247,160 @@ for (i in seq(nrow(datasets))) {
 sc
 ```
 
+
+# Pre-processing
+## Quality control 
+We start the analysis by removing unwanted cells from the dataset(s). Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature_RNA"), the total number of molecules detected in each cell ("nCount_RNA"), and the percentage of counts that map to the mitochrondrial genome ("percent_mt"). If ERCC spike-in controls were used, the percentage of counts mapping to them is also shown ("percent_ercc").
+```{r qc_criteria_tmp}
+# needed for now: is there a better structure for cell filter criteria ?
+param$cell_filter = purrr::map(names(sc), function(s) {
+  return(param$cell_filter)
+})
+names(param$cell_filter) = names(sc)
+
+# same for feature filter criteria
+param$features_filter = purrr::map(names(sc), function(s) {
+  return(param$features_filter)
+})
+names(param$features_filter) = names(sc)
+
+```
+
+```{r qc_calculate_cell}
+## CELLS ##
+
+# Calculate percentage of counts in mitochondrial genes for each Seurat object
+sc = purrr::map(sc, PercentageFeatureSet, pattern=param$mt, col.name="percent_mt", assay="RNA")
+
+# Calculate percentage of counts in ERCC for each Seurat object (if assay is available)
+sc = purrr::map(sc, function(s) {
+  if ("ERCC" %in% Assays(s)) s$percent_ercc = s$nCount_ERCC/(s$nCount_ERCC + s$nCount_RNA)*100
+  return(s)
+  })
+
+# Combine cell metadata of the Seurat objects into one big metadata
+sc_cell_metadata = purrr::map_dfr(sc, ~ .x[[]])
+
+knitr::kable(head(sc_cell_metadata, 5), align="l", caption="Cell meta-data, top 5 rows") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%")
+
+## FEATURES (only RNA assay at the moment) ##
+dataset_names = names(sc)
+sc = purrr::map(names(sc), function(n) {
+  num_cells_expr = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= 1)
+  num_cells_expr_threshold = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= param$features_filter[[n]][["min_counts"]])
+  sc[[n]][["RNA"]] = Seurat::AddMetaData(sc[[n]][["RNA"]], data.frame(num_cells_expr,num_cells_expr_threshold))
+  return(sc[[n]])
+})
+names(sc) = dataset_names
+
+knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature meta-data for assay 'RNA', top 5 rows (only first dataset shown)") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%")
+
+```
+
+
+```{r qc_plot}
+## CELLS ##
+
+# Plot QC metrics for cells
+cell_qc_features = c("nFeature_RNA", "nCount_RNA", "percent_mt")
+if ("percent_ercc" %in% colnames(cell_qc_features)) cell_qc_features = c(cell_qc_features,"percent_ercc")
+names(cell_qc_features) = cell_qc_features
+
+p = list()
+for (i in names(cell_qc_features)) {
+  p[[i]]= ggplot(sc_cell_metadata,aes_string(x="orig.ident", y=i, fill="orig.ident")) +
+    geom_violin(scale="width") +
+    scale_fill_manual(values=param$col_samples) +
+    theme_bw()
+  p[[i]] = PlotMystyle(p[[i]], title=i, legend_position="none") + xlab("")
+  
+  cell_filter_for_plot = purrr::map_dfr(names(param$cell_filter), function(n) {
+    if(i %in% names(param$cell_filter[[n]])) data.frame(orig.ident=n, threshold=c("min","max"), value=param$cell_filter[[n]][[i]])
+  }) %>% dplyr::filter(!is.na(value))
+  
+  if (nrow(cell_filter_for_plot)>0) p[[i]] = p[[i]] + geom_segment(data=cell_filter_for_plot,aes(x=as.integer(as.factor(orig.ident))-0.5, xend=as.integer(as.factor(orig.ident))+0.5, y=value, yend=value),lty=2, col="darkgrey")
+}
+p = patchwork::wrap_plots(p, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
+p
+
+# Correlate QC metrics for cells
+p = list()
+p[[1]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[1], colour="orig.ident")) +
+  geom_point() +
+  scale_colour_manual(values=param$col_samples) +
+  theme_bw()
+p[[2]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[3], colour="orig.ident")) +
+  geom_point() +
+  scale_colour_manual(values=param$col_samples) +
+  theme_bw()
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_position="none")
+p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other") 
+p
+
+## FEATURES (only RNA assay at the moment) ##
+
+# Plot QC metrics for genes ?
+# sss
+```
+
+```{r filtering}
+## CELLS ##
+
+# iterate over datasets and then over filters
+# record a cell if it does not pass the filter; also record cell if it belongs to a sample that should be dropped anyway
+sc_filtered_cells = purrr::map(names(sc), function(n) {
+  # filters
+  filter_result = purrr::map(names(param$cell_filter[[n]]), function(f) {
+    filter = param$cell_filter[[n]][[f]]
+    if (!is.null(filter) & length(filter)==2){
+      if (is.na(filter[1])) filter[1] = -Inf
+      if (is.na(filter[2])) filter[2] = Inf
+      return(names(which(sc[[n]][[f, drop=TRUE]] < filter[1] | sc[[n]][[f, drop=TRUE]] > filter[2])))
+    }
+  })
+  names(filter_result) = names(param$cell_filter[[n]])
+  
+  # samples to drop
+  cell_identities = sc[[n]][["orig.ident", drop=TRUE]]
+  filter_result[["sample_to_drop"]] = names(cell_identities[cell_identities %in% param$samples_to_drop])
+ return(filter_result)
+})
+names(sc_filtered_cells) = names(sc)
+
+# we could add a summary here #
+
+# now filter
+dataset_names = names(sc)
+sc = purrr::map(names(sc), function(n) {
+  cells_to_keep = Cells(sc[[n]])
+  cells_to_keep = cells_to_keep[!cells_to_keep %in% purrr::flatten_chr(sc_filtered_cells[[n]])]
+  return(subset(sc[[n]], cells=cells_to_keep))
+})
+names(sc) = dataset_names
+
+## FEATURES (only RNA assay at the moment) ##
+
+# iterate over datasets and record a feature if it does not pass the filter
+sc_filtered_features  = purrr::map(names(sc), function(n) {
+  names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$features_filter[[n]][["min_cells"]]))
+})
+names(sc_filtered_features) = names(sc)
+
+# now filter
+dataset_names = names(sc)
+sc = purrr::map(names(sc), function(n) {
+  n = "set1"
+  features_to_keep = purrr::flatten_chr(purrr::map(Assays(sc[[n]]), function(a){rownames(sc[[n]][[a]])}))
+  features_to_keep = features_to_keep[!features_to_keep %in% sc_filtered_features[[n]]]
+  return(subset(sc[[n]], features=features_to_keep))
+})
+names(sc) = dataset_names
+```
+
 ```{r integrate_multiple_samples, eval=length(sc)>1, include=length(sc)>1}
 #  this chunk is for integrating multiple samples
 
@@ -261,55 +420,6 @@ if (is.list(sc) & length(sc)>1) {
 if (is.list(sc) & length(sc)==1) {
   sc = sc[[1]]
 }
-```
-
-# Pre-processing
-## Quality control 
-We start the analysis by removing unwanted cells from the dataset. Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature"), the total number of molecules detected in each cell ("nCount"), and the percentage of reads that map to the mitochrondrial genome ("percent.mt").
-```{r qc}
-# Calculate percentage of reads that map to mitochondrial genome 
-sc = PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
-
-# Metadata 
-knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-  kableExtra::scroll_box(width="100%")
-
-```
-
-```{r qc_plot}
-# Filter cutoffs
-cells_filter = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
-features_filter = c(min_counts=1, min_cells=1) # feature has to be found by at least one count in one cell 
-
-# Plot QC metrics
-features = c("nFeature_RNA", "nCount_RNA", "percent.mt")
-p = VlnPlot(sc, features=features, pt.size=0, col=param$col_samples, combine=FALSE) 
-names(p) = features
-for (i in features) {
-  p[[i]] = PlotMystyle(p[[i]], title=i, legend_position="none") + xlab("")
-  if (!is.na(cells_filter[i])) p[[i]] = p[[i]] + geom_hline(yintercept=cells_filter[i], lty=2, col="darkgrey") 
-}
-p = patchwork::wrap_plots(p, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
-p 
-
-# Correlate QC metrics
-p = list()
-p[[1]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[1], cols=param$col_samples)
-p[[2]] = Seurat::FeatureScatter(sc, feature1=features[2], feature2=features[3], cols=param$col_samples)
-for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_position="none")
-p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other") 
-p
-
-# Filter cells
-sc = subset(sc, subset=nFeature_RNA>cells_filter["nFeature_RNA"] & percent.mt<cells_filter["percent.mt"])
-
-# Filter features
-features_count_sum = Matrix::rowSums(Seurat::GetAssayData(sc, slot="counts", assay="RNA") >= features_filter["min_counts"])
-features_keep = which(features_count_sum > features_filter["min_cells"])
-sc = subset(sc, features=features_keep)
-
-sc
 ```
 
 ## Normalisation, cell cycle scoring, scaling and variable features {.tabset}
