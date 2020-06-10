@@ -5,6 +5,7 @@ scrnaseq.Rproj
 .Ruserdata
 .Rproj
 test_datasets/**/results/
+test_datasets/**/Seurat_results/
 test_datasets/**/counts/
 test_datasets/**/demultiplexed/
 .DS_Store
