@@ -282,7 +282,7 @@ knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") 
 ```{r qc_filter}
 # Filter cutoffs
 cells_filter = c(nFeature_RNA=200, nCount_RNA=NA, percent.mt=20)
-features_filter = c(min_counts=1, min_cells=1) # feature has to be found by at least one count in one cell 
+features_filter = c(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell 
 ```
 
 We keep cells with more than `r cells_filter["nFeature_RNA"]` detected features, and cells with less than `r cells_filter["percent.mt"]`% of mitochondrial reads. We keep features detected with at least `r features_filter["min_counts"]` count(s) in at least `r features_filter["min_cells"]` cell(s). 
@@ -561,7 +561,7 @@ p
 How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
 ```{r cellCycleEffect}
 # Determine cell cycle effect, this time based on default assay "SCT"
-sc = CellCycleScoring(object=sc, s.features=genes_s, g2m.features=genes_g2m, set.ident=FALSE, nbin=15)
+sc = CellCycleScoring(object=sc, s.features=genes_s, g2m.features=genes_g2m, set.ident=FALSE)
 
 # Get a feeling for how many cells are affected
 p1 = ggplot(sc@meta.data, aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
