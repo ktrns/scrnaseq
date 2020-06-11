@@ -19,7 +19,7 @@ params:
    hto_names: !r setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
    mt: "^MT-"
    col: palevioletred
-   sample_cells = NULL
+   sample_cells: NULL
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
@@ -56,23 +56,25 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 `r params$path_data`
 
 **Output path**  
-`r params$path.out`
+`r params$path_out`
 
-**HTO names**
+**HTO names**  
+`r names(params$hto_names)`  
 `r params$hto_names`
 
-**Prefix of mitochondrial genes**
+**Prefix of mitochondrial genes**  
 `r params$mt`
 
-`r if(!is.null(params$sample_cells)) print("**Sample data to at most n cells (mainly for tests); set to NULL to deactivate**  ")`
-`r if(!is.null(params$sample_cells)) params$sample_cells`
+**Sample data to at most n cells (mainly for tests); set to NULL to deactivate**  
+`r if(is.null(params$sample_cells)) c("NULL") else params$sample_cells`
 
 ```{r hto_colours}
-params$col_hto_global = ggsci::pal_npg()(3)
-params$col_hto_all = ggsci::pal_npg()(factorial(length(params$hto_names)) + 1)
-params$col_hto_collapsed = ggsci::pal_npg()(length(params$hto_names) + 2)
+hto_colours = list()
+hto_colours$col_hto_global = ggsci::pal_npg()(3)
+hto_colours$col_hto_all = ggsci::pal_npg()(factorial(length(params$hto_names)) + 1)
+hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(params$hto_names) + 2)
 hto_levels = c("Negative", "Doublet", params$hto_names[length(params$hto_names):1])
-names(params$col_hto_collapsed) = hto_levels
+names(hto_colours$col_hto_collapsed) = hto_levels
 ```
 
 ```{r create_output_path}
@@ -164,14 +166,14 @@ p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global),
   geom_bar(width=1, stat="identity") + 
   coord_polar("y", start=0) + 
   xlab("") + ggplot2::ylab("")
-p1 = PlotMystyle(p=p1, title="HTO global classification results", col=params$col_hto_global)
+p1 = PlotMystyle(p=p1, title="HTO global classification results", col=hto_colours$col_hto_global)
   
 p2 = ggplot(sc@meta.data %>% dplyr::count(hash.ID), 
             aes(x="", y=n, fill=hash.ID)) + 
   geom_bar(width=1, stat="identity") + 
   coord_polar("y", start=0) + 
   xlab("") + ylab("")
-p2 = PlotMystyle(p=p2, title="HTO classification results", col=params$col_hto_collapsed)
+p2 = PlotMystyle(p=p2, title="HTO classification results", col=hto_colours$col_hto_collapsed)
 
 p = p1 + p2 + 
   patchwork::plot_annotation(title="HTO classification results") + 
@@ -193,13 +195,13 @@ p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   xlab("") + ylab("") 
-p1 = PlotMystyle(p1, title="HTO raw counts", col=params$col_hto_collapsed, legend_title="HTO")
+p1 = PlotMystyle(p1, title="HTO raw counts", col=hto_colours$col_hto_collapsed, legend_title="HTO")
   
 p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
             aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   xlab("") + ylab("")
-p2 = PlotMystyle(p2, title="HTO normalised counts", col=params$col_hto_collapsed, legend_title="HTO")
+p2 = PlotMystyle(p2, title="HTO normalised counts", col=hto_colours$col_hto_collapsed, legend_title="HTO")
 
 p = p1 + p2 & theme(legend.position="bottom") 
 p = p + patchwork::plot_annotation("HTO counts before and after normalisation") + 
@@ -216,7 +218,7 @@ n = DfAllColumnCombinations(x=hto_t_raw_pseudo, cell_classification=sc$hash.ID)
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
   geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=params$col_hto_collapsed)
+  scale_color_manual(values=hto_colours$col_hto_collapsed)
 p = PlotMystyle(p)
 p = p + facet_grid(name2~name1, drop=FALSE) + 
   theme(axis.title.x=element_blank(), strip.text.x=element_text(size=10, color="black"),
@@ -233,7 +235,7 @@ n = DfAllColumnCombinations(x=hto_t_norm, cell_classification=sc$hash.ID)
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
   geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
-  scale_color_manual(values=params$col_hto_collapsed)
+  scale_color_manual(values=hto_colours$col_hto_collapsed)
 p = PlotMystyle(p)
 p = p + facet_grid(name2~name1, drop=FALSE) + 
   theme(axis.title.x=element_blank(), strip.text.x=element_text(size=10, color="black"),
@@ -248,7 +250,7 @@ The following ridge plots visualise the enrichment of assigned sample-of-origin 
 ```{r hto_plot_norm, fig.height=10}
 # Group cells based on HTO classification 
 p = RidgePlot(sc, assay="HTO", features=rownames(Seurat::GetAssay(sc, assay="HTO")), 
-              same.y.lims=TRUE, cols=params$col_hto_collapsed, combine=FALSE)
+              same.y.lims=TRUE, cols=hto_colours$col_hto_collapsed, combine=FALSE)
 for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], legend_title="Classified cells")
 p = patchwork::wrap_plots(p, ncol = 2) + 
   patchwork::plot_annotation("Normalised HTO data") + 
@@ -270,7 +272,7 @@ p = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), pt
 
 p = PlotMystyle(p, 
                 title="Number of features for HTO-classified cells", 
-                col=params$col_hto_collapsed, 
+                col=hto_colours$col_hto_collapsed, 
                 legend_title="Classified cells",
                 legend_position="bottom")
 p
@@ -305,7 +307,7 @@ For a nice read to intuitively understand UMAP, see https://pair-code.github.io/
 
 ### Before filtering
 ```{r umap_before}
-p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=params$col_hto_collapsed) 
+p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=hto_colours$col_hto_collapsed) 
 p = PlotMystyle(p, 
                 title="UMAP, cells coloured by HTO classification, including doublets and negatives", 
                 legend_title="Cell classification", 
@@ -316,7 +318,7 @@ p
 ### After filtering
 ```{r umap_after}
 # Plot UMAP after HTO filtering
-p = Seurat::DimPlot(sc, reduction="umap", group.by="hash.ID", cols=params$col_hto_collapsed) 
+p = Seurat::DimPlot(sc, reduction="umap", group.by="hash.ID", cols=hto_colours$col_hto_collapsed) 
 p = PlotMystyle(p, 
                 title="UMAP, cells coloured by HTO classification, singlets only", 
                 legend_title="Cell classification", 
