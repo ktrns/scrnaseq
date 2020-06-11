@@ -137,13 +137,8 @@ param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018"
 # Main colour(s) to use for plots
 param$col = "palevioletred"
 
-# The number of colours provided should match the number of datasets
-if (nrow(param$path_data) > 1) {
-  param$col_samples = ggsci::pal_npg()(nrow(param$path_data))
-  names(param$col_samples) = param$path_data$name
-} else { 
-  param$col_samples = param$col
-}
+# Colour palette and colours used for samples
+param$col_palette_samples = ggsci::pal_npg
 ```
 
 # Read data
@@ -271,13 +266,35 @@ for (i in seq(nrow(datasets))) {
       # Add info to metadata
       sc[[name]] = Seurat::AddMetaData(sc[[name]], plate_information)
       
-      # Also set identity
-      sc[[name]] = Seurat::SetIdent(sc[[name]], value="SampleName")
+      # Also set orig.ident column and identity
+      sc[[name]][["orig.ident"]] = sc[[name]][["SampleName", drop=TRUE]]
+      sc[[name]] = Seurat::SetIdent(sc[[name]], value="orig.ident")
     }
   } 
 }
 
-sc
+# Check that sample names are unique between datasets: this can happen if multiple Smartseq2 datasets have a negative control (NC)
+# In this case, just prepend the dataset name, e.g. set1.NC, set2.NC, ...
+sample_names = purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) })
+duplicate_sample_names = purrr::reduce(sample_names, intersect)
+dataset_names = names(sc)
+sc = purrr::map(names(sc), function(n) {
+  if (any(sc[[n]][["orig.ident", drop=TRUE]] %in% duplicate_sample_names)) {
+    sc[[n]][["orig.ident.old"]] = sc[[n]][["orig.ident"]]
+    sc[[n]][["orig.ident"]] = ifelse(sc[[n]][["orig.ident", drop=TRUE]] %in% duplicate_sample_names, 
+                                   paste(n,sc[[n]][["orig.ident", drop=TRUE]] ,sep="."),
+                                   sc[[n]][["orig.ident", drop=TRUE]])
+    sc[[n]] = Seurat::SetIdent(sc[[n]], value="orig.ident")
+  }
+  return(sc[[n]])
+})
+names(sc) = dataset_names
+
+# set up colors for samples
+sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
+param$col_samples = param$col_palette_samples()(length(sample_names))
+names(param$col_samples) = sample_names
+
 ```
 
 
@@ -398,13 +415,14 @@ sc_filtered_cells = purrr::map(names(sc), function(n) {
   names(filter_result) = names(param$cell_filter[[n]])
   
   # Samples to drop
-  cell_identities = sc[[n]][["orig.ident", drop=TRUE]]
-  filter_result[["sample_to_drop"]] = names(cell_identities[cell_identities %in% param$samples_to_drop])
+  cell_identities = sc[[n]][["orig.ident", drop=TRUE]] # cells and sample names made unique
+  cell_identities_old = sc[[n]][["orig.ident.old", drop=TRUE]]# cells and sample names as original
+  filter_result[["sample_to_drop"]] = names(cell_identities[cell_identities %in% param$samples_to_drop | cell_identities_old %in% param$samples_to_drop])
  return(filter_result)
 })
 names(sc_filtered_cells) = names(sc)
 
-# We could add a summary here #
+# TODO We could add a summary here #
 
 # Now filter
 dataset_names = names(sc)
@@ -414,6 +432,10 @@ sc = purrr::map(names(sc), function(n) {
   return(subset(sc[[n]], cells=cells_to_keep))
 })
 names(sc) = dataset_names
+
+# Also drop the respective colours
+sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
+param$col_samples = param$col_samples[names(param$col_samples) %in% sample_names]
 
 ## FEATURES (only RNA assay at the moment) ##
 
@@ -431,6 +453,8 @@ sc = purrr::map(names(sc), function(n) {
   return(subset(sc[[n]], features=features_to_keep))
 })
 names(sc) = dataset_names
+
+# TODO We could add a summary here #
 ```
 
 ## Normalisation, cell cycle scoring, scaling and variable features
@@ -449,19 +473,19 @@ If specified in the above parameter section, __cell cycle scores__ are assigned 
 future::plan("sequential")
 
 # Normalise data the original way
-sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor = 10000)
+sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 
 # Back to multicore support
 future::plan("multicore")
 
 # Probably obsolete, not needed anywhere in this report
 # Select features from normalised data (unaffected by scaling)
-sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfeatures = 3000)
+sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
 
 # Scaling "RNA" normalised counts is required to run PCA, which again is required for the JackStraw plot
 # Note that we do NOT remove cell cycle effects in "RNA" scaled data, since this is very slow and 
 #   only used for the JackStraw plot
-sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures(s)) })
+sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures(s), verbose=FALSE) })
 ```
 
 ```{r cc_scores, eval=param$cc_remove}
@@ -488,7 +512,7 @@ if(param$cc_remove) {
 
 ```{r regress_and_sctransform, results="hide"}
 # Scale RNA assay
-sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures(s), vars.to.regress=param$vars_to_regress) })
+sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures(s), vars.to.regress=param$vars_to_regress,  verbose=FALSE) })
 
 # Run SCTransform
 #
@@ -497,7 +521,7 @@ sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
 # Normalised data end up here: sc@assays$SCT@data
 dataset_names = names(sc)
-sc = purrr::map(names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$features_filter[[n]][["min_cells"]]) })
+sc = purrr::map(names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$features_filter[[n]][["min_cells"]], verbose=FALSE) })
 names(sc) = dataset_names
 
 # Note: If I write Seurat::SCTransform, I get the following error message in the next chunk for
@@ -612,37 +636,38 @@ p
 </div>
 
 ```{r dataset_integration_preparation}
+# Save actual method in variable for chunks
+if(length(sc)==1) param$integrate_samples[["method"]] = "single"
+integrate_method = param$integrate_samples[["method"]]
 
-# Feature metadata is removed by Seurat merge entirely; save separately for each assay and add again afterwards
+# Feature metadata is removed by Seurat merge entirely; save separately for each assay and add again afterwards (for now only feature_id, feature_name and feature_type)
 sc_feature_metadata = purrr::map(sc, function(s) {
-  purrr::map(Assays(s), function(a) { return(s[[a]][[]]) })
+  s = sc[[1]]
+  a = "SCT"
+  s[[a]][[c("feature_id","feature_name","feature_type")]]
+  purrr::map(Assays(s), function(a) { return(s[[a]][[c("feature_id","feature_name","feature_type")]]) })
 })
 
 # 
 
 ```
 
+```{r single_dataset_integration, eval=integrate_method=="single", include=integrate_method=="single", echo=integrate_method=="single"}
+# Called when there there are multiple datasets but no integration is needed (e.g. samples were multiplexed on the same chip)
+if (integrate_method=="single") {
+  sc1 = sc[[1]]
+}
+```
 
 
-```{r single_dataset_integration, eval=length(sc)>1 & param$integrate_samples[["method"]]=="merge"}
+```{r multi_dataset_integration_merge, eval=integrate_method=="merge", include=integrate_method=="merge", echo=integrate_method=="merge"}
 # Called when there is only one dataset and no integration needed
-if (length(sc)>1 & param$integrate_samples[["method"]]=="merge") {
-  # Feature metadata is removed by Seurat merge entirely; save separately and add again afterwards
-  sc_feature_metadata = purrr::map(sc, )
-  
-  
+if (integrate_method=="merge") {
    sc1 = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
 }
 ```
 
-```{r single_dataset_integration, eval=length(sc)==1, include=length(sc)==1}
-# Called when there there are multiple datasets but no integration is needed (e.g. samples were multiplexed on the same chip)
-if (length(sc)==1) {
-  # Feature metadata is removed by Seurat merge entirely; need to add again afterwards
-  sc_feature_metadata = purrr::map(sc, )
-  sc1 = sc[[1]]
-}
-```
+
 
 
 ```{r choose_norm_method}
