@@ -15,6 +15,29 @@
   + Visualisation with UMAP
 * Write out demultiplexed data
 
+**Usage**  
+rmarkdown::render with parameter list
+
+Example:  
+```
+paramsList = list()
+
+paramsList$project = "HTO_testDataset"
+paramsList$path_data = "test_datasets/10x_pbmc_hto_GSE108313/counts"
+paramsList$path_out = "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed"
+paramsList$hto_names = setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
+paramsList$mt = "^MT-"
+paramsList$col = "palevioletred"
+paramsList$sample_cells = NULL
+
+rmarkdown::render(
+    "scrnaseq_hto.Rmd",
+    output_format = "html_document",
+    output_dir = ".",
+    output_file = "test",
+    params = paramsList)
+```
+
 ## Workflow: Single-cell RNA-seq analysis 
 * Dataset description
   + Project-specific parameters  
