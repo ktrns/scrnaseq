@@ -16,7 +16,8 @@ scrnaseq_session_info = function(path_to_git) {
   out=matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
-  repo = system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)
+  repo = tryCatch({system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)},
+    warning = function(war) {return("Unknown")})
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
   info_session = sessionInfo()
