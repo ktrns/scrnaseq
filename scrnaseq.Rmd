@@ -685,10 +685,8 @@ if (any(idx_dotplot)) {
 ### Average feature plot(s)
 An average feature plot visualizes the average gene expression of each gene list on a single-cell level, subtracted by the aggregated expression of control feature sets. The color of the plot encodes the calculated scores, whereat positive scores suggest that genes are expressed more highly than expected. 
 ```{r featurePlot_knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot}
-message(fig_height_knownMarkers_avgplot)
 if (any(idx_avgplot)) {
   known_markers_avgplot = known_markers_list[idx_avgplot]
-  message(length(known_markers_avgplot))
   sc = Seurat::AddModuleScore(sc, features=known_markers_avgplot, assay="SCT", ctrl=10, name="known_markers")
   idx_replace_names = grep("^known_markers[0-9]+$", colnames(sc@meta.data), perl=TRUE)
   colnames(sc@meta.data)[idx_replace_names] = names(known_markers_avgplot)
