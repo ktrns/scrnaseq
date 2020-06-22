@@ -37,10 +37,11 @@ plan("multiprocess") # by default, this uses all available cores; use "workers=4
 # Functional enrichment: enrichR
 
 # Source plotting functions
-source("R/functions_io.R")
-source("R/functions_plotting.R")
-source("R/functions_analysis.R")
-source("R/functions_util.R")
+path_to_git = "~/scrnaseq"
+source(paste0(path_to_git, "/R/functions_io.R"))
+source(paste0(path_to_git, "/R/functions_plotting.R"))
+source(paste0(path_to_git, "/R/functions_analysis.R"))
+source(paste0(path_to_git, "/R/functions_util.R"))
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
@@ -49,7 +50,7 @@ knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.
 use_python('/usr/bin/python')
 
 # biomaRt mirror
-mirror="asia"
+mirror=NULL
 ```
 
 # Dataset description
@@ -188,15 +189,21 @@ symbol_to_seurat_rowname = unique(annot_ensembl[, c(ensembl, symbol)])
 symbol_to_seurat_rowname$seurat_rowname = ensembl_to_seurat_rowname[symbol_to_seurat_rowname[, ensembl]]
 symbol_to_seurat_rowname = split(symbol_to_seurat_rowname$seurat_rowname, symbol_to_seurat_rowname[, symbol])
 
-# Ensembl to entrez
+# Ensembl to Entrez
 ensembl_to_entrez = unique(annot_ensembl[, c(ensembl, entrez)])
 ensembl_to_entrez[, entrez] = ifelse(nchar(ensembl_to_entrez[, entrez]) == 0, NA, ensembl_to_entrez[, entrez])
 ensembl_to_entrez = split(ensembl_to_entrez[, entrez], ensembl_to_entrez[, ensembl])
 
-# Seurat-compatible unique rowname to entrez
+# Seurat-compatible unique rowname to Entrez
 seurat_rowname_to_ensembl_match = match(seurat_rowname_to_ensembl, names(ensembl_to_entrez))
 names(seurat_rowname_to_ensembl_match) = names(seurat_rowname_to_ensembl)
 seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl_match, function(i) {unname(ensembl_to_entrez[[i]])})
+
+# Entrez IDs is duplicating Ensembl IDs in annot_ensembl
+# Therefore, we remove Entrez IDs from the annotation table, after generating all required translation tables
+# Set rownames of annotation table to Ensembl identifiers
+annot_ensembl = annot_ensembl[, -match(entrez, colnames(annot_ensembl))] %>% unique() %>% as.data.frame()
+rownames(annot_ensembl) = annot_ensembl[, ensembl]
 ```
 
 ## Setup the Seurat object
@@ -267,13 +274,15 @@ if (is.list(sc) & length(sc)==1) {
 
 # Pre-processing
 ## Quality control 
-We start the analysis by removing unwanted cells from the dataset. Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature"), the total number of molecules detected in each cell ("nCount"), and the percentage of reads that map to the mitochrondrial genome ("percent.mt").
+We start the analysis by removing unwanted cells from the dataset. Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature"), the total number of molecules detected in each cell ("nCount"), and the percentage of reads that map to the mitochrondrial genome ("percent.mt").   
+
+The following table shows metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), or the above mentioned number of unique genes detected ("nFeature"). 
 ```{r qc}
 # Calculate percentage of reads that map to mitochondrial genome 
 sc = PercentageFeatureSet(sc, pattern=param$mt, col.name="percent.mt")
 
 # Metadata 
-knitr::kable(head(sc@meta.data, 5), align="l", caption="Meta-data, top 5 rows") %>% 
+knitr::kable(head(sc@meta.data, 5), align="l", caption="Metadata, top 5 rows") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
   kableExtra::scroll_box(width="100%")
 
@@ -326,7 +335,7 @@ In this section, we subsequently run a series of Seurat functions:
 In addition, we run:  
 4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, variable features and scaling__). Note that although results are kept for steps 1-3 ("RNA" assay), downstream analyses will default to resulting data of step 4 ("SCT" assay). 
 
-If specified in the above parameter section, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). Cell cycle effects are then removed during scaling (step 4). Done for this report: `r param$cc_remove`. 
+Finally, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are then removed during scaling (step 4). Done for this report: `r param$cc_remove`. 
 
 ```{r norm_scale_variableFeatures, results="hide"}
 # This function often crashes with multicore support, so stop for a moment
@@ -558,7 +567,7 @@ p
 ```
 
 ## Cell Cycle Effect {.tabset}
-How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
+How much do gene expression profiles in the dataset reflect the cell cycle phases the single cells were in? After initial normalisation, we determined the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene symbols are translated to gene symbols of the species of interest using biomaRt. This section of the report visualises the above calculated cell cycle scores. 
 ```{r cellCycleEffect}
 # Determine cell cycle effect, this time based on default assay "SCT"
 sc = CellCycleScoring(object=sc, s.features=genes_s, g2m.features=genes_g2m, set.ident=FALSE)
@@ -627,8 +636,8 @@ p = PlotMystyle(p, title="percent.mt")
 p
 ```
 
-## Feature plots for known marker genes {.tabset}
-Do cells in individual clusters express provided known marker genes?
+## Known marker genes {.tabset}
+Do cells in individual clusters express provided known marker genes? 
 ```{r featurePlot_knownMarkers_read}
 # Read known marker genes
 known_markers = openxlsx::read.xlsx(param$file_known_markers)
@@ -640,44 +649,62 @@ known_markers_list = lapply(colnames(known_markers), function(x) {
 names(known_markers_list) = colnames(known_markers)
 known_markers_vect = unlist(known_markers_list) %>% unique() %>% sort()
 
-fig_height_knownMarkers_list = 5*length(known_markers_list)
+idx_dotplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) <=50)
+idx_avgplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
+fig_height_knownMarkers_dotplot = max(5, 5 * sum(idx_dotplot))
+fig_height_knownMarkers_avgplot = max(5, 5 * sum(idx_avgplot))
 fig_height_knownMarkers_vect = max(5, length(known_markers_vect))
 ```
 
+You provided `r length(known_markers_list)` list(s) of known marker genes. In the following tabs, you find: 
+
+* Dot plots for all gene lists containing at most 50 genes   
+* Average feature plots for all gene lists containing at least 10 genes   
+* Individual feature plots for all genes if there are no more than 30 genes in total  
+
 ### Dot plot(s)
-We show one dot plot per gene list provided. 
-```{r featurePlot_knownMarkers_dotplot, fig.height=fig_height_knownMarkers_list}
-p = list()
-for (i in 1:length(known_markers_list)) {
-  g = known_markers_list[[i]]
-  g = g[length(g):1]
-  p[[i]] = Seurat::DotPlot(sc, features=g, cols=c("lightgrey", param$col))
-  p[[i]] = PlotMystyle(p[[i]], title=paste("Known marker genes:", names(known_markers_list)[i])) + 
-    theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
+A dot plot visualizes how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that express the gene, while the color encodes the average expression across all cells within the cluster. 
+```{r featurePlot_knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot}
+if (any(idx_dotplot)) {
+  known_markers_dotplot = known_markers_list[idx_dotplot]
+  p = list()
+  for (i in 1:length(known_markers_dotplot)) {
+    g = known_markers_dotplot[[i]]
+    g = g[length(g):1]
+    p[[i]] = Seurat::DotPlot(sc, features=g, cols=c("lightgrey", param$col)) + ylab("Cluster")
+    p[[i]] = PlotMystyle(p[[i]], title=paste("Known marker genes:", names(known_markers_dotplot)[i])) + 
+      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
+  }
+  p = patchwork::wrap_plots(p, ncol=1)
+  p
+} else {
+  print("This tab is used for dot plots for up to 50 genes. All provided lists are longer than this, and hence dot plots are skipped.")
 }
-patchwork::wrap_plots(p, ncol=1)
 ```
 
 ### Average feature plot(s)
-We show one average feature plot per gene list provided, given that the list contains at least 10 genes. Positive scores suggest that genes are expressed more highly than expected. 
-```{r featurePlot_knownMarkers_umap, fig.height=fig_height_knownMarkers_list}
-idx_avg = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
-if (any(idx_avg)) {
-  known_markers_avg = known_markers_list[idx_avg]
-  sc = Seurat::AddModuleScore(sc, features=known_markers_avg, assay="SCT", ctrl=10, name="known_markers")
+An average feature plot visualizes the average gene expression of each gene list on a single-cell level, subtracted by the aggregated expression of control feature sets. The color of the plot encodes the calculated scores, whereat positive scores suggest that genes are expressed more highly than expected. 
+```{r featurePlot_knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot}
+message(fig_height_knownMarkers_avgplot)
+if (any(idx_avgplot)) {
+  known_markers_avgplot = known_markers_list[idx_avgplot]
+  message(length(known_markers_avgplot))
+  sc = Seurat::AddModuleScore(sc, features=known_markers_avgplot, assay="SCT", ctrl=10, name="known_markers")
   idx_replace_names = grep("^known_markers[0-9]+$", colnames(sc@meta.data), perl=TRUE)
-  colnames(sc@meta.data)[idx_replace_names] = names(known_markers_list)
-  p = Seurat::FeaturePlot(sc, features=names(known_markers_list), cols=c("lightgrey", param$col), combine=FALSE)
-  for (i in 1:length(known_markers_avg)) p[[i]] = PlotMystyle(p[[i]], 
-                                                              title=paste("Known marker genes:", names(known_markers_list)[i]))
-  patchwork::wrap_plots(p, ncol=1)
+  colnames(sc@meta.data)[idx_replace_names] = names(known_markers_avgplot)
+  p = Seurat::FeaturePlot(sc, features=names(known_markers_avgplot), cols=c("lightgrey", param$col), combine=FALSE)
+  for (i in 1:length(known_markers_avgplot)) p[[i]] = PlotMystyle(p[[i]],  
+                                                                  title=paste("Known marker genes:",
+                                                                              names(known_markers_avgplot)[i]))
+  p = patchwork::wrap_plots(p, ncol=1)
+  p
 } else {
-  print("This tab is used to plot an average for 10 or more genes. Your provided list(s) is (are) shorter than this, and hence average feature plots are skipped.")
+  print("This tab is used to plot an average for 10 or more genes. All provided lists are shorter than this, and hence average feature plots are skipped.")
 }
 ```
 
 ### Individual feature plots
-We show individual feature plots for all genes provided. 
+An individual feature plot colours single cells on the UMAP according to their normalised gene expression. 
 ```{r featurePlot_knownMarkers_all, fig.height=fig_height_knownMarkers_vect}
 if (length(known_markers_vect) <= 30) {
   p = Seurat::FeaturePlot(sc, features=known_markers_vect, cols=c("lightgrey", param$col), combine=FALSE)
@@ -821,7 +848,8 @@ p
 ### Dot plot
 ```{r DEG_plot_dot}
 # Visualises how feature expression changes across different clusters
-p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col))
+p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col)) +
+  ylab("Cluster")
 p = PlotMystyle(p, title="Dot plot of normalised gene expression data") + 
   theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
 p
@@ -971,14 +999,14 @@ All files generated with this report are written into the provided output folder
 * Functional enrichment of differentially expressed genes per cell cluster  
   + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
   
-```{r save, eval=FALSE}
-save.image(paste0(param$path_out, "/Seurat_scAnalysis.RData"))
+```{r save}
+save.image(paste0(param$path_out, "/scrnaseq.RData"))
 ```
 
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions}
-out = scrnaseq_session_info()
+out = scrnaseq_session_info(path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
