@@ -44,16 +44,13 @@ source("R/functions_analysis.R")
 source("R/functions_util.R")
 
 # Knitr default options
-knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, tidy=FALSE, fig.width=10)
 
 # Potentially needed for clustering, umap, other python packages
 use_python('/usr/bin/python')
 
-# biomaRt mirror
+# biomaRt mirror: NULL means the first working mirror is used
 mirror = NULL
-
-
-
 ```
 
 # Dataset description
@@ -77,7 +74,7 @@ param$file_mapping_stats = NULL
 
 # Project-specific paths
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
-if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE)
+if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 
 # Annotation via biomaRt
 param$mart_dataset = "hsapiens_gene_ensembl"
@@ -146,6 +143,9 @@ param$col = "palevioletred"
 
 # Colour palette and colours used for samples
 param$col_palette_samples = ggsci::pal_npg
+
+# Sample data to at most n cells per dataset/sample (mainly for tests); set to NULL to deactivate
+param$sample_cells = 200
 ```
 
 # Read data
@@ -176,7 +176,7 @@ if (file.exists(param$file_annot)) {
   }
 } else {
   mart_attributes = unique(c("ensembl_gene_id", "external_gene_name","entrezgene_accession", param$mart_attributes))
-  annot_mart = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror)
+  annot_mart = GetBiomart(biomart="ensembl", dataset=param$mart_dataset, mirror=mirror)
   annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=mart_attributes)
   write.table(annot_ensembl, file=param$file_annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
   message("Gene annotation file was created at: ", param$file_annot)
@@ -218,8 +218,10 @@ seurat_rowname_to_entrez = purrr::map(seurat_rowname_to_ensembl_match, function(
 
 ```{r cc_genes_translate}
 # Use biomart to translate human cell cycle genes to the species of interest
-mart_human = biomaRt::useEnsembl("ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror) 
-mart_myspecies = biomaRt::useEnsembl("ensembl", dataset=param$mart_dataset, mirror=mirror) 
+# Note: both mart objects must point to the same host for biomarT::getLDS to work
+mart_human = GetBiomart(biomart="ensembl", dataset="hsapiens_gene_ensembl", mirror=mirror)
+mart_human_host = gsub(pattern=":\\d+$", replacement="", x=gsub(pattern="[^/]/[^/]\\S+", replacement="", x=mart_human@host))
+mart_myspecies = GetBiomart(biomart="ensembl", dataset=param$mart_dataset, host=mart_human_host) 
 
 genes_s = biomaRt::getLDS(attributes=c("external_gene_name"), 
                           filters="external_gene_name", 
@@ -280,10 +282,18 @@ sc = purrr::map(list_names(sc), function(n) {
   return(sc[[n]])
 })
 
-# set up colors for samples
+# Set up colors for samples
 sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
 param$col_samples = param$col_palette_samples()(length(sample_names))
 names(param$col_samples) = sample_names
+
+# Sample cells if requested
+if (!is.null(param$sample_cells)) {
+  sc = purrr::map(sc, function(s) {
+    cells = colnames(s)
+    return(subset(s, cells=sample(cells, min(param$sample_cells, length(cells)))))
+  })
+}
 ```
 
 
@@ -325,10 +335,6 @@ sc = purrr::map(sc, function(s) {
 # Combine cell metadata of the Seurat objects into one big metadata
 sc_cell_metadata = purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame()
 
-knitr::kable(head(sc_cell_metadata, 5), align="l", caption="Cell meta-data, top 5 rows") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-  kableExtra::scroll_box(width="100%")
-
 ## FEATURES (only RNA assay at the moment) ##
 sc = purrr::map(list_names(sc), function(n) {
   num_cells_expr = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= 1)
@@ -337,8 +343,14 @@ sc = purrr::map(list_names(sc), function(n) {
   return(sc[[n]])
 })
 
+
+knitr::kable(head(sc[[1]][[]], 5), align="l", caption="Cell meta-data, top 5 rows") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  kableExtra::scroll_box(width="100%")
+
+
 knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature meta-data for assay 'RNA', top 5 rows (only first dataset shown)") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>%
   kableExtra::scroll_box(width="100%")
 
 ```
@@ -492,12 +504,13 @@ sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfea
 sc = purrr::map(sc, function(s) { Seurat::ScaleData(s, features=VariableFeatures(s), verbose=FALSE, vars.to.regress=param$vars_to_regress) })
 ```
 
-```{r cc_scores, eval=param$cc_remove}
+```{r cc_scores}
+# Determine cell cycle effect
+sc = purrr::map(sc, Seurat::CellCycleScoring, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
+
 # If cell cycle effects should be removed, we first score cells 
 # The effect is then removed in the following chunk 
 if(param$cc_remove) {
-  # Determine cell cycle effect
-  sc = purrr::map(sc, Seurat::CellCycleScoring, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
   # Determine difference between G2M and S phase scores
   sc = purrr::map(sc, function(s) {
     s$CC.Difference = s$S.Score - s$G2M.Score
@@ -592,7 +605,7 @@ shared_rna_features = purrr::reduce(purrr::map(sc, function(s) { rownames(s[["RN
 shared_sct_features = purrr::reduce(purrr::map(sc, function(s) { rownames(s[["SCT"]]) }), intersect)
 ```
 
-To better understand the efficiency of the applied normalisation procedures, we plot the relative log expression of genes in `r n_cells_rle_plot` randomly selected cells per sample before and after normalisation. This type of plot reveals unwanted variation in your data. The concept is taken from `r knitcitations::citet("10.1371/journal.pone.0191629")`. In brief, we remove variation between genes, leaving only variation between samples. If expression levels of most genes are similar in all cell types, sample heterogeneity is a sign of unwanted variation. 
+To better understand the efficiency of the applied normalisation procedures, we plot the relative log expression of genes in at most `r n_cells_rle_plot` randomly selected cells per sample before and after normalisation. This type of plot reveals unwanted variation in your data. The concept is taken from `r knitcitations::citet("10.1371/journal.pone.0191629")`. In brief, we remove variation between genes, leaving only variation between samples. If expression levels of most genes are similar in all cell types, sample heterogeneity is a sign of unwanted variation. 
 
 For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (lightgrey), whiskers defined as 1.5 times the interquartile range (darkgrey), and outliers (`r param$col`). 
 
@@ -782,11 +795,15 @@ cat("\n\n#### Advanced normalisation (SCT)\n\n")
   
 ```
 
-```{r plot_norm_sct_integrated_done, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
+```{r multi_dataset_integration_preparation_done, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
 # this is neccessary for closing the tabset
 if (param$integrate_samples[["method"]]!="single") {
   cat("\n\n</div>\n\n")
+  
+  DefaultAssay(sc) = "RNAintegrated"
 }
+
+
 ```
 
 ## Dimensionality reduction
@@ -796,8 +813,6 @@ We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noi
 
 To decide how many PCs to include in downstream analyses, we visualize cells and genes that define the PCA. 
 ```{r pca}
-DefaultAssay(sc) = "RNAintegrated"
-
 # Run PCA for "RNA" assay; this is required for the JackStraw plot
 sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc))
 
@@ -829,15 +844,15 @@ The second plot is an "Elbow plot": PCs are ranked based on the percentage of va
 
 For your dataset, we decided to go for `r param$pc_n` PCs. 
 ```{r dimensionality, results="hide"}
-# NOTE: This process can take a long time for big datasets, comment out for expediency. More
-# approximate techniques such as those implemented in ElbowPlot() can be used to reduce
-# computation time
-sc = Seurat::JackStraw(sc, num.replicate=100, dims=20)
-sc = Seurat::ScoreJackStraw(sc, dims=1:20)
-p = Seurat::JackStrawPlot(sc, dims=1:20)
-p = PlotMystyle(p, title="Jack Straw plot", legend_position="bottom")
-#p
+if (DefaultAssay(sc)!="SCT" & DefaultAssay(sc)!="SCTintegrated") {
+  # NOTE: This process can take a long time for big datasets, comment out for expediency. 
+  sc = Seurat::JackStraw(sc, num.replicate=100, dims=20)
+  sc = Seurat::ScoreJackStraw(sc, dims=1:20)
+  p = Seurat::JackStrawPlot(sc, dims=1:20)
+  PlotMystyle(p, title="Jack Straw plot", legend_position="bottom")
+}
 
+# More approximate technique used to reduce computation time
 p = Seurat::ElbowPlot(sc, ndims=20)
 p = PlotMystyle(p, title="Elbow plot")
 p
@@ -884,11 +899,10 @@ p
 ## Cell Cycle Effect
 How much do gene expression profiles in your dataset reflect the cell cycle phases the single cells were in? We determine the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r knitcitations::citet("10.1126/science.aad0501")`, and human gene names are translated using biomaRt. 
 ```{r cellCycleEffect}
-# Determine cell cycle effect, this time based on default assay "SCT"
-sc = Seurat::CellCycleScoring(object=sc, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
-
 # Get a feeling for how many cells are affected
-p1 = ggplot(sc@meta.data, aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
+
+
+p1 = ggplot(sc[[]], aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
   geom_point() + 
   scale_x_continuous("G1/S score") + 
   scale_y_continuous("G2/M score")

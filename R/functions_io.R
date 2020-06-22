@@ -1,4 +1,4 @@
-#' Reads a counts table (e.g. provided by smartseq2) and converts it into Seurat object(s).
+#' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -111,7 +111,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   
   # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
   if (parse_plate_information) {
-    plate_information = parse_plate_information_from_cell_names(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
+    plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
     
     # Then add to metadata
     if (nrow(plate_information) > 0) {
@@ -127,7 +127,6 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   if (return_samples_as_datasets) {
     if(!parse_plate_information) futile.logger::flog.error("The 'ReadCountsTable' method cannot return datasets by samples without parsing this information from the name ('parse_plate_information')!")
     samples_to_process = split(rownames(metadata_table), metadata_table$SampleName)
-    #names(samples_to_process) = paste(project,names(samples_to_process), sep=".")
   } else {
     samples_to_process[[project]] = rownames(metadata_table)
   }
@@ -410,7 +409,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
 #' @param row_name_group Index of the capture group which contains the plate row name. Can be NULL in which case it will not be evaluated and the plate row name will be NA. Default is 3.
 #' @param col_name_group Index of the capture group which contains the plate col name. Can be NULL in which case it will not be evaluated and the plate col name will be NA. Default is 4.
 #' @return A data frame with plate information.
-parse_plate_information_from_cell_names = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
+ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
   # split cell names
   cell_names_matched_and_split = as.data.frame(stringr::str_match(string=cell_names, pattern=pattern), stringsAsFactors=FALSE)
   cell_names_matched_and_split = merge(x=data.frame(V1=cell_names), y=cell_names_matched_and_split, by=1, all.x=TRUE)
