@@ -51,9 +51,9 @@ values_to_names = function(x) {
 #' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
 #' @param mirror Specify an Ensembl mirror to connect to. The valid options here are 'www', 'uswest', 'useast', 'asia'. If no mirror is specified, then the first mirror that works will be used. Will be ignored if a host is specified.
 #' @param version Ensembl version to connect to when wanting to connect to an archived Ensembl version.
-#' @return A biomaRt object.
 #' @param host Host to connect to. Only needs to be specified if different from www.ensembl.org. 
-GetBiomart = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
+#' @return A biomaRt object.
+GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
   
   # Which mirrors to test
   if (is.null(mirror)) {
@@ -89,4 +89,42 @@ GetBiomart = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
   }
   
   return(mart_obj)
+}
+
+
+#' Returns the mirror of a biomaRt object.
+#' @param mart_obj A biomaRt object obtained by GetBiomaRt or useEnsembl name.
+#' @return The mirror of the biomaRt object. Can be 'www', 'uswest', 'useast' or 'asia'.
+GetBiomaRtMirror = function(mart_obj) {
+  mirrors_to_test = c("uswest", "useast", "asia")
+  mirror = "www"
+  
+  for(m in mirrors_to_test){
+    if(grepl(pattern=m, x=mart_obj@host)){
+      mirror = m
+      break
+    }
+  }
+  
+  return(mirror)
+}
+
+#' Generate colours based on a palette. If the 
+#' @param num_colours The number of colours to generate.
+#' @param palette A palette function for generating the colours.
+#' @param palette List of additional arguments (beside alpha) to pass on to the palette function.
+#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
+#' @return The generated colours.
+GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0.3), palette_options=list()) {
+  colours = purrr::flatten_chr(purrr::map(alphas, function(a) {
+    palette_options[["alpha"]] = a
+    cols = suppressWarnings(do.call(do.call(ggsci::pal_d3,palette_options),list(100)))
+    cols[!is.na(cols)]
+  }))
+  
+  if (num_colours>length(colours)) {
+    stop("GenerateColours: Cannot generate the requested number of colours. Please change palette or add alpha values.")
+  }
+  
+  return(colours[1:num_colours])
 }
