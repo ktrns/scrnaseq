@@ -195,13 +195,6 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
 ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
   library(magrittr)
   
-  project=name 
-  row_name_column=1
-  convert_row_names=ensembl_to_seurat_rowname
-  feature_type_column=3
-  feature_type_to_assay_name=NULL
-  hto_names=NULL
-  
   # defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA",
                                                                           "Antibody Capture"="ADT",

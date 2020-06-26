@@ -13,7 +13,7 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
 #' Report session info in a table
 #' 
 #' @return The session info as table.
-scrnaseq_session_info = function(path_to_git) {
+scrnaseq_session_info = function(path_to_git=".") {
   out=matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
