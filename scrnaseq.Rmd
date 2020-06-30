@@ -25,24 +25,18 @@ library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
 library(future) # multicore support for Seurat
 plan("multiprocess") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
-options(future.globals.maxSize = 800000000) # increase if the maximum allowed size of objects exported by future is exceeded
+options(future.globals.maxSize = 800000000) # increase if the maximum allowed size in bytes of objects exported by future is exceeded
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix
 # Tables: kableExtra
 # Plots: ggsci, ggpubr
-# IO: openxlsx
+# IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
 # DEG: mast
 # Functional enrichment: enrichR
-
-# Source plotting functions
-path_to_git = "."
-source(paste0(path_to_git, "/R/functions_io.R"))
-source(paste0(path_to_git, "/R/functions_plotting.R"))
-source(paste0(path_to_git, "/R/functions_analysis.R"))
-source(paste0(path_to_git, "/R/functions_util.R"))
+# Other: sessioninfo
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, tidy=FALSE, fig.width=10)
@@ -56,12 +50,19 @@ mirror = NULL
 
 # Dataset description
 * 10x and Smartseq2 datasets of PBMC cells
-* from "Systematic comparative analysis of single cell RNA-sequencing methods" (Ding et al 2018)
+* from "Systematic comparative analysis of single cell RNA-sequencing methods" `r knitcitations::citet("10.1186/s13059-019-1863-4")`
 
 ## Project-specific parameters
 This code chunk contains all parameters that are set specifically for your project. 
 ```{r project_parameters, class.source='fold-show'}
 param = list()
+
+# Path to git repository
+param$path_to_git = "."
+source(paste0(param$path_to_git, "/R/functions_io.R"))
+source(paste0(param$path_to_git, "/R/functions_plotting.R"))
+source(paste0(param$path_to_git, "/R/functions_analysis.R"))
+source(paste0(param$path_to_git, "/R/functions_util.R"))
 
 # Project ID
 param$project = "pbmc"
@@ -378,9 +379,8 @@ cell_qc_features = values_to_names(cell_qc_features)
 p_list = list()
 for (i in names(cell_qc_features)) {
   p_list[[i]]= ggplot(sc_cell_metadata,aes_string(x="orig.ident", y=i, fill="orig.ident")) +
-    geom_violin(scale="width") +
-    scale_fill_manual(values=param$col_samples)
-  p_list[[i]] = PlotMystyle(p_list[[i]], title=i, legend_position="none") + xlab("")
+    geom_violin(scale="width")
+  p_list[[i]] = PlotMystyle(p_list[[i]], title=i, legend_position="none", fill=param$col_samples) + xlab("")
   
   # Creates a table with min/max values for filter i for each dataset
   #
@@ -406,15 +406,11 @@ p
 # Correlate QC metrics for cells
 p = list()
 p[[1]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[1], colour="orig.ident")) +
-  geom_point() +
-  scale_colour_manual(values=param$col_samples) +
-  theme_bw()
+  geom_point()
 p[[2]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[3], colour="orig.ident")) +
-  geom_point() +
-  scale_colour_manual(values=param$col_samples) +
-  theme_bw()
+  geom_point()
 
-for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], col=param$col_samples)
 
 p = patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Features plotted against each other")
 if (length(sc)==1) {
@@ -574,8 +570,8 @@ Here, we use the variance-stabilizing transformation (vst) method implemented in
 # Show variable genes
 plist = purrr::map(list_names(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]]), 10)
-  p = Seurat::VariableFeaturePlot(sc[[n]], cols=c("grey", param$col), assay="RNA", selection.method="vst") + ggtitle(n)
-  p = PlotMystyle(p)
+  p = Seurat::VariableFeaturePlot(sc[[n]], assay="RNA", selection.method="vst") + ggtitle(n)
+  p = PlotMystyle(p, col=c("grey", param$col))
   p = LabelPoints(plot=p, points=top10, repel=TRUE)
   p = p + theme(legend.position=c(0.2, 0.8),legend.background=element_rect(fill=alpha("white", 0.0)))
   return(p)
@@ -590,8 +586,8 @@ patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
 # Show variable genes
 plist = purrr::map(list_names(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]], assay="SCT"), 10)
-  p = Seurat::VariableFeaturePlot(sc[[n]], cols=c("grey", param$col), assay="SCT", selection.method="sct") + ggtitle(n)
-  p = PlotMystyle(p)
+  p = Seurat::VariableFeaturePlot(sc[[n]], assay="SCT", selection.method="sct") + ggtitle(n)
+  p = PlotMystyle(p, col=c("grey", param$col))
   p = LabelPoints(plot=p, points=top10, repel=TRUE)
   p = p + theme(legend.position=c(0.2, 0.8),legend.background=element_rect(fill=alpha("white", 0.0)))
   return(p)
@@ -673,7 +669,7 @@ p
 <!-- https://stackoverflow.com/questions/38062706/rmarkdown-how-to-end-tabbed-content -->
 
 ```{r multi_dataset_integration_single, eval=(param$integrate_samples[["method"]]=="single"), include=(param$integrate_samples[["method"]]=="single")}
-# Called when there there are multiple datasets but no integration is needed (e.g. samples were multiplexed on the same chip)
+# Called when there is only a single sample and no integration needed
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
   
@@ -843,8 +839,8 @@ To decide how many PCs to include in downstream analyses, we visualize cells and
 # Run PCA for "RNA" assay; this is required for the JackStraw plot
 sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc))
 
-p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
-for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
+p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", combine=FALSE)
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], col=param$col)
 p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
@@ -895,7 +891,7 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n)
 # Cluster using the Leiden algorithm
 # Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4)
+sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=1)
 
 # Set up colors for clusters
 cluster_names = levels(sc$seurat_clusters)
@@ -924,8 +920,8 @@ sc = Seurat::RunUMAP(sc, dims=1:param$pc_n, n.components=3, reduction.name="umap
 # Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
-p = Seurat::DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_manual("Cluster", labels=cluster_labels, values=param$col_clusters)
-p = PlotMystyle(p, "UMAP, cells coloured by cluster identity", legend_position="bottom")
+p = Seurat::DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_manual("Cluster", labels=cluster_labels)
+p = PlotMystyle(p, "UMAP, cells coloured by cluster identity", legend_position="bottom", col=param$col_clusters)
 p
 ```
 
@@ -963,7 +959,7 @@ PlotMystyle(p, title="UMAP, cells coloured by cell cycle phases", legend_title="
 
 ### UMAP coloured by S phase
 ```{r cellCycleEffect_umap_s}
-p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col), label=TRUE)
+p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", label=TRUE, cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="UMAP, cells coloured by S phase")
 p
 ```
@@ -995,7 +991,7 @@ p
 ### Percent mitochondrial reads
 ```{r featurePlot_QC_mt}
 p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col))
-p = PlotMystyle(p, title="percent.mt")
+p = PlotMystyle(p, title="percent_mt")
 p
 ```
 
@@ -1148,7 +1144,7 @@ sc_markers_filt_n$Cluster = as.factor(sc_markers_filt_n$Cluster)
 p = ggplot(sc_markers_filt_n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(stat="identity") 
 p = PlotMystyle(p, 
                 title=paste0("Number of DEGs per cell cluster\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"), 
-                col=c("steelblue", "darkgoldenrod1"))
+                fill=c("steelblue", "darkgoldenrod1"))
 p
 
 # Unload the MAST R package
@@ -1183,9 +1179,9 @@ p
 ### Ridge plots (raw)
 ```{r DEG_plot_ridge_raw, fig.height=fig_height_deg}
 # Ridge plot of raw gene expression counts
-p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE, assay="RNA", cols=param$col_clusters)
+p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE, assay="RNA")
 names(p) = genes_example
-for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity")
+for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="Ridge plot of raw gene expression counts") + 
   patchwork::plot_layout(guides = "collect") &
@@ -1196,9 +1192,9 @@ p
 ### Ridge plots (normalised)
 ```{r DEG_plot_ridge_norm, fig.height=fig_height_deg}
 # Ridge plot of normalised gene expression data
-p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE, assay="RNA", cols=param$col_clusters)
+p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE, assay="RNA")
 names(p) = genes_example
-for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity")
+for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="Ridge plot of normalised gene expression data") + 
   patchwork::plot_layout(guides = "collect") &
@@ -1366,7 +1362,7 @@ save.image(paste0(param$path_out, "/scrnaseq.RData"))
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions}
-out = scrnaseq_session_info(path_to_git)
+out = scrnaseq_session_info(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))

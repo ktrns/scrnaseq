@@ -1,8 +1,9 @@
 # Plotting style 
-PlotMystyle = function(p, title=NULL, col=NULL, legend_title=NULL, legend_position=NULL) {
+PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL) {
   p = p + theme_light() + theme(panel.border = element_blank())
   if (!is.null(title)) p = p + ggtitle(title) #+ theme(plot.title = element_text(hjust=0.5))
-  if (length(col) > 0) p = p + scale_fill_manual(values=col)
+  if (length(col) > 0) p = p + scale_colour_manual(values=col)
+  if (length(fill) > 0) p = p + scale_fill_manual(values=fill)
   if (!is.null(legend_title)) {
     p = p + labs(color=legend_title, fill=legend_title)
   } else {
