@@ -57,13 +57,6 @@ This code chunk contains all parameters that are set specifically for your proje
 ```{r project_parameters, class.source='fold-show'}
 param = list()
 
-# Path to git repository
-param$path_to_git = "."
-source(paste0(param$path_to_git, "/R/functions_io.R"))
-source(paste0(param$path_to_git, "/R/functions_plotting.R"))
-source(paste0(param$path_to_git, "/R/functions_analysis.R"))
-source(paste0(param$path_to_git, "/R/functions_util.R"))
-
 # Project ID
 param$project = "pbmc"
 
@@ -99,7 +92,7 @@ param$features_filter = list(min_counts=1, min_cells=1) # feature has to be foun
 param$samples_to_drop = c("NC", "RNA") # cells from these samples will be dropped after initial QC
 
 # Whether or not to remove cell cycle effects
-param$cc_remove = TRUE
+param$cc_remove = FALSE
 
 # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
 # Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
@@ -154,6 +147,13 @@ param$col_palette_cluster = ggsci::pal_startrek
 
 # Sample data to at most n cells per dataset/sample (mainly for tests); set to NULL to deactivate
 param$sample_cells = 300
+
+# Path to git repository
+param$path_to_git = "."
+source(paste0(param$path_to_git, "/R/functions_io.R"))
+source(paste0(param$path_to_git, "/R/functions_plotting.R"))
+source(paste0(param$path_to_git, "/R/functions_analysis.R"))
+source(paste0(param$path_to_git, "/R/functions_util.R"))
 ```
 
 # Read data
@@ -254,6 +254,10 @@ genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"),
                             attributesL=c("external_gene_name"), 
                             martL=mart_myspecies, 
                             uniqueRows=TRUE)
+
+# Restrict genes to those present in the sc object
+genes_s = genes_s[genes_s[,2] %in% rownames(sc), 2] 
+genes_g2m = genes_g2m[genes_g2m[,2] %in% rownames(sc), 2]
 ```
 
 ## Setup
@@ -518,7 +522,7 @@ sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfea
 
 ```{r cc_scores}
 # Determine cell cycle effect
-sc = purrr::map(sc, Seurat::CellCycleScoring, s.features=genes_s[,2], g2m.features=genes_g2m[,2], set.ident=FALSE)
+sc = purrr::map(sc, Seurat::CellCycleScoring, s.features=genes_s, g2m.features=genes_g2m, set.ident=FALSE)
 
 # Determine difference between G2M and S phase scores
 sc = purrr::map(sc, function(s) {
@@ -891,7 +895,7 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n)
 # Cluster using the Leiden algorithm
 # Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=1)
+sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4)
 
 # Set up colors for clusters
 cluster_names = levels(sc$seurat_clusters)
@@ -1179,7 +1183,7 @@ p
 ### Ridge plots (raw)
 ```{r DEG_plot_ridge_raw, fig.height=fig_height_deg}
 # Ridge plot of raw gene expression counts
-p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE, assay="RNA")
+p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE)
 names(p) = genes_example
 for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
@@ -1192,7 +1196,7 @@ p
 ### Ridge plots (normalised)
 ```{r DEG_plot_ridge_norm, fig.height=fig_height_deg}
 # Ridge plot of normalised gene expression data
-p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE, assay="RNA")
+p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE)
 names(p) = genes_example
 for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
@@ -1205,7 +1209,7 @@ p
 ### Dot plot
 ```{r DEG_plot_dot}
 # Visualises how feature expression changes across different clusters
-p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col), assay="RNA")
+p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="Dot plot of normalised gene expression data")  + 
   theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
 p
@@ -1325,7 +1329,7 @@ loupe_genesets = rbind(loupe_genesets,
                                   Name=sc_markers_filt_down[,"gene"], 
                                   Ensembl=seurat_rowname_to_ensembl[sc_markers_filt_down[,"gene"]]))
 
-genesets_to_export = list(genes_cc_s_phase=genes_s[,2], genes_cc_g2m_phase=genes_g2m[,2])
+genesets_to_export = list(genes_cc_s_phase=genes_s, genes_cc_g2m_phase=genes_g2m)
 for (i in names(genesets_to_export)) {
   tmp_genes = genesets_to_export[[i]]
   tmp_genes = tmp_genes[tmp_genes %in% names(symbol_to_ensembl)]
