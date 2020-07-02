@@ -1,4 +1,4 @@
-#' Reads a counts table (e.g. provided by smartseq2) and converts it into a Seurat object.
+#' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -10,8 +10,15 @@
 #' @param drop_non_numeric_columns After dropping columns manually with columns_to_drop: Should any remaining non-numeric columns (excluding feature_name_column or feature_type_column) be droppped automatically? If TRUE, they will be dropped silently. If FALSE, then an error message will be printed. 
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param col_sep Separator used in the counts table (tab).
-#' @return A Seurat object.
-ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t") {
+#' @param parse_plate_information If the cell names contain plate information: parse information and add to metadata.
+#' @param plate_information_regex If the cell names contain plate information: a regular expression pattern with capture groups for sample name, plate number, row or column which must match the entire cell name ("^(\\S+)_(\\d+)_([A-Z])(\\d+)$").
+#' @param sample_name_group If the cell names contain plate information: index of the capture group which contains the sample name of the cells ("1"). Can be NULL in which case it will not be evaluated and the sample name will be NA.
+#' @param plate_number_group If the cell names contain plate information: index of the capture group which contains the plate number name ("2"). Can be NULL in which case it will not be evaluated and the plate number will be NA.
+#' @param row_name_group If the cell names contain plate information: index of the capture group which contains the plate row name ("3"). Can be NULL in which case it will not be evaluated and the plate row name will be NA.
+#' @param col_name_group If the cell names contain plate information: index of the capture group which contains the plate col name ("4"). Can be NULL in which case it will not be evaluated and the plate col name will be NA.
+#' @param return_samples_as_datasets If the cell names contain plate information: return each of the parsed samples as separate dataset ("TRUE").
+#' @return A list of Seurat objects.
+ReadCountsTable = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t", parse_plate_information=TRUE, plate_information_regex='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4, return_samples_as_datasets=TRUE) {
   library(magrittr)
   
   # defaults
@@ -79,19 +86,6 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   rownames(feature_data) = rownames(features_ids_types)
   feature_data = split(feature_data, as.factor(features_ids_types$feature_type))
   
-  # Read metadata file (if available)
-  metadata_table = NULL
-  metadata_file = file.path(dirname(path), "metadata.tsv.gz")
-  if (file.exists(metadata_file)) {
-    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
-    barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
-    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                                    first_n_elements_to_string(missed))
-    rownames(metadata_table) = metadata_table[, 1]
-  }
-  
-  
   # feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
@@ -101,39 +95,87 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   # sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
   
-  # create Seurat object with first assay
-  # include cell and feature metadata
-  f = feature_types[1]
-  a = feature_type_to_assay_name[f]
-  sc = Seurat::CreateSeuratObject(counts=as(as.matrix(feature_data[[f]]), "dgCMatrix"), 
-                                  project=project, 
+  # Read metadata file (if available)
+  metadata_file = file.path(dirname(path), "metadata.tsv.gz")
+  if (file.exists(metadata_file)) {
+    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
+    barcodes = colnames(feature_data[[1]])
+    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+                                                    first_n_elements_to_string(missed))
+    rownames(metadata_table) = metadata_table[, 1]
+  } else {
+    metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
+    rownames(metadata_table) = metadata_table[, 1]
+  }
+  
+  # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
+  if (parse_plate_information) {
+    plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
+    
+    # Then add to metadata
+    if (nrow(plate_information) > 0) {
+      metadata_table = cbind(metadata_table,plate_information)
+    } else {
+      futile.logger::flog.warn("The 'ReadCountsTable' method could not parse plate information from the names though requested! Check the regular expression ('plate_information_regex'). Cannot return dataset by samples ('return_samples_as_datasets')!")
+      return_samples_as_datasets = FALSE
+    }
+  }
+
+  # Group cells by samples for datasets
+  samples_to_process = list()
+  if (return_samples_as_datasets) {
+    if(!parse_plate_information) futile.logger::flog.error("The 'ReadCountsTable' method cannot return datasets by samples without parsing this information from the name ('parse_plate_information')!")
+    samples_to_process = split(rownames(metadata_table), metadata_table$SampleName)
+  } else {
+    samples_to_process[[project]] = rownames(metadata_table)
+  }
+  
+  # Now create Seurat objects
+  sc = list()
+  for (s in names(samples_to_process)) {
+    n = paste(project,s,sep=".")
+    
+    # create Seurat object with first assay
+    # include cell and feature metadata
+    c = samples_to_process[[s]] # cells to include for sample
+    f = feature_types[1] # feature type
+    a = feature_type_to_assay_name[f] # assay name
+    d = as(as.matrix(feature_data[[f]][,c]), "dgCMatrix") # cell data
+    m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
+    if (ncol(m)==0 | nrow(m)==0) m=NULL
+    sc[[n]] = Seurat::CreateSeuratObject(counts=d, 
+                                  project=s, 
                                   assay=a, 
                                   min.cells=0, 
                                   min.features=0, 
                                   names.delim=NULL, 
                                   names.field=NULL, 
-                                  meta.data=metadata_table)
-  
-  # check that the feature symbols are the same and add feature meta information
-  nms = rownames(sc[[a]])
-  missed = nms[!nms %in% rownames(features_ids_types)]
-  if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed))
-  
-  sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
-  
-  # now add remaining assays
-  feature_types = feature_types[-1]
-  for (f in feature_types) {
-    a = feature_type_to_assay_name[f]
-    sc[[a]] = Seurat::CreateAssayObject(counts=as(as.matrix(feature_data[[f]]), "dgCMatrix"), min.cells=0, min.features=0)
+                                  meta.data=m)
     
-    nms = rownames(sc[[a]])
+    # check that the feature symbols are the same and add feature meta information
+    nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed))
+                                                  a, first_n_elements_to_string(missed))
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
     
-    sc[[a]] = Seurat::AddMetaData(sc[[a]],features_ids_types[rownames(sc[[a]]),])
+    # now add remaining assays
+    feature_types = feature_types[-1]
+    for (f in feature_types) {
+      a = feature_type_to_assay_name[f]
+      d = as(as.matrix(feature_data[[f]][,c]), "dgCMatrix")
+      sc[[n]][[a]] = Seurat::CreateAssayObject(counts=d,
+                                          min.cells=0,
+                                          min.features=0,
+                                          names.delim=NULL,
+                                          names.field=NULL)
+      nms = rownames(sc[[n]][[a]])
+      missed = nms[!nms %in% rownames(features_ids_types)]
+      if (length(missed)>0) futile.logger::flog.error("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                    a, first_n_elements_to_string(missed))
+      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]),])
+    }
   }
   
   return(sc)
@@ -148,8 +190,9 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
 #' @param feature_type_column Name or index of the column which should be used for feature types (3).
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param return_samples_as_datasets If there are multiple samples in the dataset: return each as separate dataset ("TRUE").
 #' @return A Seurat object.
-Read10xDataset = function(path, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
+ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
   library(magrittr)
   
   # defaults
@@ -359,7 +402,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
 #' @param row_name_group Index of the capture group which contains the plate row name. Can be NULL in which case it will not be evaluated and the plate row name will be NA. Default is 3.
 #' @param col_name_group Index of the capture group which contains the plate col name. Can be NULL in which case it will not be evaluated and the plate col name will be NA. Default is 4.
 #' @return A data frame with plate information.
-parse_plate_information = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
+ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
   # split cell names
   cell_names_matched_and_split = as.data.frame(stringr::str_match(string=cell_names, pattern=pattern), stringsAsFactors=FALSE)
   cell_names_matched_and_split = merge(x=data.frame(V1=cell_names), y=cell_names_matched_and_split, by=1, all.x=TRUE)

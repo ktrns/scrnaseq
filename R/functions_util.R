@@ -10,9 +10,10 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
   return(s)
 }
 
-# Report session info in a table
-scrnaseq_session_info = function(path_to_git) {
-  
+#' Report session info in a table
+#' 
+#' @return The session info as table.
+scrnaseq_session_info = function(path_to_git=".") {
   out=matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
@@ -29,4 +30,101 @@ scrnaseq_session_info = function(path_to_git) {
   out = rbind(out, c("Packages", paste(paste(info_pkgs$package, info_pkgs$loadedversion, sep=""), collapse=", ")))
   
   return(out)
+}
+
+#' Returns the names of an object
+#' @param x A list or vector with names.
+#' @return A named vector with names as names and names as values.
+list_names = function(x) {
+  return(setNames(names(x), names(x)))
+}
+
+#' Returns a vector with its values as names.
+#' @param x A vector.
+#' @return A vector with its values as names.
+values_to_names = function(x) {
+  return(setNames(x,x))
+}
+
+#' Wrapper around the biomaRt::useEnsembl function to cope with unavailable Ensembl mirrors. Tries different Ensembl mirrors and returns a mart object with the mirror that works.
+#' @param biomart A biomaRt database name. Possible database names can be retrieved with the function listEnsembl().
+#' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
+#' @param mirror Specify an Ensembl mirror to connect to. The valid options here are 'www', 'uswest', 'useast', 'asia'. If no mirror is specified, then the first mirror that works will be used. Will be ignored if a host is specified.
+#' @param version Ensembl version to connect to when wanting to connect to an archived Ensembl version.
+#' @param host Host to connect to. Only needs to be specified if different from www.ensembl.org. 
+#' @return A biomaRt object.
+GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
+  
+  # Which mirrors to test
+  if (is.null(mirror)) {
+    mirrors_to_test = c("www", "uswest", "useast", "asia")
+  } else {
+    mirrors_to_test = c(mirror)
+  }
+  
+  mart_obj = NA
+  if(is.null(host)) {
+    # Test and if a mirror is not available, check the next one
+    for(m in mirrors_to_test) {
+      mart_obj = tryCatch({
+        biomaRt::useEnsembl(biomart=biomart, dataset=dataset, mirror=m, version=version)
+      },
+      error=function(cond) {
+        return(NA)
+      })
+    
+      if(!is.na(mart_obj)) break
+    }
+    if(is.na(mart_obj)) stop("The requested Ensembl mirror(s) are not available.")
+    
+  } else {
+    # Use specific host
+    mart_obj = tryCatch({
+      biomaRt::useEnsembl(biomart=biomart, dataset=dataset, host=host, version=version)
+    },
+    error=function(cond) {
+      return(NA)
+    })
+    if(is.na(mart_obj)) stop("The requested Ensembl host is not available.")
+  }
+  
+  return(mart_obj)
+}
+
+
+#' Returns the mirror of a biomaRt object.
+#' @param mart_obj A biomaRt object obtained by GetBiomaRt or useEnsembl name.
+#' @return The mirror of the biomaRt object. Can be 'www', 'uswest', 'useast' or 'asia'.
+GetBiomaRtMirror = function(mart_obj) {
+  mirrors_to_test = c("uswest", "useast", "asia")
+  mirror = "www"
+  
+  for(m in mirrors_to_test){
+    if(grepl(pattern=m, x=mart_obj@host)){
+      mirror = m
+      break
+    }
+  }
+  
+  return(mirror)
+}
+
+#' Generate colours based on a palette. If the 
+#' @param num_colours The number of colours to generate.
+#' @param palette A palette function for generating the colours.
+#' @param palette List of additional arguments (beside alpha) to pass on to the palette function.
+#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
+#' @return The generated colours.
+GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0.3), palette_options=list()) {
+  colours = purrr::flatten_chr(purrr::map(alphas, function(a) {
+    palette_options[["alpha"]] = a
+    cols = suppressWarnings(do.call(do.call(ggsci::pal_d3,palette_options),list(100)))
+    cols[!is.na(cols)]
+  }))
+  
+  if (num_colours>length(colours)) {
+    stop("GenerateColours: Cannot generate the requested number of colours. Please change palette or add alpha values.")
+  }
+  
+  return(colours[1:num_colours])
 }
