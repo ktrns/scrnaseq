@@ -41,8 +41,10 @@ options(future.globals.maxSize = 800000000) # increase if the maximum allowed si
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, tidy=FALSE, fig.width=10)
 
-# Potentially needed for clustering, umap, other python packages
-use_python('/usr/bin/python')
+# Python needed for clustering, umap, other python packages
+# Change location if necessary
+Sys.setenv(RETICULATE_PYTHON = "/usr/bin/python")
+
 
 # biomaRt mirror: NULL means the first working mirror is used
 mirror = NULL
@@ -50,10 +52,10 @@ mirror = NULL
 
 # Dataset description
 * 10x and Smartseq2 datasets of PBMC cells
-* from "Systematic comparative analysis of single cell RNA-sequencing methods" `r knitcitations::citet("10.1186/s13059-019-1863-4")`
+* Taken from "Systematic comparative analysis of single cell RNA-sequencing methods" `r knitcitations::citet("10.1186/s13059-019-1863-4")`
 
 ## Project-specific parameters
-This code chunk contains all parameters that are set specifically for your project. 
+This code chunk contains all parameters that are set specifically for the project. 
 ```{r project_parameters, class.source='fold-show'}
 param = list()
 
@@ -70,6 +72,10 @@ param$file_mapping_stats = NULL
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
 if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 
+# Marker genes based on literature, translated to Ensembl IDs
+# xlsx file, one list per column, first row as header and Ensembl IDs below
+# Set to NULL if no known marker genes should be plotted
+param$file_known_markers = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/known_markers.xlsx"
 
 # Annotation via biomaRt
 param$mart_dataset = "hsapiens_gene_ensembl"
@@ -88,7 +94,7 @@ param$mt = "^MT-"
 
 # Filters
 param$cell_filter = list(nFeature_RNA=c(200,NA), percent_mt=c(NA,20))
-param$features_filter = list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
+param$feature_filter = list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
 param$samples_to_drop = c("NC", "RNA") # cells from these samples will be dropped after initial QC
 
 # Whether or not to remove cell cycle effects
@@ -118,7 +124,7 @@ param$integrate_samples = list(method="standard", reference_dataset=1, dimension
 # Which normalisation should be used for analysis: RNA or SCT?
 param$normalisation_default = "SCT"
 
-# The number of PCs to use; adjust this parameter based on JackStraw and Elbowplot 
+# The number of PCs to use; adjust this parameter based on the Elbowplot 
 param$pc_n = 10
 
 # Resolution of clusters; low values will lead to fewer clusters of cells 
@@ -128,10 +134,6 @@ param$cluster_resolution=0.5
 param$padj = 0.05
 param$log2fc = log2(1.5)
 
-# Marker genes based on literature, translated to Ensembl IDs
-# xlsx file, one list per column, first row as header and Ensembl IDs below
-param$file_known_markers = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/known_markers.xlsx"
-
 # Enrichr databases of interest
 param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
 
@@ -139,13 +141,13 @@ param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018"
 param$col = "palevioletred"
 
 # Colour palette and colours used for samples
-param$col_palette_samples = ggsci::pal_npg
+param$col_palette_samples = ggsci::pal_jama
 
 # Colour palette and colours used for cluster
 param$col_palette_cluster = ggsci::pal_startrek
 
 # Sample data to at most n cells per dataset/sample (mainly for tests); set to NULL to deactivate
-param$sample_cells = 300
+param$sample_cells = NULL
 
 # Path to git repository
 param$path_to_git = "."
@@ -161,7 +163,7 @@ source(paste0(param$path_to_git, "/R/functions_util.R"))
 # Read data
 ## Read and print mapping statistics
 We begin by printing mapping statistics that have been produced prior to this workflow. 
-```{r mapping_stats}
+```{r mapping_stats, message=TRUE}
 # Are statistics provided?
 if (!all(is.na(param$path_data$stats))) { 
   
@@ -275,7 +277,7 @@ genes_g2m = biomaRt::getLDS(attributes=c("external_gene_name"),
                             uniqueRows=TRUE)
 ```
 
-## Setup
+## Read scRNA-seq data
 We next read the scRNA-seq dataset(s) into Seurat. 
 ```{r read_datasets}
 # List of Seurat objects
@@ -316,6 +318,16 @@ sc = purrr::map(list_names(sc), function(n) {
   return(sc[[n]])
 })
 
+# Enforce unique barcodes per cell after integration
+if (length(sc) > 1) {
+  for (i in 1:length(sc)) {
+    # Remove "-1" if necessary
+    sc[[i]] = Seurat::RenameCells(sc[[i]], new.names=gsub("-1", "", Cells(sc[[i]])))
+    # Add "-1", "-2", and so on
+    sc[[i]] = Seurat::RenameCells(sc[[i]], new.names=paste0(Cells(sc[[i]]), "-", i)) 
+  }
+}
+
 # Set up colors for samples
 sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
 param$col_samples = GenerateColours(num_colours=length(sample_names), palette=param$col_palette_samples)
@@ -330,10 +342,11 @@ if (!is.null(param$sample_cells)) {
 }
 ```
 
-
 # Pre-processing
 ## Quality control 
 We start the analysis by removing unwanted cells from the dataset(s). Three commonly used QC metrics include the number of unique genes detected in each cell ("nFeature_RNA"), the total number of molecules detected in each cell ("nCount_RNA"), and the percentage of counts that map to the mitochrondrial genome ("percent_mt"). If ERCC spike-in controls were used, the percentage of counts mapping to them is also shown ("percent_ercc").
+
+The following first table shows metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), or the above mentioned number of unique genes detected ("nFeature"). The second table shows metadata (columns) of the first 5 genes (rows), for example the number of cells with at least 1 count for the gene ("num_cells_expr"), and the number of cells with at least as many counts as set in the parameter filter section ("num_cells_expr_threshold"). 
 ```{r qc_criteria_create}
 # If filters were specified globally (i.e. not by sample), this chunk will copy them for each sample such that downstream filtering can work by sample
 param$cell_filter = purrr::map(list_names(sc), function(s) {
@@ -344,11 +357,11 @@ param$cell_filter = purrr::map(list_names(sc), function(s) {
   }
 })
 
-param$features_filter = purrr::map(list_names(sc), function(s) {
-  if (s %in% names(param$features_filter)) {
-    return(param$features_filter[[s]])
+param$feature_filter = purrr::map(list_names(sc), function(s) {
+  if (s %in% names(param$feature_filter)) {
+    return(param$feature_filter[[s]])
   } else {
-    return(param$features_filter)
+    return(param$feature_filter)
   }
 })
 ```
@@ -366,21 +379,23 @@ sc = purrr::map(sc, function(s) {
 # Combine cell metadata of the Seurat objects into one big metadata
 sc_cell_metadata = purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame()
 sc_cell_metadata$orig.ident = factor(sc_cell_metadata$orig.ident,levels=unique(sc_cell_metadata$orig.ident))
+
+# Print table
+knitr::kable(head(sc[[1]][[]], 5), align="l", caption="Cell metadata, top 5 rows") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 ```{r qc_calculate_features}
 # Only RNA assay at the moment
 sc = purrr::map(list_names(sc), function(n) {
   num_cells_expr = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= 1)
-  num_cells_expr_threshold = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= param$features_filter[[n]][["min_counts"]])
+  num_cells_expr_threshold = Matrix::rowSums(Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA") >= param$feature_filter[[n]][["min_counts"]])
   sc[[n]][["RNA"]] = Seurat::AddMetaData(sc[[n]][["RNA"]], data.frame(num_cells_expr,num_cells_expr_threshold))
   return(sc[[n]])
 })
 
-knitr::kable(head(sc[[1]][[]], 5), align="l", caption="Cell meta-data, top 5 rows") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
-
-knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature meta-data for assay 'RNA', top 5 rows (only first dataset shown)") %>% 
+# Print table
+knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
@@ -406,12 +421,12 @@ for (i in names(cell_qc_features)) {
       data.frame(orig.ident=orig_ident, threshold=c("min","max"), value=param$cell_filter[[n]][[i]])
     } 
   })
-  # Remove entries that are NA
-  cell_filter_for_plot = cell_filter_for_plot %>% dplyr::filter(!is.na(value))
   
   # Add filters as segments to plot
   if (nrow(cell_filter_for_plot)>0) {
-    p_list[[i]] = p_list[[i]] + geom_segment(data=cell_filter_for_plot,aes(x=as.integer(as.factor(orig.ident))-0.5, xend=as.integer(as.factor(orig.ident))+0.5, y=value, yend=value),lty=2, col="orange")
+    # Remove entries that are NA
+    cell_filter_for_plot = cell_filter_for_plot %>% dplyr::filter(!is.na(value))
+    p_list[[i]] = p_list[[i]] + geom_segment(data=cell_filter_for_plot,aes(x=as.integer(as.factor(orig.ident))-0.5, xend=as.integer(as.factor(orig.ident))+0.5, y=value, yend=value),lty=2, col="firebrick")
   }
 }
 p = patchwork::wrap_plots(p_list, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
@@ -421,7 +436,7 @@ p
 p = list()
 p[[1]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[1], colour="orig.ident")) +
   geom_point()
-p[[2]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_qc_features[3], colour="orig.ident")) +
+p[[2]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[3], y=cell_qc_features[1], colour="orig.ident")) +
   geom_point()
 for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], col=param$col_samples)
 
@@ -434,11 +449,37 @@ if (length(sc)==1) {
 p
 ```
 
+## Filtering
+The size of the Seurat object before filtering is: 
+```{r filter_size_before}
+sc
+```
+
+Cells and genes are filtered based on the following thresholds: 
+```{r filter_print_cutoffs}
+cell_filter_list = param$cell_filter %>% unlist(recursive=FALSE)
+cell_filter_tbl = cell_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
+rownames(cell_filter_tbl) = names(cell_filter_list)
+colnames(cell_filter_tbl) = c("Min", "Max")
+
+feature_filter_list = param$feature_filter %>% unlist(recursive=FALSE)
+feature_filter_tbl = feature_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
+rownames(feature_filter_tbl) = names(feature_filter_list)
+colnames(feature_filter_tbl) = "n"
+
+knitr::kable(cell_filter_tbl, align="l", caption="Filters applied to cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  
+knitr::kable(feature_filter_tbl, align="l", caption="Filters applied to genes") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+The number of excluded cells and features is as follows: 
 ```{r filter_cells}
 # Iterate over datasets and filters
 # Record a cell if it does not pass the filter
 # Also record a cell if it belongs to a sample that should be dropped
-sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { # ASK ANDREAS
+sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { 
   filter_result = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
     filter = param$cell_filter[[n]][[f]]
     if (is.numeric(filter)) {
@@ -446,7 +487,7 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { # ASK ANDREAS
       if (is.na(filter[2])) filter[2] = Inf  # Maximum 
       idx_exclude = sc[[n]][[f, drop=TRUE]] < filter[1] | sc[[n]][[f, drop=TRUE]] > filter[2]
       return(names(which(idx_exclude)))
-    } else if (is.character(filter)) { # ASK ANDREAS
+    } else if (is.character(filter)) { 
       return(names(which(sc[[n]][[f, drop=TRUE]] %in% filter)))
     }
   })
@@ -458,13 +499,12 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { # ASK ANDREAS
 })
 
 # Summarise
-sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude ,function (s) {
+sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
   return(as.data.frame(purrr::map(s,length))) 
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
-knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Summary excluded cells") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-  kableExtra::scroll_box(width="100%")
+knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
 
 # Now filter, drop the respective colours and adjust integration method
 sc = purrr::map(list_names(sc), function(n) {
@@ -482,15 +522,15 @@ if(length(sc)==1) param$integrate_samples[["method"]] = "single"
 
 # Iterate over datasets and record a feature if it does not pass the filter
 sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
-  names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$features_filter[[n]][["min_cells"]]))
+  names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]]))
 })
 
 # Summarise
-sc_features_to_exclude_summary = as.data.frame(purrr::map(sc_features_to_exclude, length))
+sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>% 
+  t() %>% as.data.frame() 
 rownames(sc_features_to_exclude_summary) = c("Genes")
-knitr::kable(sc_features_to_exclude_summary, align="l", caption="Summary excluded features") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-  kableExtra::scroll_box(width="100%")
+knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of excluded genes") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Now filter
 sc = purrr::map(list_names(sc), function(n) {
@@ -500,17 +540,23 @@ sc = purrr::map(list_names(sc), function(n) {
 })
 ```
 
-## Normalisation, cell cycle scoring, scaling and variable features
+After filtering, the size of the Seurat object is: 
+```{r filter_size_after}
+sc
+```
+
+## Normalisation, cell cycle scoring, scaling and variable genes
 In this section, we subsequently run a series of Seurat functions:  
 1. We start by running a __standard log normalisation__, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.   
-2. __Variable features__ are selected. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others.   
-3. To be able to compare normalised gene counts between genes, gene counts are further __scaled__ to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis.  
+2. __Variable genes__ are selected. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly expressed in others.   
+3. To be able to compare normalised gene counts between genes, gene counts are further __scaled__ to have zero mean and unit variance (z-score). This way, genes are equally weighted for downstream analysis. 
 
 In addition, we run:  
-4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, variable features and scaling__). Note that although results are kept for steps 1-3 ("RNA" assay), downstream analyses will default to resulting data of step 4 ("SCT" assay). 
+4. __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, variable genes and scaling__). Note that although results are kept for steps 1-3 ("RNA" assay), downstream analyses will default to resulting data of step 4 ("SCT" assay). 
 
-Finally, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are then removed during scaling (step 4). Done for this report: `r param$cc_remove`. 
+Finally, __cell cycle scores__ are assigned to each cell based on its normalised expression of G2/M and S phase markers, after basic normalisation (step 1). These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are removed during scaling (step 4). Note that removing all signal associated to cell cycle can negatively impact downstream analysis. For example, in differentiating processes, stem cells are quiescent and differentiated cells are proliferating (or vice versa), and removing all cell cycle effects can blur the distinction between these cells. As an alternative, we can remove the difference between G2M and S phase scores. This way, signals separating non-cycling and cycling cells will be maintained, while differences amongst proliferating cells will be removed. For a more detailed explanation, see the cell cycle vignette for Seurat `r knitcitations::citep("https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html")`. Cell cycle effect removed for this report: `r param$cc_remove`; _all_ cell cycle effects removed for this report: `r param$cc_remove_all`.   
 
+While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r norm_scale_variableFeatures, results="hide"}
 # This function often crashes with multicore support, so stop for a moment
 future::plan("sequential")
@@ -565,27 +611,25 @@ sc = purrr::map(sc, function(s) {
 # vignette: https://satijalab.org/seurat/v3.0/sctransform_vignette.html
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
 # Normalised data end up here: sc@assays$SCT@data
-sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$features_filter[[n]][["min_cells"]], verbose=FALSE) })
+sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$feature_filter[[n]][["min_cells"]], verbose=FALSE) })
 
 # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. Consequently, some genes might be missing from the SCT assay. See: https://github.com/ChristophH/sctransform/issues/27
 ```
 
-### Variable features  {.tabset}
+### Variable genes  {.tabset}
+Experience shows that 1,000-2,000 genes with the highest cell-to-cell variation are often sufficient to describe the global structure of a single cell dataset. For example, cell type-specific genes typically highly vary between cells. Housekeeping genes, on the other hand, are similarly expressed across cells and can be disregarded to differentiate between cells.   
 
-Experience shows that the 1,000 - 2,000 genes with the highest cell-to-cell variation are often enough to elucidate the global structure of a single cell dataset. For example, cell type-specific genes should highly variable across cells while house keeping genes should be similarly expressed across cells. In addition, such genes should be sufficiently expressed since expression level is strongly positively correlated with technical drop out, i.e., failing to measure the gene in a cell.
-
-Here, we use the variance-stabilizing transformation (vst) method implemented in Seurat (`r knitcitations::citet("10.1186/s13059-019-1874-1")`. This method first models the technical heterogeneity as relationship between mean and variance using local polynomial regression. The model is then used to calculate the expected variance based on the observed mean. The residual variance (the difference between observed and expected variance) then likely reflects biological heterogeneity. The top 3000 genes are used for further analysis.
+To determine variable genes, we need to separate biological variability from technical variability. Technical variability arises especially for lowly expressed genes, where high variability corresponds to small absolute changes that we are not interested in. Here, we use the variance-stabilizing transformation (vst) method implemented in Seurat (`r knitcitations::citet("10.1186/s13059-019-1874-1")`. This method first models the technical variability as a relationship between mean gene expression and variance using local polynomial regression. The model is then used to calculate the expected variance based on the observed mean gene expression. The difference between the observed and expected variance is called residual variance and likely reflects biological variability. The top 3,000 variable genes are used for further analysis. 
 
 #### Standard normalisation (RNA)
-
 ```{r plot_variable_features_rna}
 # Show variable genes
 plist = purrr::map(list_names(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]]), 10)
-  p = Seurat::VariableFeaturePlot(sc[[n]], assay="RNA", selection.method="vst") + ggtitle(n)
-  p = PlotMystyle(p, col=c("grey", param$col))
-  p = LabelPoints(plot=p, points=top10, repel=TRUE)
-  p = p + theme(legend.position=c(0.2, 0.8),legend.background=element_rect(fill=alpha("white", 0.0)))
+  p = Seurat::VariableFeaturePlot(sc[[n]], assay="RNA", selection.method="vst", col=c("grey", param$col))
+  p = PlotMystyle(p, title=n)
+  p = LabelPoints(plot=p, points=top10, repel=TRUE, xnudge=0, ynudge=0)
+  p = p + theme(legend.position=c(0.2, 0.8), legend.background=element_rect(fill=alpha("white", 0.0)))
   return(p)
 })
 
@@ -597,9 +641,9 @@ patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
 # Show variable genes
 plist = purrr::map(list_names(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]], assay="SCT"), 10)
-  p = Seurat::VariableFeaturePlot(sc[[n]], assay="SCT", selection.method="sct") + ggtitle(n)
-  p = PlotMystyle(p, col=c("grey", param$col))
-  p = LabelPoints(plot=p, points=top10, repel=TRUE)
+  p = Seurat::VariableFeaturePlot(sc[[n]], assay="SCT", selection.method="sct", col=c("grey", param$col)) 
+  p = PlotMystyle(p, title=n)
+  p = LabelPoints(plot=p, points=top10, repel=TRUE, xnudge=0, ynudge=0)
   p = p + theme(legend.position=c(0.2, 0.8),legend.background=element_rect(fill=alpha("white", 0.0)))
   return(p)
 })
@@ -628,7 +672,7 @@ shared_sct_features = purrr::reduce(purrr::map(sc, function(s) rownames(s[["SCT"
 
 To better understand the efficiency of the applied normalisation procedures, we plot the relative log expression of genes in at most `r n_cells_rle_plot` randomly selected cells per sample before and after normalisation. This type of plot reveals unwanted variation in your data. The concept is taken from `r knitcitations::citet("10.1371/journal.pone.0191629")`. In brief, we remove variation between genes, leaving only variation between samples. If expression levels of most genes are similar in all cell types, sample heterogeneity is a sign of unwanted variation. 
 
-For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (lightgrey), whiskers defined as 1.5 times the interquartile range (darkgrey), and outliers (`r param$col`). 
+For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (lightgrey), whiskers defined as 1.5 times the interquartile range (darkgrey), and outliers (`r param$col_samples`). 
 
 #### Raw counts
 ```{r plot_RLE_raw}
@@ -841,7 +885,7 @@ DefaultAssay(sc) = paste0(param$normalisation_default,"integrated")
 ```
 
 ## Dimensionality reduction
-A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. The biological manifold however can be described by far fewer dimensions than the number of genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
+A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. At this point of the analysis, we have already reduced the dimensionality of the dataset to 3,000 variable genes. The biological manifold however can be described by far fewer dimensions than the number of (variable) genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
 
 We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
 
@@ -850,8 +894,8 @@ To decide how many PCs to include in downstream analyses, we visualize cells and
 # Run PCA for default normalisation
 sc = Seurat::RunPCA(sc, features =Seurat::VariableFeatures(object=sc))
 
-p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", combine=FALSE)
-for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]], col=param$col)
+p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
+for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
 p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
@@ -867,7 +911,7 @@ Seurat::DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
 ```
 
 ## Dimensionality of the dataset
-We next need to decide how many PCs we want to use for analyses. The following "Elbow plot" is designed to help us make an informed decision. In this plot, PCs are ranked based on the percentage of variance they explain. 
+We next need to decide how many PCs we want to use for our analyses. The following "Elbow plot" is designed to help us make an informed decision.  PCs are ranked based on the percentage of variance they explain. 
 
 For your dataset, we decided to go for `r param$pc_n` PCs. 
 ```{r dimensionality}
@@ -908,7 +952,7 @@ Take care not to mis-read a UMAP:
 * Distances between clusters might not mean anything  
 * You may need more than one plot  
   
-For a nice read to intuitively understand UMAP, see `r knitcitations::citep("https://pair-code.github.io/understanding-umap/")`. 
+For a nice read to intuitively understand UMAP, see `r knitcitations::citet("https://pair-code.github.io/understanding-umap/")`. 
 ```{r umap, message=FALSE, results="hide"}
 # Default UMAP
 sc = Seurat::RunUMAP(sc, dims=1:param$pc_n)
@@ -927,8 +971,20 @@ p
 if (nrow(param$path_data) > 1) {
   p = Seurat::DimPlot(sc, reduction="umap", label=TRUE, group.by="orig.ident") 
   p = PlotMystyle(p, "UMAP, cells coloured by sample of origin", legend_position="bottom", col=param$col_samples)
-  p
+  print(p)
 }
+
+# Count cells per cluster per sample 
+tbl = lapply(unique(sc[[]]$orig.ident), function(i) {
+  tmp = sc[[]] %>% dplyr::filter(orig.ident==i) %>% dplyr::count(seurat_clusters) %>% 
+    dplyr::mutate(perc=round(n/sum(n)*100,2))
+  colnames(tmp)[2:ncol(tmp)] = paste(colnames(tmp)[2:ncol(tmp)], i, sep="_")
+  return(tmp)
+}) %>% 
+  purrr::reduce(dplyr::full_join, by="seurat_clusters")
+
+knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
 ```{r reset_default_assay}
@@ -982,6 +1038,13 @@ p = PlotMystyle(p, title="UMAP, cells coloured by G2M phase")
 p
 ```
 
+### UMAP coloured by the difference between S and G2/M phase
+```{r cellCycleEffect_umap_ccdiff}
+p = Seurat::FeaturePlot(sc, features="CC.Difference", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col), label=TRUE)
+p = PlotMystyle(p, title="UMAP, cells coloured by CC.Difference")
+p
+```
+
 ## Feature plots QC  {.tabset}
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
 
@@ -1009,21 +1072,27 @@ p
 ## Known marker genes {.tabset}
 Do cells in individual clusters express provided known marker genes? 
 ```{r featurePlot_knownMarkers_read}
-# Read known marker genes
-known_markers = openxlsx::read.xlsx(param$file_known_markers)
-known_markers_list = lapply(colnames(known_markers), function(x) {
-  y = ensembl_to_seurat_rowname[known_markers[,x]] %>% 
-    na.exclude() %>% unique() %>% sort() 
-  return(y)
-})
-names(known_markers_list) = colnames(known_markers)
-known_markers_vect = unlist(known_markers_list) %>% unique() %>% sort()
+if(!is.null(param$file_known_markers)) {
+  # Read known marker genes
+  known_markers = openxlsx::read.xlsx(param$file_known_markers)
+  known_markers_list = lapply(colnames(known_markers), function(x) {
+    y = ensembl_to_seurat_rowname[known_markers[,x]] %>% 
+      na.exclude() %>% unique() %>% sort() 
+    return(y)
+  })
+  names(known_markers_list) = colnames(known_markers)
+  known_markers_vect = unlist(known_markers_list) %>% unique() %>% sort()
 
-idx_dotplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) <=50)
-idx_avgplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
-fig_height_knownMarkers_dotplot = max(5, 5 * sum(idx_dotplot))
-fig_height_knownMarkers_avgplot = max(5, 5 * sum(idx_avgplot))
-fig_height_knownMarkers_vect = max(5, length(known_markers_vect))
+  idx_dotplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) <=50)
+  idx_avgplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
+  fig_height_knownMarkers_dotplot = max(5, 5 * sum(idx_dotplot))
+  fig_height_knownMarkers_avgplot = max(5, 5 * sum(idx_avgplot))
+  fig_height_knownMarkers_vect = max(5, length(known_markers_vect))
+  
+  known_markers_n = length(known_markers_list)
+} else { 
+  known_markers_n = 0  
+}
 ```
 
 You provided `r length(known_markers_list)` list(s) of known marker genes. In the following tabs, you find: 
@@ -1034,7 +1103,7 @@ You provided `r length(known_markers_list)` list(s) of known marker genes. In th
 
 ### Dot plot(s)
 A dot plot visualizes how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that express the gene, while the color encodes the average expression across all cells within the cluster. 
-```{r featurePlot_knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot}
+```{r featurePlot_knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot, eval=(known_markers_n!=0)}
 if (any(idx_dotplot)) {
   known_markers_dotplot = known_markers_list[idx_dotplot]
   p = list()
@@ -1054,7 +1123,7 @@ if (any(idx_dotplot)) {
 
 ### Average feature plot(s)
 An average feature plot visualizes the average gene expression of each gene list on a single-cell level, subtracted by the aggregated expression of control feature sets. The color of the plot encodes the calculated scores, whereat positive scores suggest that genes are expressed more highly than expected. 
-```{r featurePlot_knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot}
+```{r featurePlot_knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot, eval=(known_markers_n!=0)}
 if (any(idx_avgplot)) {
   known_markers_avgplot = known_markers_list[idx_avgplot]
   sc = Seurat::AddModuleScore(sc, features=known_markers_avgplot, assay="SCT", ctrl=10, name="known_markers")
@@ -1073,7 +1142,7 @@ if (any(idx_avgplot)) {
 
 ### Individual feature plots
 An individual feature plot colours single cells on the UMAP according to their normalised gene expression. 
-```{r featurePlot_knownMarkers_all, fig.height=fig_height_knownMarkers_vect}
+```{r featurePlot_knownMarkers_all, fig.height=fig_height_knownMarkers_vect, eval=(known_markers_n!=0)}
 if (length(known_markers_vect) <= 30) {
   p = Seurat::FeaturePlot(sc, features=known_markers_vect, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
   for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
@@ -1084,7 +1153,7 @@ if (length(known_markers_vect) <= 30) {
 ```
 
 ## Differentially expressed genes
-We next identify genes that are differentially expressed in one cluster compared to all other clusters. Additional gene annotation is added, and the resulting tables are written to file. 
+We next identify genes that are differentially expressed in one cluster compared to all other clusters, based on raw "RNA" data and the method "MAST". Resulting _p_-values are adjusted using the Bonferroni method. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
 ```{r DEG}
 # We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
 library(MAST)
@@ -1118,7 +1187,9 @@ sc_markers_top2 = sc_markers %>%
 
 # Show top 2 merkers per cluster
 knitr::kable(sc_markers_top2, align="l", caption="Top 2 DEGs per cell cluster") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%", height="700px")
+
 
 # Add Ensembl annotation
 sc_markers_ensembl = seurat_rowname_to_ensembl[sc_markers[,"gene"]]
@@ -1163,8 +1234,7 @@ detach("package:MAST", unload=TRUE)
 ```
 
 ## Visualisation of differentially expressed genes {.tabset}
-The following plots are exemplary to how we can visualize differentially expressed genes using the "Seurat" R-package. The selected genes are the top differentially expressed genes for all clusters, respectively. 
-
+The following plots are exemplary to how we can visualize differentially expressed genes using the Seurat R-package. The selected genes are the top differentially expressed genes for each cluster, respectively. 
 ```{r DEG_plot}
 # Get top gene per cluster and plot
 genes_example = sc_markers %>% 
