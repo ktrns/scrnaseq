@@ -1,3 +1,28 @@
+# 'Calculate enrichment of cells per sample per cluster
+#' 
+#' @param sc Seurat object
+cells_fisher = function(sc) {
+  cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
+  cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% unique() %>% sort()
+  out = matrix(0+NA, nrow=length(cell_clusters), ncol=0) %>% as.data.frame()
+  for(s in cell_samples) {
+    ft.list = lapply(cell_clusters, function(cl) { 
+      a = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
+      b = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
+      c = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
+      d = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
+      tbl.2by2 = matrix(c(a, b, c, d), ncol=2, nrow=2, byrow=TRUE)
+      ft = fisher.test(tbl.2by2, alternative="greater")
+      return(c(oddsRatio=round(as.numeric(ft$estimate), 2),
+               p=round(as.numeric(ft$p.value), 2)))
+    })
+    ft.matrix = purrr::reduce(ft.list, .f=rbind)
+    colnames(ft.matrix) = paste0(s, ".", colnames(ft.matrix))
+    out = cbind(out, ft.matrix)
+  }
+  return(out)
+}
+
 #' Given a vector, report at most n elements as concatenated string.
 #' 
 #' @param x A vector.

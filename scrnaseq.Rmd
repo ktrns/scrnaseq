@@ -953,7 +953,7 @@ Take care not to mis-read a UMAP:
 * You may need more than one plot  
   
 For a nice read to intuitively understand UMAP, see `r knitcitations::citet("https://pair-code.github.io/understanding-umap/")`. 
-```{r umap, message=FALSE, results="hide"}
+```{r umap, message=FALSE}
 # Default UMAP
 sc = Seurat::RunUMAP(sc, dims=1:param$pc_n)
 
@@ -973,18 +973,45 @@ if (nrow(param$path_data) > 1) {
   p = PlotMystyle(p, "UMAP, cells coloured by sample of origin", legend_position="bottom", col=param$col_samples)
   print(p)
 }
+```
 
+The following table shows the number of cells per sample per cluster:   
+
+* n: Number of cells per sample per cluster   
+* perc: Percentage of cells per sample per cluster compared to all other cells of that sample    
+
+In case the dataset contains 2 or more samples, we also calculate whether or not the number of cells of a sample in a cluster is significantly higher than expected:      
+
+* oddsRatio: Odds ratio calculated for cluster c1 and sample s1 as (# cells s1 in c1 / # cells not s1 in c1) / (# cells s1 not in c1 / # cells not s1 not in c1)    
+* p: P-value calculated with a fisher test to test whether "n" is higher than expected  
+
+```{r cells_per_cluster}
 # Count cells per cluster per sample 
-tbl = lapply(unique(sc[[]]$orig.ident), function(i) {
+cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
+tbl = lapply(cell_samples, function(i) {
   tmp = sc[[]] %>% dplyr::filter(orig.ident==i) %>% dplyr::count(seurat_clusters) %>% 
     dplyr::mutate(perc=round(n/sum(n)*100,2))
-  colnames(tmp)[2:ncol(tmp)] = paste(colnames(tmp)[2:ncol(tmp)], i, sep="_")
+  colnames(tmp)[2:ncol(tmp)] = paste0(i, ".", colnames(tmp)[2:ncol(tmp)])
   return(tmp)
 }) %>% 
   purrr::reduce(dplyr::full_join, by="seurat_clusters")
+tbl$seurat_clusters = paste0("Cluster_", tbl$seurat_clusters)
+tbl = tbl %>% tibble::column_to_rownames(var="seurat_clusters")
 
+# Add enrichment
+if(length(cell_samples) > 1) {
+  # Add enrichment
+  tbl = cbind(tbl, cells_fisher(sc))
+
+  # Sort columns
+  tbl_o = lapply(cell_samples, function(s) paste0(s, ".", c("n", "perc", "oddsRatio", "p"))) %>% unlist()
+  tbl = tbl[, tbl_o]
+}
+
+# Print
 knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::scroll_box(width="100%")
 ```
 
 ```{r reset_default_assay}
