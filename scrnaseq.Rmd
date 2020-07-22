@@ -693,7 +693,6 @@ For each gene, we calculate its median expression across all cells, and then cal
 # Note: The counts are retrieved as sparse matrices and then cbind is used to combine them. Only at the plotRLE,
 cell_subset_raw = purrr::map(seq(length(sc)), function(i) {
   d = GetAssayData(subset(sc[[i]], cells=cells_RLE_subset[[i]], features=shared_rna_features), assay="RNA", slot="counts")
-  colnames(d) = paste(colnames(d), i, sep=".")
   return(d)
 })
 cell_subset_raw = purrr::reduce(cell_subset_raw, cbind)
@@ -709,7 +708,6 @@ p
 # Note: The counts are retrieved as sparse matrices and then cbind is used to combine them
 cell_subset_norm1 = purrr::map(seq(length(sc)), function(i) {
   d = GetAssayData(subset(sc[[i]], cells=cells_RLE_subset[[i]], features=shared_rna_features), assay="RNA", slot="data")
-  colnames(d) = paste(colnames(d), i, sep=".")
   return(d)
 })
 cell_subset_norm1 = purrr::reduce(cell_subset_norm1, cbind)
@@ -725,7 +723,6 @@ p
 # Note: The counts are retrieved as sparse matrices and then cbind is used to combine them
 cell_subset_norm2 = purrr::map(seq(length(sc)), function(i) {
   d = GetAssayData(subset(sc[[i]], cells=cells_RLE_subset[[i]], features=shared_sct_features), assay="SCT", slot="data")
-  colnames(d) = paste(colnames(d), i, sep=".")
   return(d)
 })
 cell_subset_norm2 = purrr::reduce(cell_subset_norm2, cbind)
@@ -956,7 +953,7 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 # Cluster using the Leiden algorithm
 # Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=1, verbose=FALSE)
+sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE)
 
 # Set up colors for clusters
 cluster_names = levels(sc$seurat_clusters)
@@ -1148,7 +1145,10 @@ if(!is.null(param$file_known_markers)) {
   
   known_markers_n = length(known_markers_list)
 } else { 
-  known_markers_n = 0  
+  known_markers_n = 0
+  idx_dotplot = idx_avgplot = FALSE
+  known_markers_vect = known_markers_list = c()
+  fig_height_knownMarkers_dotplot = fig_height_knownMarkers_avgplot = fig_height_knownMarkers_vect = 0
 }
 ```
 
@@ -1229,9 +1229,9 @@ suppressPackageStartupMessages(library(MAST))
 # Review recommends using "MAST"; Mathias uses "LR"
 # ALWAYS USE: assay="RNA" or assay="SCT"
 # DONT USE: assay=integrated datasets; this data is normalised and contains only 2k genes
-sc_markers = Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
-                                    only.pos=FALSE, min.pct=0.75, logfc.threshold=0.25,
-                                    latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE)
+sc_markers = suppressMessages(Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                                    only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+                                    latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE))
 
 sc_markers_top2 = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
@@ -1290,21 +1290,22 @@ detach("package:MAST", unload=TRUE)
 The following plots are exemplary to how we can visualize differentially expressed genes using the Seurat R-package. The selected genes are the top differentially expressed genes for each cluster, respectively. 
 ```{r DEG_plot}
 # Get top gene per cluster and plot
-genes_example = sc_markers %>% 
+genes_example_df = sc_markers %>% 
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=1, wt=avg_logFC) %>% 
-  dplyr::pull(gene) %>% 
-  unique()
+  dplyr::select(cluster,gene)
 
-fig_height_deg = max(5, length(genes_example))
+genes_example = genes_example_df$gene
+genes_example_titles = paste0(genes_example_df$cluster,": ",genes_example_df$gene)
+
+fig_height_deg = max(5, nrow(genes_example))
 ```
 
 ### Feature plots
 ```{r DEG_plot_umap, fig.height=fig_height_deg}
 # Shows gene expression on the UMAP
 p = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
-names(p) = genes_example
-for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i)
+for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i])
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data")
 p
@@ -1314,32 +1315,30 @@ p
 ```{r DEG_plot_ridge_raw, fig.height=fig_height_deg}
 # Ridge plot of raw gene expression counts
 p = Seurat::RidgePlot(sc, features=genes_example, slot="counts", combine=FALSE)
-names(p) = genes_example
-for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
+for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i], legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="Ridge plot of raw gene expression counts") + 
   patchwork::plot_layout(guides = "collect") &
   theme(legend.position="bottom")
-suppressMessages(p)
+suppressMessages(print(p))
 ```
 
 ### Ridge plots (normalised)
 ```{r DEG_plot_ridge_norm, fig.height=fig_height_deg}
 # Ridge plot of normalised gene expression data
 p = Seurat::RidgePlot(sc, features=genes_example, combine=FALSE)
-names(p) = genes_example
-for (i in names(p)) p[[i]] = PlotMystyle(p[[i]], title=i, legend_title="Cell identity", fill=param$col_clusters)
+for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i], legend_title="Cell identity", fill=param$col_clusters)
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="Ridge plot of normalised gene expression data") + 
   patchwork::plot_layout(guides = "collect") &
   theme(legend.position="bottom")
-suppressMessages(p)
+suppressMessages(print(p))
 ```
 
 ### Dot plot
 ```{r DEG_plot_dot}
 # Visualises how feature expression changes across different clusters
-p = Seurat::DotPlot(sc, features=genes_example[length(genes_example):1], cols=c("lightgrey", param$col))
+p = Seurat::DotPlot(sc, features=unique(genes_example[length(genes_example):1]), cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="Dot plot of normalised gene expression data")  + 
   theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
 p
