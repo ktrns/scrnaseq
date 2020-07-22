@@ -46,6 +46,13 @@ values_to_names = function(x) {
   return(setNames(x,x))
 }
 
+#' Returns the indices of an object
+#' @param x A list or vector with names.
+#' @return A named vector with names as names and indices as values.
+list_indices = function(x) {
+  return(setNames(seq(x), names(x)))
+}
+
 #' Wrapper around the biomaRt::useEnsembl function to cope with unavailable Ensembl mirrors. Tries different Ensembl mirrors and returns a mart object with the mirror that works.
 #' @param biomart A biomaRt database name. Possible database names can be retrieved with the function listEnsembl().
 #' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
@@ -109,10 +116,10 @@ GetBiomaRtMirror = function(mart_obj) {
   return(mirror)
 }
 
-#' Generate colours based on a palette. If the 
+#' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
 #' @param num_colours The number of colours to generate.
 #' @param palette A palette function for generating the colours.
-#' @param palette List of additional arguments (beside alpha) to pass on to the palette function.
+#' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
 #' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
 #' @return The generated colours.
 GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0.3), palette_options=list()) {
@@ -127,4 +134,34 @@ GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0
   }
   
   return(colours[1:num_colours])
+}
+
+#' Prints a message formatted for markdown. 
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' @param x The message.
+#' @param options Further options.
+#' @return The message formatted for markdown.
+Message = function(x, options){
+  x = gsub('^##','',x)
+  msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
+          '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
+          '<strong>Information:</strong>',
+          x,
+          ':::\n'), collapse = '\n')
+  return(msg)
+}
+
+#' Prints a warning formatted for markdown. 
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' @param x The message.
+#' @param options Further options.
+#' @return The message formatted for markdown.
+Warning = function(x, options){
+  x = gsub('^##','',x)
+  warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
+                '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
+                '<strong>Warning:</strong>',
+                x,
+                ':::\n'), collapse = '\n')
+  return(warn)
 }

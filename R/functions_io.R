@@ -30,7 +30,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   
   # read counts data
   if (!file.exists(counts_table)) futile.logger::flog.error("The counts file %s does not exist!",counts_table)
-  feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE)
+  feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
   
   #  row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
   if (!is.null(row_name_column) & is.numeric(row_name_column)) row_name_column = colnames(feature_data)[row_name_column]
@@ -145,7 +145,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
     if (ncol(m)==0 | nrow(m)==0) m=NULL
     sc[[n]] = Seurat::CreateSeuratObject(counts=d, 
-                                  project=s, 
+                                  project=n, 
                                   assay=a, 
                                   min.cells=0, 
                                   min.features=0, 
@@ -415,7 +415,6 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   if (!is.null(sample_name_group)) {
     plate_information$SampleName = cell_names_matched_and_split[, 1+sample_name_group]
   } else {
-    plate_information$SampleName = NA
   }
   plate_information$SampleName = as.factor(plate_information$SampleName)
   
