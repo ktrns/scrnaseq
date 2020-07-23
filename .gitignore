@@ -10,3 +10,4 @@ test_datasets/**/counts/
 test_datasets/**/demultiplexed/
 .DS_Store
 references.bib
+scrnaseq_files/**

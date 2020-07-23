@@ -3,13 +3,13 @@ title: "Single-cell RNA-seq data analysis"
 author: "Dresden-concept Genome Center, TU Dresden"
 date: "June 2020"
 geometry: margin=2cm
-bibliography: "references.bib"
 output:
-   html_document:
+  html_document:
     toc: true
+    code_folding: hide
     highlight: tango
     theme: default
-    code_folding: hide
+bibliography: "references.bib"
 ---
 
 ```{r setup, warning=FALSE, message=FALSE}
@@ -43,7 +43,7 @@ options(future.globals.maxSize = 800000000) # increase if the maximum allowed si
 # Other: sessioninfo
 
 # Knitr default options
-knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=TRUE, warning=TRUE, tidy=FALSE, fig.width=10)
+knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=TRUE, warning=TRUE, tidy=FALSE, fig.width=10, class.source='fold-hide')
 
 # biomaRt mirror: NULL means the first working mirror is used
 mirror = NULL
@@ -570,7 +570,7 @@ future::plan("sequential")
 sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 
 # Back to multicore support
-future::plan("multicore")
+future::plan("multisession", workers=4)
 
 # Probably obsolete, not needed anywhere in this report
 # Select features from normalised data (unaffected by scaling)
@@ -892,15 +892,14 @@ if (param$integrate_samples[["method"]]!="single") {
       sc[[a]] = Seurat::AddMetaData(sc[[a]], feature_data_for_assay[[a]][rownames(sc[[a]]),, drop=FALSE])
     }
   }
+  
+  # Scale RNA assay
+  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
+  
+  # Set default assay (will be the integrated version)
+  DefaultAssay(sc) = paste0(param$normalisation_default,"integrated")
 }
-
-
-# Scale RNA assay
-# Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
-
-# Set default assay (will be the integrated version)
-DefaultAssay(sc) = paste0(param$normalisation_default,"integrated")
 ```
 
 ## Dimensionality reduction
@@ -1217,7 +1216,7 @@ if (known_markers_n>0 & length(known_markers_vect) <= 30) {
 
 ## Differentially expressed genes
 We next identify genes that are differentially expressed in one cluster compared to all other clusters, based on raw "RNA" data and the method "MAST". Resulting _p_-values are adjusted using the Bonferroni method. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
-```{r DEG}
+```{r DEG, warning=FALSE}
 # We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
 suppressPackageStartupMessages(library(MAST))
 
@@ -1493,7 +1492,7 @@ save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
 
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
-```{r versions}
+```{r versions, message=FALSE}
 out = scrnaseq_session_info(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
@@ -1501,6 +1500,6 @@ knitr::kable(out, align="l") %>%
 ```
 
 # References
-```{r bib}
+```{r bib, message=FALSE}
 knitcitations::write.bibtex(file="references.bib")
 ```
