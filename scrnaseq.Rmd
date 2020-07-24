@@ -27,8 +27,8 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
-library(future) # multicore support for Seurat
-plan("multisession") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
+#library(future) # multicore support for Seurat
+#plan("multisession") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
 options(future.globals.maxSize = 800000000) # increase if the maximum allowed size in bytes of objects exported by future is exceeded
 
 # Other libraries we use
@@ -40,7 +40,7 @@ options(future.globals.maxSize = 800000000) # increase if the maximum allowed si
 # Annotation: biomaRt
 # DEG: mast
 # Functional enrichment: enrichR
-# Other: sessioninfo
+# Other: sessioninfo, cerebroApp
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=TRUE, warning=TRUE, tidy=FALSE, fig.width=10, class.source='fold-hide')
@@ -107,7 +107,7 @@ param$cc_remove_all = FALSE
 param$vars_to_regress = c()
 
 # Additional (unwanted) variables to be included in the statistical tests
-param$latent_vars = NULL
+param$latent_vars = c()
 
 # When there are multiple datasets, how to integrate them:
 #   - method:
@@ -564,13 +564,13 @@ Finally, __cell cycle scores__ are assigned to each cell based on its normalised
 While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r norm_scale_variableFeatures, results="hide"}
 # This function often crashes with multicore support, so stop for a moment
-future::plan("sequential")
+#future::plan("sequential")
 
 # Normalise data the original way
 sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 
 # Back to multicore support
-future::plan("multisession", workers=4)
+#future::plan("multisession", workers=4)
 
 # Probably obsolete, not needed anywhere in this report
 # Select features from normalised data (unaffected by scaling)
@@ -584,7 +584,8 @@ sc = purrr::map(list_names(sc), function(n) {
   genes_g2m_exists = genes_g2m[,2] %in% rownames(sc[[n]])
   if (sum(genes_s_exists)>=10 & sum(genes_s_exists)>=10){
     sc[[n]] = Seurat::CellCycleScoring(sc[[n]], s.features=genes_s[genes_s_exists,2], g2m.features=genes_g2m[genes_g2m_exists,2], set.ident=FALSE, verbose=FALSE)
-    sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score"]] - sc[[n]][["G2M.Score"]]
+    sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score", drop=TRUE]] - sc[[n]][["G2M.Score", drop=TRUE]]
+    sc[[n]][["Phase"]] = factor(sc[[n]][["Phase", drop=TRUE]], levels=c("G1","G2M","S"))
   } else {
     sc[[n]][["S.Score"]] = NA
     sc[[n]][["G2M.Score"]] = NA
@@ -1468,6 +1469,19 @@ for (i in names(genesets_to_export)) {
 
 write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
+
+```{r message=FALSE, warning=FALSE}
+# top expressed genes
+sc = cerebroApp::getMostExpressedGenes(sc, column_cluster="seurat_clusters", column_sample="orig.ident", assay=Seurat::DefaultAssay(sc))
+
+gene_lists_for_cerebro = split(sc_markers_filt$gene,sc_markers_filt$cluster)
+names(gene_lists_for_cerebro) = paste("Marker cluster",names(gene_lists_for_cerebro))
+gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[,2]
+gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[,2]
+
+ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, organism="Hg", assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
+```
+
 
 # Output files
 All files generated with this report are written into the provided output folder `r param$path_out`: 
