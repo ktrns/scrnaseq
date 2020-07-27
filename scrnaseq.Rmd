@@ -955,6 +955,9 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
 sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE)
 
+# Construct phylogenetic tree relating the 'average' cell from each cluster
+sc = BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
+
 # Set up colors for clusters
 cluster_names = levels(sc$seurat_clusters)
 param$col_clusters = GenerateColours(num_colours=length(cluster_names), palette=param$col_palette_clusters)
@@ -1111,7 +1114,7 @@ p
 
 ### Percent mitochondrial reads
 ```{r featurePlot_QC_mt}
-p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col))
+p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="percent_mt")
 p
 ```
@@ -1433,7 +1436,9 @@ knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %
   kableExtra::scroll_box(width="100%", height="700px")
 ```
 
-# Loupe Cell Browser integration
+# Further analysis with other tools
+
+## Loupe Cell Browser integration
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
 ```{r loupe_integration}
 # Export UMAP coordinates
@@ -1470,6 +1475,10 @@ for (i in names(genesets_to_export)) {
 write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
+## Export to the cerebro
+
+We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the cerebro interface (https://github.com/romanhaa/cerebroApp).  
+
 ```{r message=FALSE, warning=FALSE}
 # top expressed genes
 sc = cerebroApp::getMostExpressedGenes(sc, column_cluster="seurat_clusters", column_sample="orig.ident", assay=Seurat::DefaultAssay(sc))
@@ -1478,10 +1487,10 @@ gene_lists_for_cerebro = split(sc_markers_filt$gene,sc_markers_filt$cluster)
 names(gene_lists_for_cerebro) = paste("Marker cluster",names(gene_lists_for_cerebro))
 gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[,2]
 gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[,2]
+gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt,rownames(sc), v=TRUE)
 
-ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, organism="Hg", assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
+res = ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, species="Hs", assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
 ```
-
 
 # Output files
 All files generated with this report are written into the provided output folder `r param$path_out`: 
@@ -1498,7 +1507,9 @@ All files generated with this report are written into the provided output folder
   + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
     Import to Loupe through "Import Lists"   
 * Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
+  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Cerebro files:
+  + cerebro.crb: Can be loaded into the cerebro interface.
   
 ```{r save}
 save.image(file=paste0(param$path_out, "/scrnaseq.RData"))

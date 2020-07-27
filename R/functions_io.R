@@ -466,16 +466,31 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   return(plate_information)
 }
 
-# species: hg, mm
-ExportToCerebro = function(sc, path, param, project="scrnaseq", organism="hg", assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
-  if (!("Phase" %in% colnames(sc[[]]))) column_ccphase = NULL
+#' Exports a Seurat object for visualisation with the cerebroApp (https://github.com/romanhaa/Cerebro).
+#' 
+#' @param sc A Seurat object.
+#' @param path File path for export.
+#' @param param Named list with parameters passed to the scrnaseq script.
+#' @param organism Species. Can be 'Hg', 'Mm', ... .
+#' @param assay Assay to export ('RNA').
+#' @param column_sample Metadata column containing the sample name ('orig.ident').
+#' @param column_cluster Metadata column containing the cluster identity ('seurat_clusters').
+#' @param column_ccphase Metadata column containing the cell cycle phase ('Phase').
+#' @param gene_lists Gene lists to include (NULL).
+#' @param marker_genes Marker genes table obtained from Seurat::FindMarkers (NULL).
+#' @param enriched_pathways List with enriched pathways results.
+#' @return TRUE if export was successful otherwise FALSE.
+ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
+  
+  if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
+  
   
   # Save the Seurat object in the cerebroApp format
   cerebroApp::exportFromSeurat(sc,
                                file=path,
                                assay=assay,
                                experiment_name=project,
-                               organism=organism,
+                               organism=species,
                                column_sample=column_sample,
                                column_cluster=column_cluster,
                                column_nUMI=paste("nCount",assay,sep="_"),
@@ -500,7 +515,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", organism="hg", a
   if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
   
   # Add technical information
-  crb_obj$technical_info = list(R=capture.output(sessioninfo::session_info()),seurat_version=packageVersion("Seurat"))
+  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()),seurat_version=packageVersion("Seurat"))
   
   # Add sample-related information
   crb_obj$samples = list()
@@ -544,6 +559,9 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", organism="hg", a
       tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
   }
   
+  tree = Tool(object=sc, slot="BuildClusterTree")
+  if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
+  
   # Fix cell cycle information
   if ("Phase" %in% colnames(sc[[]])) {
     crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase,levels=c("G1","G2M","S"))
@@ -579,4 +597,6 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", organism="hg", a
   
   # Save modified object
   saveRDS(crb_obj,file=path)
+  
+  return(TRUE)
 }
