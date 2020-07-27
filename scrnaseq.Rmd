@@ -65,6 +65,7 @@ param$project = "pbmc"
 param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/","test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"))
+
 param$file_mapping_stats = NULL
 
 # Project-specific paths
@@ -414,7 +415,7 @@ p_list = list()
 for (i in names(cell_qc_features)) {
   p_list[[i]]= ggplot(sc_cell_metadata,aes_string(x="orig.ident", y=i, fill="orig.ident")) +
     geom_violin(scale="width")
-  p_list[[i]] = PlotMystyle(p_list[[i]], title=i, legend_position="none", fill=param$col_samples) + xlab("")
+  p_list[[i]] = PlotMystyle(p_list[[i]], title=i, legend_position="none", fill=param$col_samples) + xlab("") + theme(axis.text.x = element_text(angle=45, hjust=1))
   
   # Creates a table with min/max values for filter i for each dataset
   #
@@ -435,7 +436,7 @@ for (i in names(cell_qc_features)) {
   }
 }
 p = patchwork::wrap_plots(p_list, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
-p
+print(p)
 
 # Correlate QC metrics for cells
 p = list()
@@ -451,7 +452,7 @@ if (length(sc)==1) {
 } else {
   p = p + patchwork::plot_layout(guides = "collect") & theme(legend.position="bottom")
 }
-p
+print(p)
 ```
 
 ## Filtering
@@ -584,11 +585,12 @@ sc = purrr::map(list_names(sc), function(n) {
   genes_g2m_exists = genes_g2m[,2] %in% rownames(sc[[n]])
   if (sum(genes_s_exists)>=10 & sum(genes_s_exists)>=10){
     sc[[n]] = Seurat::CellCycleScoring(sc[[n]], s.features=genes_s[genes_s_exists,2], g2m.features=genes_g2m[genes_g2m_exists,2], set.ident=FALSE, verbose=FALSE)
+    sc[[n]][["Phase"]] = factor(sc[[n]][["Phase", drop=TRUE]], levels=c("G1","G2M","S"))
     sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score"]] - sc[[n]][["G2M.Score"]]
   } else {
     sc[[n]][["S.Score"]] = NA
     sc[[n]][["G2M.Score"]] = NA
-    sc[n][["Phase"]] = NA
+    sc[n][["Phase"]] = factor(NA, levels=c("G1","G2M","S"))
     param$cc_remove = FALSE
     Warning(paste0("There are not enough G2/M and S phase markers in the dataset '",n,"' to reliably determine cell cycle scores and phases. Scores and phase will be set to NA and removal of cell cycle will not be done!"))
   }
@@ -646,7 +648,8 @@ plist = purrr::map(list_names(sc), function(n) {
   return(p)
 })
 
-patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
+p = patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
+print(p)
 ```
 
 #### Advanced normalisation (SCT)
@@ -661,7 +664,8 @@ plist = purrr::map(list_names(sc), function(n) {
   return(p)
 })
 
-patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
+p = patchwork::wrap_plots(plist) + patchwork::plot_annotation("Variable genes")
+print(p)
 ```
 
 ### Relative log expression {.tabset}
@@ -699,7 +703,7 @@ cell_subset_raw = purrr::reduce(cell_subset_raw, cbind)
 
 # Plot
 p = PlotRLE(as.matrix(log2(cell_subset_raw + 1)), id=cells_orig_sample, col=param$col_samples) + labs(title="log2(raw counts + 1)")
-p
+print(p)
 ```
 
 #### Standard normalisation (RNA)
@@ -714,7 +718,7 @@ cell_subset_norm1 = purrr::reduce(cell_subset_norm1, cbind)
 
 # Plot
 p = PlotRLE(as.matrix(cell_subset_norm1), id=cells_orig_sample, col=param$col_samples) + labs(title="Normalised data")
-p 
+print(p) 
 ```
 
 #### Advanced normalisation (SCT)
@@ -729,7 +733,7 @@ cell_subset_norm2 = purrr::reduce(cell_subset_norm2, cbind)
 
 # Plot
 p = PlotRLE(as.matrix(cell_subset_norm2), id=cells_orig_sample, col=param$col_samples) + labs(title="SCTransform'ed data")
-p 
+print(p) 
 ```
 
 ```{r multi_dataset_integration_single, eval=(param$integrate_samples[["method"]]=="single"), include=(param$integrate_samples[["method"]]=="single")}
@@ -737,12 +741,13 @@ p
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
   
-  # Set default assay
-  DefaultAssay(sc) = param$normalisation_default
-  
   # Scale RNA assay
   # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+  DefaultAssay(sc) = "RNA"
   sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
+  
+  # Set default assay
+  DefaultAssay(sc) = param$normalisation_default
 }
 ```
 
@@ -762,11 +767,11 @@ cat("## Integration of multiple datasets\n\n")
     contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { all(c("feature_id","feature_name","feature_type") %in% colnames(sc[[n]][[a]][[]])) })
 
     if (all(contains_neccessary_columns)) {
-      feature_id_name_type = purrr::reduce(list_names(sc), function(x, y) {
-        df_x = sc[[x]][[a]][[c("feature_id", "feature_name", "feature_type")]]
-        df_y = sc[[y]][[a]][[c("feature_id", "feature_name", "feature_type")]]
+      feature_id_name_type = purrr::map(sc, function(s) { return(s[[a]][[c("feature_id", "feature_name", "feature_type")]]) })
+      feature_id_name_type = purrr::reduce(feature_id_name_type, function(df_x, df_y) {
         new_rows = which(!rownames(df_y) %in% rownames(df_x))
-        rbind(df_x, df_y[new_rows,])
+        if (length(new_rows)>0) return(rbind(df_x, df_y[new_rows,]))
+        else return(df_x)
       })
       feature_id_name_type$row_names = rownames(feature_id_name_type)
     } else {
@@ -777,7 +782,7 @@ cat("## Integration of multiple datasets\n\n")
     other_feature_data = purrr::map(list_names(sc), function(n) {
       df = sc[[n]][[a]][[]]
       if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id","feature_name","feature_type"),c()))
-      colnames(df) = paste(n, colnames(df), sep=".")
+      if (ncol(df)>0) colnames(df) = paste(n, colnames(df), sep=".")
       df$row_names = rownames(df)
       return(df)
     })
@@ -799,7 +804,29 @@ cat("## Integration of multiple datasets\n\n")
 ```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge")}
 # Called when no integration is needed (e.g. samples were multiplexed on the same chip)
 if (param$integrate_samples[["method"]]=="merge") {
-   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
+  sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
+  
+  # Find variable features in RNA assay
+  sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
+   
+  # Scale RNA assay
+  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+  DefaultAssay(sc) = "RNA"
+  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
+  
+  # Rerun SCTransform
+  DefaultAssay(sc) = "SCT"
+  sc = SCTransform(sc, vars.to.regress=param$vars_to_regress, min_cells=1, verbose=FALSE)
+  
+  # Add feature metadata
+  for (a in Seurat::Assays(sc)) {
+    if (a %in% names(feature_data_for_assay)) {
+      sc[[a]] = Seurat::AddMetaData(sc[[a]], feature_data_for_assay[[a]][rownames(sc[[a]]),, drop=FALSE])
+    }
+  }
+
+  # Set default assay
+  DefaultAssay(sc) = param$normalisation_default
 }
 ```
 
@@ -838,6 +865,21 @@ if (param$integrate_samples[["method"]]=="standard") {
   
   # call function
   sc = run_standard_integration(sc, ndims=param$integrate_samples[["dimensions"]], vars_to_regress=param$vars_to_regress)
+  
+  # Scale RNA assay
+  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+  DefaultAssay(sc) = "RNA"
+  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
+  
+  # Add feature metadata
+  for (a in Seurat::Assays(sc)) {
+    if (a %in% names(feature_data_for_assay)) {
+      sc[[a]] = Seurat::AddMetaData(sc[[a]], feature_data_for_assay[[a]][rownames(sc[[a]]),, drop=FALSE])
+    }
+  }
+  
+  # Set default assay (will be the integrated version)
+  DefaultAssay(sc) = paste0(param$normalisation_default,"integrated")  
 }
 ```
 
@@ -856,50 +898,30 @@ if (param$integrate_samples[["method"]]=="reciprocal") {
 ```
 
 
-```{r plot_RLE_RNA_integrated, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
-if (param$integrate_samples[["method"]]!="single") {
+```{r plot_RLE_RNA_integrated, eval=(param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge"), include=(param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge"), results="asis"}
+if (param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge") {
   # Markdown text for this section (do not change intendation)
 cat("\n\n### Relative log expression after integration {.tabset}\n\n")
 cat("#### Standard normalisation (RNA)\n\n")
   
   # Get normalised data from assay RNAintegrated and plot RLE
   cell_subset_norm1 = GetAssayData(subset(sc, cells=purrr::flatten_chr(cells_RLE_subset), features=shared_rna_features), assay="RNAintegrated", slot="data")
-  PlotRLE(as.matrix(cell_subset_norm1), id=cells_orig_sample, col=param$col_samples) + labs(title="Normalised integrated data")
+  p = PlotRLE(as.matrix(cell_subset_norm1), id=cells_orig_sample, col=param$col_samples) + labs(title="Normalised integrated data")
+  print(p)
 }
 ```
   
-```{r plot_RLE_SCT_integrated, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
-if (param$integrate_samples[["method"]]!="single") {
+```{r plot_RLE_SCT_integrated, eval=(param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge"), include=(param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge"), results="asis"}
+if (param$integrate_samples[["method"]]!="single" & param$integrate_samples[["method"]]!="merge") {
 # Markdown text for this section (do not change intendation)
 cat("\n\n#### Advanced normalisation (SCT)\n\n")
   
   # Get normalised data from assay SCTintegrated and plot RLE
   cell_subset_norm2 = GetAssayData(subset(sc, cells=purrr::flatten_chr(cells_RLE_subset), features=shared_sct_features), assay="SCTintegrated", slot="data")
-  PlotRLE(as.matrix(cell_subset_norm2), id=cells_orig_sample, col=param$col_samples) + labs(title="SCTransform'ed integrated data")
+  p = PlotRLE(as.matrix(cell_subset_norm2), id=cells_orig_sample, col=param$col_samples) + labs(title="SCTransform'ed integrated data")
+  print(p)
 }
   
-```
-
-```{r multi_dataset_integration_preparation_done, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
-if (param$integrate_samples[["method"]]!="single") {
-# This is neccessary for closing the tabset; leave intendation
-#cat("\n\n</div>\n\n")
-  
-  # Add feature metadata
-  # Note: sc is now not a list anymore so that we do not use purrr::map
-  for (a in Seurat::Assays(sc)) {
-    if (a %in% names(feature_data_for_assay)) {
-      sc[[a]] = Seurat::AddMetaData(sc[[a]], feature_data_for_assay[[a]][rownames(sc[[a]]),, drop=FALSE])
-    }
-  }
-  
-  # Scale RNA assay
-  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
-  
-  # Set default assay (will be the integrated version)
-  DefaultAssay(sc) = paste0(param$normalisation_default,"integrated")
-}
 ```
 
 ## Dimensionality reduction
@@ -915,17 +937,19 @@ sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FA
 p = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
 for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
 p =  patchwork::wrap_plots(p, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
-p
+print(p)
 
 p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples)
 p = PlotMystyle(p, title="Cells arranged by the first two PCs", legend_position="bottom")
-p
+print(p)
 
-Seurat::DimHeatmap(sc, dims=1, cells=500, balanced=TRUE)
+p = Seurat::DimHeatmap(sc, dims=1, cells=500, balanced=TRUE)
+print(p)
 ```
 
 ```{r pca_heatmaps, fig.height=20}
-Seurat::DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
+p = Seurat::DimHeatmap(sc, dims=1:20, cells=500, balanced=TRUE)
+print(p)
 ```
 
 ## Dimensionality of the dataset
@@ -936,7 +960,7 @@ For your dataset, we decided to go for `r param$pc_n` PCs.
 # More approximate technique used to reduce computation time
 p = Seurat::ElbowPlot(sc, ndims=20)
 p = PlotMystyle(p, title="Elbow plot")
-p
+print(p)
 ```
 
 # Downstream analysis
@@ -984,11 +1008,15 @@ cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
 p = Seurat::DimPlot(sc, reduction="umap", label=TRUE) + scale_colour_manual("Cluster", labels=cluster_labels)
 p = PlotMystyle(p, "UMAP, cells coloured by cluster identity", legend_position="bottom", col=param$col_clusters)
-p
+print(p)
 
 # Add a UMAP that is coloured by sample of origin
-if (nrow(param$path_data) > 1) {
-  p = Seurat::DimPlot(sc, reduction="umap", label=TRUE, group.by="orig.ident") 
+cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
+if (length(cell_samples) > 1) {
+  # Note: This is a hack to colour by sample but label by Cluster
+  p = Seurat::DimPlot(sc, group.by="orig.ident", pt.size=1)
+  p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data),]
+  p = LabelClusters(p, id = "seurat_clusters")
   p = PlotMystyle(p, "UMAP, cells coloured by sample of origin", legend_position="bottom", col=param$col_samples)
   print(p)
 }
@@ -1057,7 +1085,7 @@ p2 = ggplot(sc@meta.data %>%
 p2 = PlotMystyle(p2)
 p = p1 + p2 & theme(legend.position="bottom")
 p = p + patchwork::plot_annotation(title="Cell cycle phases")
-p
+print(p)
 ```
 
 ### UMAP coloured by cell cycle phases
@@ -1067,28 +1095,29 @@ p
 p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1)
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data),]
 p = LabelClusters(p, id = "seurat_clusters")
-PlotMystyle(p, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
+p = PlotMystyle(p, title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
+print(p)
 ```
 
 ### UMAP coloured by S phase
 ```{r cellCycleEffect_umap_s}
 p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", label=TRUE, cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="UMAP, cells coloured by S phase")
-p
+print(p)
 ```
 
 ### UMAP coloured by G2/M phase
 ```{r cellCycleEffect_umap_g2m}
 p = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="UMAP, cells coloured by G2M phase")
-p
+print(p)
 ```
 
 ### UMAP coloured by the difference between S and G2/M phase
 ```{r cellCycleEffect_umap_ccdiff}
 p = Seurat::FeaturePlot(sc, features="CC.Difference", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="UMAP, cells coloured by CC.Difference")
-p
+print(p)
 ```
 
 ## Feature plots QC  {.tabset}
@@ -1098,21 +1127,21 @@ Do cells in individual clusters have particularly high counts, detected genes or
 ```{r featurePlot_QC_nCount}
 p = Seurat::FeaturePlot(sc, features="nCount_RNA", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="nCount_RNA")
-p
+print(p)
 ```
 
 ### Number of features
 ```{r featurePlot_QC_nFeature}
 p = Seurat::FeaturePlot(sc, features="nFeature_RNA", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="nFeature_RNA")
-p
+print(p)
 ```
 
 ### Percent mitochondrial reads
 ```{r featurePlot_QC_mt}
 p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="percent_mt")
-p
+print(p)
 ```
 
 ## Known marker genes {.tabset}
@@ -1147,7 +1176,7 @@ if(!is.null(param$file_known_markers)) {
   known_markers_n = 0
   idx_dotplot = idx_avgplot = FALSE
   known_markers_vect = known_markers_list = c()
-  fig_height_knownMarkers_dotplot = fig_height_knownMarkers_avgplot = fig_height_knownMarkers_vect = 0
+  fig_height_knownMarkers_dotplot = fig_height_knownMarkers_avgplot = fig_height_knownMarkers_vect = 1
 }
 ```
 
@@ -1171,7 +1200,7 @@ if (known_markers_n>0 & any(idx_dotplot)) {
       theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
   }
   p = patchwork::wrap_plots(p, ncol=1)
-  p
+  print(p)
 } else if (known_markers_n>0 & !any(idx_dotplot)) {
   message("This tab is used for dot plots for up to 50 genes. All provided lists are longer than this, and hence dot plots are skipped.")
 } else {
@@ -1192,7 +1221,7 @@ if (known_markers_n>0 & any(idx_avgplot)) {
                                                                   title=paste("Known marker genes:",
                                                                               names(known_markers_avgplot)[i]))
   p = patchwork::wrap_plots(p, ncol=1)
-  p
+  print(p)
 } else if (known_markers_n>0 & !any(idx_avgplot)) {
   message("This tab is used to plot an average for 10 or more genes. All provided lists are shorter than this, and hence average feature plots are skipped.")
 } else {
@@ -1206,7 +1235,8 @@ An individual feature plot colours single cells on the UMAP according to their n
 if (known_markers_n>0 & length(known_markers_vect) <= 30) {
   p = Seurat::FeaturePlot(sc, features=known_markers_vect, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
   for (i in 1:length(p)) p[[i]] = PlotMystyle(p[[i]])
-  patchwork::wrap_plots(p, ncol=2)
+  p = patchwork::wrap_plots(p, ncol=2)
+  print(p)
 } else if (length(known_markers_vect) > 30) { 
   message("This tab is used to plot up to 30 known marker genes. Your provided list is longer than this, and hence individual feature plots are skipped.")
 } else {
@@ -1279,7 +1309,7 @@ p = ggplot(sc_markers_filt_n, aes(x=Cluster, y=n, fill=Direction)) + geom_bar(st
 p = PlotMystyle(p, 
                 title=paste0("Number of DEGs per cell cluster\n(FC=", 2^param$log2fc, ", adj. p-value=", param$padj, ")"), 
                 fill=c("steelblue", "darkgoldenrod1"))
-p
+print(p)
 
 # Unload the MAST R package
 detach("package:MAST", unload=TRUE)
@@ -1307,7 +1337,7 @@ p = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$co
 for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i])
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data")
-p
+print(p)
 ```
 
 ### Ridge plots (raw)
@@ -1340,7 +1370,7 @@ suppressMessages(print(p))
 p = Seurat::DotPlot(sc, features=unique(genes_example[length(genes_example):1]), cols=c("lightgrey", param$col))
 p = PlotMystyle(p, title="Dot plot of normalised gene expression data")  + 
   theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5))
-p
+print(p)
 ```
 
 ### Heatmap
@@ -1350,7 +1380,7 @@ top = sc_markers %>%
   dplyr::group_by(cluster) %>% 
   dplyr::top_n(n=10, wt=avg_logFC)
 p = Seurat::DoHeatmap(sc, features=top$gene, group.colors=param$col_clusters) + NoLegend() + ggtitle("Heatmap of scaled gene expression data")
-p
+print(p)
 ```
 
 ## Functional enrichment analysis
