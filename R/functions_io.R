@@ -115,7 +115,10 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     
     # Then add to metadata
     if (nrow(plate_information) > 0) {
-      metadata_table = cbind(metadata_table,plate_information)
+      
+      metadata_table = merge(metadata_table,plate_information,by="row.names", all.x=TRUE)
+      rownames(metadata_table) = metadata_table$Row.names
+      metadata_table$Row.names = NULL
     } else {
       futile.logger::flog.warn("The 'ReadCountsTable' method could not parse plate information from the names though requested! Check the regular expression ('plate_information_regex'). Cannot return dataset by samples ('return_samples_as_datasets')!")
       return_samples_as_datasets = FALSE
@@ -141,7 +144,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     c = samples_to_process[[s]] # cells to include for sample
     f = feature_types[1] # feature type
     a = feature_type_to_assay_name[f] # assay name
-    d = as(as.matrix(feature_data[[f]][,c]), "dgCMatrix") # cell data
+    d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix") # cell data
     m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
     if (ncol(m)==0 | nrow(m)==0) m=NULL
     sc[[n]] = Seurat::CreateSeuratObject(counts=d, 
@@ -161,15 +164,12 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
     
     # now add remaining assays
-    feature_types = feature_types[-1]
-    for (f in feature_types) {
+    for (f in feature_types[-1]) {
       a = feature_type_to_assay_name[f]
-      d = as(as.matrix(feature_data[[f]][,c]), "dgCMatrix")
+      d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix")
       sc[[n]][[a]] = Seurat::CreateAssayObject(counts=d,
                                           min.cells=0,
-                                          min.features=0,
-                                          names.delim=NULL,
-                                          names.field=NULL)
+                                          min.features=0)
       nms = rownames(sc[[n]][[a]])
       missed = nms[!nms %in% rownames(features_ids_types)]
       if (length(missed)>0) futile.logger::flog.error("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
@@ -308,8 +308,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
   
   # now add remaining assays
-  feature_types = feature_types[-1]
-  for (f in feature_types) {
+  for (f in feature_types[-1]) {
     a = feature_type_to_assay_name[f]
     sc[[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
     
@@ -408,7 +407,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   cell_names_matched_and_split = merge(x=data.frame(V1=cell_names), y=cell_names_matched_and_split, by=1, all.x=TRUE)
   
   # now prepare plate information
-  plate_information = data.frame(rowname = cell_names_matched_and_split$V1)
+  plate_information = data.frame(rowname=cell_names_matched_and_split$V1)
   rownames(plate_information) = plate_information$rowname
   
   # sample name
