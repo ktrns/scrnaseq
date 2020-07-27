@@ -801,17 +801,17 @@ cat("## Integration of multiple datasets\n\n")
 }
 ```
 
-```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge")}
+```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge"), message=FALSE}
 # Called when no integration is needed (e.g. samples were multiplexed on the same chip)
 if (param$integrate_samples[["method"]]=="merge") {
   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
   
   # Find variable features in RNA assay
+  DefaultAssay(sc) = "RNA"
   sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
    
   # Scale RNA assay
   # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-  DefaultAssay(sc) = "RNA"
   sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
   
   # Rerun SCTransform
@@ -842,6 +842,8 @@ if (param$integrate_samples[["method"]]=="standard") {
     sc_objs = purrr::map(sc_objs, function(s){ Seurat::DefaultAssay(s) = "RNA"; return(s)})
     integrate_RNA_anchors = Seurat::FindIntegrationAnchors(object.list=sc_objs, dims=1:ndims, verbose=verbose)
     tmp_sc_objs = Seurat::IntegrateData(integrate_RNA_anchors, new.assay.name="RNAintegrated", dims=1:ndims, verbose=verbose)
+    # scale data: according to seurat, this is needed only for the integrated RNA assay
+    tmp_sc_objs = Seurat::ScaleData(tmp_sc_objs, features=rownames(tmp_sc_objs[["RNAintegrated"]]), verbose=verbose, vars.to.regress=vars_to_regress, assay="RNAintegrated")
     
     sc_obj_RNAintegrated_assay = Seurat::GetAssay(tmp_sc_objs, assay="RNAintegrated")
     rm(tmp_sc_objs, integrate_RNA_anchors)
@@ -854,9 +856,6 @@ if (param$integrate_samples[["method"]]=="standard") {
     sc_objs = Seurat::IntegrateData(integrate_SCT_anchors, new.assay.name="SCTintegrated", normalization.method="SCT", dims=1:ndims, verbose=verbose)
     sc_objs[["RNAintegrated"]] = sc_obj_RNAintegrated_assay
     rm(integrate_SCT_anchors, integrate_SCT_features, sc_obj_RNAintegrated_assay)
-    
-    # scale data: according to seurat, this is needed only for the integrated RNA assay
-    sc_objs = Seurat::ScaleData(sc_objs, features=rownames(sc_objs[["RNAintegrated"]]), verbose=verbose, vars.to.regress=vars_to_regress, assay="RNAintegrated")
     
     # Call garbage collector to free memory (hope it helps)
     gc(verbose=verbose)
