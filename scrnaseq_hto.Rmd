@@ -1,5 +1,4 @@
 ---
-title: "Single-cell RNA-seq data analysis, HTO demultiplexing"
 author:
   - Dresden-concept Genome Center, TU Dresden
   - Research Core Unit Genomics, Hannover Medical School
@@ -13,13 +12,32 @@ output:
     theme: paper
     code_folding: hide
 params:
+   # Project ID
    project: HTO_testDataset
+   
+   # Input data path in case Cell Ranger was run
    path_data: test_datasets/10x_pbmc_hto_GSE108313/counts
+   
+   # Output path
    path_out: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
+   
+   # HTO names
+   #   HTOs have an ID that is included in the 'features.tsv' input file
+   #   We additionally ask for readable names that are used throughout this report 
+   #   This could look like this, where HTO1-3 are the IDs included raw dataset
+   #     param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
    hto_names: !r setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
+   
+   # Prefix of mitochondrial genes
    mt: "^MT-"
-   col: palevioletred
+   
+   # Main color to use for plots
+   col: "palevioletred"
+   
+   # Sample data to at most n cells (mainly for tests); set to NULL to deactivate
    sample_cells: NULL
+title: "Single-cell RNA-seq data analysis of project `r params$project`"
+subtitle: "HTO demultiplexing"
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
@@ -47,26 +65,6 @@ source("R/functions_util.R")
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
 ```
-
-## Project-specific parameters
-**Project**  
-`r params$project`
-
-**Input data path in case Cell Ranger was run**  
-`r params$path_data`
-
-**Output path**  
-`r params$path_out`
-
-**HTO names**  
-`r names(params$hto_names)`  
-`r params$hto_names`
-
-**Prefix of mitochondrial genes**  
-`r params$mt`
-
-**Sample data to at most n cells (mainly for tests); set to NULL to deactivate**  
-`r if(is.null(params$sample_cells)) c("NULL") else params$sample_cells`
 
 ```{r hto_colours}
 hto_colours = list()
@@ -98,7 +96,7 @@ and setup a Seurat object. This object includes different data types in separate
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and are distinguished based on provided HTO names. 
 ```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = Read10xDataset(params$path_data, project=params$project, row_name_column=1, hto_names=params$hto_names)
+sc = ReadSparseMatrix(param$path_data, project=param$project, row_name_column=1, hto_names=param$hto_names)
 
 # If requested: sample at most n cells
 if (!is.null(params$sample_cells)) {
@@ -345,6 +343,14 @@ for (s in samples) {
 }
 
 message(demux_samples_paths)
+```
+
+# Parameter table
+```{r parameters_table}
+out = scrnaseq_hto_parameter_info(params$project, params$path_data, params$path_out, params$hto_names, params$mt, params$color, params$sample_cells)
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
 # Software versions

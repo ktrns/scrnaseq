@@ -1,8 +1,9 @@
 # Plotting style 
-PlotMystyle = function(p, title=NULL, col=NULL, legend_title=NULL, legend_position=NULL) {
+PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL) {
   p = p + theme_light() + theme(panel.border = element_blank())
   if (!is.null(title)) p = p + ggtitle(title) #+ theme(plot.title = element_text(hjust=0.5))
-  if (length(col) > 0) p = p + scale_fill_manual(values=col)
+  if (length(col) > 0) p = p + scale_colour_manual(values=col)
+  if (length(fill) > 0) p = p + scale_fill_manual(values=fill)
   if (!is.null(legend_title)) {
     p = p + labs(color=legend_title, fill=legend_title)
   } else {
@@ -39,8 +40,11 @@ DfAllColumnCombinations = function(x, cell_classification) {
 }
 
 # Plot Relative log expression per cell 
-PlotRLE = function(x, col) { 
-  
+PlotRLE = function(x, col, id) { 
+  # x - data
+  # id - cell identity (same order as cells)
+  # col - colours for cell identities
+
   # Median of a gene across all cells
   genes.median = sapply(1:nrow(x), function(gene) median(x[gene,], na.rm=TRUE))
   
@@ -52,6 +56,7 @@ PlotRLE = function(x, col) {
   y_outlier_x = y_stats$group
   y_outlier_y = y_stats$out
   y_outlier = cbind(cell=y_outlier_x, out=y_outlier_y) %>% as.data.frame()
+  y_outlier$id = id[y_outlier$cell]
   y_stats = y_stats$stats %>% t() %>% as.data.frame()
   colnames(y_stats) = c("lowerWhisker", "q25", "med", "q75", "upperWhisker")
   y_stats$cell = 1:nrow(y_stats) # convert x-axis to numeric
@@ -63,7 +68,7 @@ PlotRLE = function(x, col) {
     geom_ribbon(aes(x=cell, ymin=q25, ymax=med), fill="lightgrey") + 
     geom_ribbon(aes(x=cell, ymin=lowerWhisker, ymax=q25), fill="darkgrey") + 
     geom_line(aes(x=cell, y=med))
-  p = p + geom_point(data=y_outlier, aes(x=cell, y=out), colour=col, size=0.5)
+  p = p + geom_point(data=y_outlier, aes(x=cell, y=out, colour=id), size=0.5) + scale_color_manual(values=col)
   p = PlotMystyle(p) + 
     theme(axis.text.x=element_blank(),
           axis.ticks.x=element_blank()) + 

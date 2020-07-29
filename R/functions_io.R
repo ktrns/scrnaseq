@@ -1,4 +1,4 @@
-#' Reads a counts table (e.g. provided by smartseq2) and converts it into a Seurat object.
+#' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -10,8 +10,15 @@
 #' @param drop_non_numeric_columns After dropping columns manually with columns_to_drop: Should any remaining non-numeric columns (excluding feature_name_column or feature_type_column) be droppped automatically? If TRUE, they will be dropped silently. If FALSE, then an error message will be printed. 
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param col_sep Separator used in the counts table (tab).
-#' @return A Seurat object.
-ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t") {
+#' @param parse_plate_information If the cell names contain plate information: parse information and add to metadata.
+#' @param plate_information_regex If the cell names contain plate information: a regular expression pattern with capture groups for sample name, plate number, row or column which must match the entire cell name ("^(\\S+)_(\\d+)_([A-Z])(\\d+)$").
+#' @param sample_name_group If the cell names contain plate information: index of the capture group which contains the sample name of the cells ("1"). Can be NULL in which case it will not be evaluated and the sample name will be NA.
+#' @param plate_number_group If the cell names contain plate information: index of the capture group which contains the plate number name ("2"). Can be NULL in which case it will not be evaluated and the plate number will be NA.
+#' @param row_name_group If the cell names contain plate information: index of the capture group which contains the plate row name ("3"). Can be NULL in which case it will not be evaluated and the plate row name will be NA.
+#' @param col_name_group If the cell names contain plate information: index of the capture group which contains the plate col name ("4"). Can be NULL in which case it will not be evaluated and the plate col name will be NA.
+#' @param return_samples_as_datasets If the cell names contain plate information: return each of the parsed samples as separate dataset ("TRUE").
+#' @return A list of Seurat objects.
+ReadCountsTable = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t", parse_plate_information=TRUE, plate_information_regex='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4, return_samples_as_datasets=TRUE) {
   library(magrittr)
   
   # defaults
@@ -23,7 +30,7 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   
   # read counts data
   if (!file.exists(counts_table)) futile.logger::flog.error("The counts file %s does not exist!",counts_table)
-  feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE)
+  feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
   
   #  row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
   if (!is.null(row_name_column) & is.numeric(row_name_column)) row_name_column = colnames(feature_data)[row_name_column]
@@ -79,19 +86,6 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   rownames(feature_data) = rownames(features_ids_types)
   feature_data = split(feature_data, as.factor(features_ids_types$feature_type))
   
-  # Read metadata file (if available)
-  metadata_table = NULL
-  metadata_file = file.path(dirname(path), "metadata.tsv.gz")
-  if (file.exists(metadata_file)) {
-    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
-    barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
-    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                                    first_n_elements_to_string(missed))
-    rownames(metadata_table) = metadata_table[, 1]
-  }
-  
-  
   # feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
@@ -101,39 +95,87 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
   # sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
   
-  # create Seurat object with first assay
-  # include cell and feature metadata
-  f = feature_types[1]
-  a = feature_type_to_assay_name[f]
-  sc = Seurat::CreateSeuratObject(counts=as(as.matrix(feature_data[[f]]), "dgCMatrix"), 
-                                  project=project, 
+  # Read metadata file (if available)
+  metadata_file = file.path(dirname(path), "metadata.tsv.gz")
+  if (file.exists(metadata_file)) {
+    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
+    barcodes = colnames(feature_data[[1]])
+    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+                                                    first_n_elements_to_string(missed))
+    rownames(metadata_table) = metadata_table[, 1]
+  } else {
+    metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
+    rownames(metadata_table) = metadata_table[, 1]
+  }
+  
+  # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
+  if (parse_plate_information) {
+    plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
+    
+    # Then add to metadata
+    if (nrow(plate_information) > 0) {
+      
+      metadata_table = merge(metadata_table,plate_information,by="row.names", all.x=TRUE)
+      rownames(metadata_table) = metadata_table$Row.names
+      metadata_table$Row.names = NULL
+    } else {
+      futile.logger::flog.warn("The 'ReadCountsTable' method could not parse plate information from the names though requested! Check the regular expression ('plate_information_regex'). Cannot return dataset by samples ('return_samples_as_datasets')!")
+      return_samples_as_datasets = FALSE
+    }
+  }
+
+  # Group cells by samples for datasets
+  samples_to_process = list()
+  if (return_samples_as_datasets) {
+    if(!parse_plate_information) futile.logger::flog.error("The 'ReadCountsTable' method cannot return datasets by samples without parsing this information from the name ('parse_plate_information')!")
+    samples_to_process = split(rownames(metadata_table), metadata_table$SampleName)
+  } else {
+    samples_to_process[[project]] = rownames(metadata_table)
+  }
+  
+  # Now create Seurat objects
+  sc = list()
+  for (s in names(samples_to_process)) {
+    n = paste(project,s,sep=".")
+    
+    # create Seurat object with first assay
+    # include cell and feature metadata
+    c = samples_to_process[[s]] # cells to include for sample
+    f = feature_types[1] # feature type
+    a = feature_type_to_assay_name[f] # assay name
+    d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix") # cell data
+    m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
+    if (ncol(m)==0 | nrow(m)==0) m=NULL
+    sc[[n]] = Seurat::CreateSeuratObject(counts=d, 
+                                  project=n, 
                                   assay=a, 
                                   min.cells=0, 
                                   min.features=0, 
                                   names.delim=NULL, 
                                   names.field=NULL, 
-                                  meta.data=metadata_table)
-  
-  # check that the feature symbols are the same and add feature meta information
-  nms = rownames(sc[[a]])
-  missed = nms[!nms %in% rownames(features_ids_types)]
-  if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed))
-  
-  sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
-  
-  # now add remaining assays
-  feature_types = feature_types[-1]
-  for (f in feature_types) {
-    a = feature_type_to_assay_name[f]
-    sc[[a]] = Seurat::CreateAssayObject(counts=as(as.matrix(feature_data[[f]]), "dgCMatrix"), min.cells=0, min.features=0)
+                                  meta.data=m)
     
-    nms = rownames(sc[[a]])
+    # check that the feature symbols are the same and add feature meta information
+    nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed))
+                                                  a, first_n_elements_to_string(missed))
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
     
-    sc[[a]] = Seurat::AddMetaData(sc[[a]],features_ids_types[rownames(sc[[a]]),])
+    # now add remaining assays
+    for (f in feature_types[-1]) {
+      a = feature_type_to_assay_name[f]
+      d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix")
+      sc[[n]][[a]] = Seurat::CreateAssayObject(counts=d,
+                                          min.cells=0,
+                                          min.features=0)
+      nms = rownames(sc[[n]][[a]])
+      missed = nms[!nms %in% rownames(features_ids_types)]
+      if (length(missed)>0) futile.logger::flog.error("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                    a, first_n_elements_to_string(missed))
+      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]),])
+    }
   }
   
   return(sc)
@@ -148,8 +190,9 @@ ReadSmartseq2Dataset = function(counts_table, project="SeuratProject", row_name_
 #' @param feature_type_column Name or index of the column which should be used for feature types (3).
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
 #' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param return_samples_as_datasets If there are multiple samples in the dataset: return each as separate dataset ("TRUE").
 #' @return A Seurat object.
-Read10xDataset = function(path, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
+ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
   library(magrittr)
   
   # defaults
@@ -265,8 +308,7 @@ Read10xDataset = function(path, project="SeuratProject", row_name_column=1, conv
   sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
   
   # now add remaining assays
-  feature_types = feature_types[-1]
-  for (f in feature_types) {
+  for (f in feature_types[-1]) {
     a = feature_type_to_assay_name[f]
     sc[[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
     
@@ -359,20 +401,19 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
 #' @param row_name_group Index of the capture group which contains the plate row name. Can be NULL in which case it will not be evaluated and the plate row name will be NA. Default is 3.
 #' @param col_name_group Index of the capture group which contains the plate col name. Can be NULL in which case it will not be evaluated and the plate col name will be NA. Default is 4.
 #' @return A data frame with plate information.
-parse_plate_information = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
+ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
   # split cell names
   cell_names_matched_and_split = as.data.frame(stringr::str_match(string=cell_names, pattern=pattern), stringsAsFactors=FALSE)
   cell_names_matched_and_split = merge(x=data.frame(V1=cell_names), y=cell_names_matched_and_split, by=1, all.x=TRUE)
   
   # now prepare plate information
-  plate_information = data.frame(rowname = cell_names_matched_and_split$V1)
+  plate_information = data.frame(rowname=cell_names_matched_and_split$V1)
   rownames(plate_information) = plate_information$rowname
   
   # sample name
   if (!is.null(sample_name_group)) {
     plate_information$SampleName = cell_names_matched_and_split[, 1+sample_name_group]
   } else {
-    plate_information$SampleName = NA
   }
   plate_information$SampleName = as.factor(plate_information$SampleName)
   
@@ -422,4 +463,140 @@ parse_plate_information = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\
   plate_information$rowname = NULL
   
   return(plate_information)
+}
+
+#' Exports a Seurat object for visualisation with the cerebroApp (https://github.com/romanhaa/Cerebro).
+#' 
+#' @param sc A Seurat object.
+#' @param path File path for export.
+#' @param param Named list with parameters passed to the scrnaseq script.
+#' @param organism Species. Can be 'Hg', 'Mm', ... .
+#' @param assay Assay to export ('RNA').
+#' @param column_sample Metadata column containing the sample name ('orig.ident').
+#' @param column_cluster Metadata column containing the cluster identity ('seurat_clusters').
+#' @param column_ccphase Metadata column containing the cell cycle phase ('Phase').
+#' @param gene_lists Gene lists to include (NULL).
+#' @param marker_genes Marker genes table obtained from Seurat::FindMarkers (NULL).
+#' @param enriched_pathways List with enriched pathways results.
+#' @return TRUE if export was successful otherwise FALSE.
+ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
+  
+  # Set to NULL if the requested CC phase is not part of the actual metadata
+  if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
+  
+  
+  # Save the Seurat object in the cerebroApp format
+  cerebroApp::exportFromSeurat(sc,
+                               file=path,
+                               assay=assay,
+                               experiment_name=project,
+                               organism=species,
+                               column_sample=column_sample,
+                               column_cluster=column_cluster,
+                               column_nUMI=paste("nCount", assay, sep="_"),
+                               column_nGene=paste("nFeature", assay, sep="_"),
+                               column_cell_cycle_seurat=column_ccphase,
+                               add_all_meta_data=T)
+  
+  # Export function does not include all information - need to add manually
+  crb_obj = readRDS(path)
+  
+  # Add basic parameters (are hardcoded unfortunately)
+  crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
+  crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
+  crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
+  crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
+  crb_obj$parameters[["number_PCs"]] = param$pc_n
+  crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
+  crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
+  crb_obj$parameters[["tSNE_perplexity"]] = "NA"
+  
+  # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
+  if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
+  
+  # Add technical information
+  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
+  
+  # Add sample-related information
+  crb_obj$samples = list()
+  crb_obj$samples[["colors"]] = param$col_samples
+  crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
+  
+  crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
+    dplyr::summarise(num_cells=length(cluster)) %>%
+    dplyr::group_by(sample) %>%
+    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+    tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=0)
+  
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(sample, phase) %>%
+      dplyr::summarise(num_cells=length(phase)) %>%
+      dplyr::group_by(sample) %>%
+      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+  }
+  
+  # Add cluster-related information
+  crb_obj$clusters = list()
+  crb_obj$clusters[["colors"]] = param$col_clusters
+  crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
+  
+  crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
+    dplyr::summarise(num_cells=length(cluster)) %>%
+    dplyr::group_by(cluster) %>%
+    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+    tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=0)
+  
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(cluster, phase) %>%
+      dplyr::summarise(num_cells=length(phase)) %>%
+      dplyr::group_by(cluster) %>%
+      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+  }
+  
+  tree = Tool(object=sc, slot="BuildClusterTree")
+  if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
+  
+  # Fix cell cycle information
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
+  }
+  
+  # Add marker genes
+  crb_obj$marker_genes = list()
+  crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
+  if(!is.null(marker_genes) & nrow(marker_genes)>0) {
+    crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj"))
+  } else {
+    crb_obj$marker_genes[["by_cluster"]] = "no markers found"
+  }
+  crb_obj$marker_genes[["by_sample"]]
+  
+  # Add enriched pathways
+  crb_obj$enriched_pathways = list(enrichr=list())
+  crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
+  
+  pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
+    d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
+    d$set = x
+    d$cluster = gsub("\\S+_cluster_","",d$set)
+    d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))]
+  })
+  pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
+  pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
+  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
+  pathways_by_cluster$set = NULL
+  
+  crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
+  crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
+  
+  # Save modified object
+  saveRDS(crb_obj, file=path)
+  
+  return(TRUE)
 }

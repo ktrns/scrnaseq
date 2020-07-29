@@ -41,7 +41,7 @@ cell_tech_info = stringr::str_split_fixed(string=colnames(sc_data), pattern="\\.
 # smartseq2
 dir.create(file.path("counts","smartseq2"), showWarnings=FALSE)
 smartseq2_data = as.data.frame(sc_data[,cell_tech_info[,1]=="PBMC1" & cell_tech_info[,2]=="Smart-seq2"])
-colnames(smartseq2_data) = gsub(x=gsub(x=colnames(smartseq2_data), pattern="PBMC1.", replacement="PBMC1_", fixed=TRUE), pattern=".p", replacement="_", fixed=TRUE)
+colnames(smartseq2_data) = gsub(x=gsub(x=colnames(smartseq2_data), pattern="PBMC1.Smart-seq2", replacement="pbmc_smartseq2.sample1", fixed=TRUE), pattern=".p", replacement="_", fixed=TRUE)
 
 col_nms = colnames(smartseq2_data)
 smartseq2_data$GeneId = feat$V1
