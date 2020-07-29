@@ -481,6 +481,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
 #' @return TRUE if export was successful otherwise FALSE.
 ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
   
+  # Set to NULL if the requested CC phase is not part of the actual metadata
   if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
   
   
@@ -492,9 +493,9 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
                                organism=species,
                                column_sample=column_sample,
                                column_cluster=column_cluster,
-                               column_nUMI=paste("nCount",assay,sep="_"),
-                               column_nGene=paste("nFeature",assay,sep="_"),
-                               column_cell_cycle_seurat = column_ccphase,
+                               column_nUMI=paste("nCount", assay, sep="_"),
+                               column_nGene=paste("nFeature", assay, sep="_"),
+                               column_cell_cycle_seurat=column_ccphase,
                                add_all_meta_data=T)
   
   # Export function does not include all information - need to add manually
@@ -504,33 +505,33 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
   crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
   crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
-  crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress,collapse=",")
+  crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
   crb_obj$parameters[["number_PCs"]] = param$pc_n
   crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
-  crb_obj$parameters[["filtering"]] = list(UMI_min = "NA", UMI_max = "NA", genes_min = "NA", genes_max = "NA")
+  crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
   crb_obj$parameters[["tSNE_perplexity"]] = "NA"
   
   # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
   if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
   
   # Add technical information
-  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()),seurat_version=packageVersion("Seurat"))
+  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
   
   # Add sample-related information
   crb_obj$samples = list()
   crb_obj$samples[["colors"]] = param$col_samples
   crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
   
-  crb_obj$samples[["by_cluster"]] = data.frame(sample = sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-    dplyr::group_by(sample,cluster) %>%
+  crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
     dplyr::summarise(num_cells=length(cluster)) %>%
     dplyr::group_by(sample) %>%
     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
     tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=0)
   
   if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample = sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-      dplyr::group_by(sample,phase) %>%
+    crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(sample, phase) %>%
       dplyr::summarise(num_cells=length(phase)) %>%
       dplyr::group_by(sample) %>%
       dplyr::mutate(total_cell_count=sum(num_cells)) %>%
@@ -542,16 +543,16 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   crb_obj$clusters[["colors"]] = param$col_clusters
   crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
   
-  crb_obj$clusters[["by_samples"]] = data.frame(sample = sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-    dplyr::group_by(sample,cluster) %>%
+  crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
     dplyr::summarise(num_cells=length(cluster)) %>%
     dplyr::group_by(cluster) %>%
     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
     tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=0)
   
   if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster = sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-      dplyr::group_by(cluster,phase) %>%
+    crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(cluster, phase) %>%
       dplyr::summarise(num_cells=length(phase)) %>%
       dplyr::group_by(cluster) %>%
       dplyr::mutate(total_cell_count=sum(num_cells)) %>%
@@ -563,7 +564,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   
   # Fix cell cycle information
   if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase,levels=c("G1","G2M","S"))
+    crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
   }
   
   # Add marker genes
@@ -584,18 +585,18 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
     d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
     d$set = x
     d$cluster = gsub("\\S+_cluster_","",d$set)
-    d[,c(ncol(d),ncol(d)-1,1,2:(ncol(d)-2))]
+    d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))]
   })
-  pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster,levels=unique(pathways_by_cluster$cluster))
-  pathways_by_cluster$db = factor(pathways_by_cluster$db,levels=unique(pathways_by_cluster$db))
-  pathways_by_cluster$Term = paste(pathways_by_cluster$Term,ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
+  pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
+  pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
+  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
   pathways_by_cluster$set = NULL
   
   crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
   crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
   
   # Save modified object
-  saveRDS(crb_obj,file=path)
+  saveRDS(crb_obj, file=path)
   
   return(TRUE)
 }

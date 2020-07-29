@@ -528,7 +528,8 @@ if(length(sc)==1) param$integrate_samples[["method"]] = "single"
 
 # Iterate over datasets and record a feature if it does not pass the filter
 sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
-  names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]]))
+  if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
+  else return(names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]])))
 })
 
 # Summarise
@@ -540,9 +541,13 @@ knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of exclu
 
 # Now filter
 sc = purrr::map(list_names(sc), function(n) {
-  features_to_keep = purrr::flatten_chr(purrr::map(Seurat::Assays(sc[[n]]), function(a) rownames(sc[[n]][[a]])))
-  features_to_keep = features_to_keep[!features_to_keep %in% sc_features_to_exclude[[n]]]
-  return(subset(sc[[n]], features=features_to_keep))
+  assay_names = Seurat::Assays(sc[[n]])
+  features_to_keep = purrr::map(values_to_names(assay_names), function(a) {
+    features = rownames(sc[[n]][[a]])
+    keep = features[!features %in% sc_features_to_exclude[[n]]]
+    return(keep)
+  })
+  return(subset(sc[[n]], features=purrr::flatten_chr(features_to_keep)))
 })
 ```
 
@@ -1466,7 +1471,7 @@ knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %
 
 # Further analysis with other tools
 
-## Loupe Cell Browser integration
+## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
 ```{r loupe_integration}
 # Export UMAP coordinates
@@ -1503,9 +1508,9 @@ for (i in names(genesets_to_export)) {
 write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
-## Export to the cerebro
+## Export to the Cerebro Browser
 
-We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the cerebro interface (https://github.com/romanhaa/cerebroApp).  
+We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser (https://github.com/romanhaa/cerebroApp).  
 
 ```{r message=FALSE, warning=FALSE}
 # top expressed genes
@@ -1516,8 +1521,10 @@ names(gene_lists_for_cerebro) = paste("Marker cluster",names(gene_lists_for_cere
 gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[,2]
 gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[,2]
 gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt,rownames(sc), v=TRUE)
+cerebro_species = gsub("_gene_ensembl", "", param$mart_dataset)
+cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", "Mm", cerebro_species)))
 
-res = ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, species="Hs", assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
+res = ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, species=cerebro_species, assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
 ```
 
 # Output files
@@ -1537,7 +1544,7 @@ All files generated with this report are written into the provided output folder
 * Functional enrichment of differentially expressed genes per cell cluster  
   + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
 * Cerebro files:
-  + cerebro.crb: Can be loaded into the cerebro interface.
+  + cerebro.crb: Can be loaded into the Cerebro Browser  
   
 ```{r save}
 save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
