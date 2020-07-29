@@ -464,3 +464,139 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   
   return(plate_information)
 }
+
+#' Exports a Seurat object for visualisation with the cerebroApp (https://github.com/romanhaa/Cerebro).
+#' 
+#' @param sc A Seurat object.
+#' @param path File path for export.
+#' @param param Named list with parameters passed to the scrnaseq script.
+#' @param organism Species. Can be 'Hg', 'Mm', ... .
+#' @param assay Assay to export ('RNA').
+#' @param column_sample Metadata column containing the sample name ('orig.ident').
+#' @param column_cluster Metadata column containing the cluster identity ('seurat_clusters').
+#' @param column_ccphase Metadata column containing the cell cycle phase ('Phase').
+#' @param gene_lists Gene lists to include (NULL).
+#' @param marker_genes Marker genes table obtained from Seurat::FindMarkers (NULL).
+#' @param enriched_pathways List with enriched pathways results.
+#' @return TRUE if export was successful otherwise FALSE.
+ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
+  
+  # Set to NULL if the requested CC phase is not part of the actual metadata
+  if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
+  
+  
+  # Save the Seurat object in the cerebroApp format
+  cerebroApp::exportFromSeurat(sc,
+                               file=path,
+                               assay=assay,
+                               experiment_name=project,
+                               organism=species,
+                               column_sample=column_sample,
+                               column_cluster=column_cluster,
+                               column_nUMI=paste("nCount", assay, sep="_"),
+                               column_nGene=paste("nFeature", assay, sep="_"),
+                               column_cell_cycle_seurat=column_ccphase,
+                               add_all_meta_data=T)
+  
+  # Export function does not include all information - need to add manually
+  crb_obj = readRDS(path)
+  
+  # Add basic parameters (are hardcoded unfortunately)
+  crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
+  crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
+  crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
+  crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
+  crb_obj$parameters[["number_PCs"]] = param$pc_n
+  crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
+  crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
+  crb_obj$parameters[["tSNE_perplexity"]] = "NA"
+  
+  # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
+  if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
+  
+  # Add technical information
+  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
+  
+  # Add sample-related information
+  crb_obj$samples = list()
+  crb_obj$samples[["colors"]] = param$col_samples
+  crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
+  
+  crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
+    dplyr::summarise(num_cells=length(cluster)) %>%
+    dplyr::group_by(sample) %>%
+    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+    tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=0)
+  
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(sample, phase) %>%
+      dplyr::summarise(num_cells=length(phase)) %>%
+      dplyr::group_by(sample) %>%
+      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+  }
+  
+  # Add cluster-related information
+  crb_obj$clusters = list()
+  crb_obj$clusters[["colors"]] = param$col_clusters
+  crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
+  
+  crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+    dplyr::group_by(sample, cluster) %>%
+    dplyr::summarise(num_cells=length(cluster)) %>%
+    dplyr::group_by(cluster) %>%
+    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+    tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=0)
+  
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+      dplyr::group_by(cluster, phase) %>%
+      dplyr::summarise(num_cells=length(phase)) %>%
+      dplyr::group_by(cluster) %>%
+      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+  }
+  
+  tree = Tool(object=sc, slot="BuildClusterTree")
+  if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
+  
+  # Fix cell cycle information
+  if ("Phase" %in% colnames(sc[[]])) {
+    crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
+  }
+  
+  # Add marker genes
+  crb_obj$marker_genes = list()
+  crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
+  if(!is.null(marker_genes) & nrow(marker_genes)>0) {
+    crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj"))
+  } else {
+    crb_obj$marker_genes[["by_cluster"]] = "no markers found"
+  }
+  crb_obj$marker_genes[["by_sample"]]
+  
+  # Add enriched pathways
+  crb_obj$enriched_pathways = list(enrichr=list())
+  crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
+  
+  pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
+    d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
+    d$set = x
+    d$cluster = gsub("\\S+_cluster_","",d$set)
+    d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))]
+  })
+  pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
+  pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
+  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
+  pathways_by_cluster$set = NULL
+  
+  crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
+  crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
+  
+  # Save modified object
+  saveRDS(crb_obj, file=path)
+  
+  return(TRUE)
+}

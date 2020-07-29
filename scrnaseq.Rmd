@@ -27,8 +27,8 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
-library(future) # multicore support for Seurat
-plan("multisession") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
+#library(future) # multicore support for Seurat
+#plan("multisession") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
 options(future.globals.maxSize = 800000000) # increase if the maximum allowed size in bytes of objects exported by future is exceeded
 
 # Other libraries we use
@@ -40,7 +40,7 @@ options(future.globals.maxSize = 800000000) # increase if the maximum allowed si
 # Annotation: biomaRt
 # DEG: mast
 # Functional enrichment: enrichR
-# Other: sessioninfo
+# Other: sessioninfo, cerebroApp
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=TRUE, warning=TRUE, tidy=FALSE, fig.width=10, class.source='fold-hide')
@@ -108,7 +108,7 @@ param$cc_remove_all = FALSE
 param$vars_to_regress = c()
 
 # Additional (unwanted) variables to be included in the statistical tests
-param$latent_vars = NULL
+param$latent_vars = c()
 
 # When there are multiple datasets, how to integrate them:
 #   - method:
@@ -528,7 +528,8 @@ if(length(sc)==1) param$integrate_samples[["method"]] = "single"
 
 # Iterate over datasets and record a feature if it does not pass the filter
 sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
-  names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]]))
+  if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
+  else return(names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]])))
 })
 
 # Summarise
@@ -540,9 +541,13 @@ knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of exclu
 
 # Now filter
 sc = purrr::map(list_names(sc), function(n) {
-  features_to_keep = purrr::flatten_chr(purrr::map(Seurat::Assays(sc[[n]]), function(a) rownames(sc[[n]][[a]])))
-  features_to_keep = features_to_keep[!features_to_keep %in% sc_features_to_exclude[[n]]]
-  return(subset(sc[[n]], features=features_to_keep))
+  assay_names = Seurat::Assays(sc[[n]])
+  features_to_keep = purrr::map(values_to_names(assay_names), function(a) {
+    features = rownames(sc[[n]][[a]])
+    keep = features[!features %in% sc_features_to_exclude[[n]]]
+    return(keep)
+  })
+  return(subset(sc[[n]], features=purrr::flatten_chr(features_to_keep)))
 })
 ```
 
@@ -565,13 +570,13 @@ Finally, __cell cycle scores__ are assigned to each cell based on its normalised
 While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r norm_scale_variableFeatures, results="hide"}
 # This function often crashes with multicore support, so stop for a moment
-future::plan("sequential")
+#future::plan("sequential")
 
 # Normalise data the original way
 sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 
 # Back to multicore support
-future::plan("multisession", workers=4)
+#future::plan("multisession", workers=4)
 
 # Probably obsolete, not needed anywhere in this report
 # Select features from normalised data (unaffected by scaling)
@@ -585,8 +590,8 @@ sc = purrr::map(list_names(sc), function(n) {
   genes_g2m_exists = genes_g2m[,2] %in% rownames(sc[[n]])
   if (sum(genes_s_exists)>=10 & sum(genes_s_exists)>=10){
     sc[[n]] = Seurat::CellCycleScoring(sc[[n]], s.features=genes_s[genes_s_exists,2], g2m.features=genes_g2m[genes_g2m_exists,2], set.ident=FALSE, verbose=FALSE)
+    sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score", drop=TRUE]] - sc[[n]][["G2M.Score", drop=TRUE]]
     sc[[n]][["Phase"]] = factor(sc[[n]][["Phase", drop=TRUE]], levels=c("G1","G2M","S"))
-    sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score"]] - sc[[n]][["G2M.Score"]]
   } else {
     sc[[n]][["S.Score"]] = NA
     sc[[n]][["G2M.Score"]] = NA
@@ -801,17 +806,17 @@ cat("## Integration of multiple datasets\n\n")
 }
 ```
 
-```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge")}
+```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge"), message=FALSE}
 # Called when no integration is needed (e.g. samples were multiplexed on the same chip)
 if (param$integrate_samples[["method"]]=="merge") {
   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project)
   
   # Find variable features in RNA assay
+  DefaultAssay(sc) = "RNA"
   sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
    
   # Scale RNA assay
   # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-  DefaultAssay(sc) = "RNA"
   sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
   
   # Rerun SCTransform
@@ -842,6 +847,8 @@ if (param$integrate_samples[["method"]]=="standard") {
     sc_objs = purrr::map(sc_objs, function(s){ Seurat::DefaultAssay(s) = "RNA"; return(s)})
     integrate_RNA_anchors = Seurat::FindIntegrationAnchors(object.list=sc_objs, dims=1:ndims, verbose=verbose)
     tmp_sc_objs = Seurat::IntegrateData(integrate_RNA_anchors, new.assay.name="RNAintegrated", dims=1:ndims, verbose=verbose)
+    # scale data: according to seurat, this is needed only for the integrated RNA assay
+    tmp_sc_objs = Seurat::ScaleData(tmp_sc_objs, features=rownames(tmp_sc_objs[["RNAintegrated"]]), verbose=verbose, vars.to.regress=vars_to_regress, assay="RNAintegrated")
     
     sc_obj_RNAintegrated_assay = Seurat::GetAssay(tmp_sc_objs, assay="RNAintegrated")
     rm(tmp_sc_objs, integrate_RNA_anchors)
@@ -854,9 +861,6 @@ if (param$integrate_samples[["method"]]=="standard") {
     sc_objs = Seurat::IntegrateData(integrate_SCT_anchors, new.assay.name="SCTintegrated", normalization.method="SCT", dims=1:ndims, verbose=verbose)
     sc_objs[["RNAintegrated"]] = sc_obj_RNAintegrated_assay
     rm(integrate_SCT_anchors, integrate_SCT_features, sc_obj_RNAintegrated_assay)
-    
-    # scale data: according to seurat, this is needed only for the integrated RNA assay
-    sc_objs = Seurat::ScaleData(sc_objs, features=rownames(sc_objs[["RNAintegrated"]]), verbose=verbose, vars.to.regress=vars_to_regress, assay="RNAintegrated")
     
     # Call garbage collector to free memory (hope it helps)
     gc(verbose=verbose)
@@ -977,6 +981,9 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 # Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
 sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE)
+
+# Construct phylogenetic tree relating the 'average' cell from each cluster
+sc = BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
 
 # Set up colors for clusters
 cluster_names = levels(sc$seurat_clusters)
@@ -1139,7 +1146,7 @@ print(p)
 
 ### Percent mitochondrial reads
 ```{r featurePlot_QC_mt}
-p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col))
+p = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col), label=TRUE)
 p = PlotMystyle(p, title="percent_mt")
 print(p)
 ```
@@ -1462,7 +1469,9 @@ knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %
   kableExtra::scroll_box(width="100%", height="700px")
 ```
 
-# Loupe Cell Browser integration
+# Further analysis with other tools
+
+## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
 ```{r loupe_integration}
 # Export UMAP coordinates
@@ -1499,6 +1508,25 @@ for (i in names(genesets_to_export)) {
 write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
+## Export to the Cerebro Browser
+
+We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser (https://github.com/romanhaa/cerebroApp).  
+
+```{r message=FALSE, warning=FALSE}
+# top expressed genes
+sc = cerebroApp::getMostExpressedGenes(sc, column_cluster="seurat_clusters", column_sample="orig.ident", assay=Seurat::DefaultAssay(sc))
+
+gene_lists_for_cerebro = split(sc_markers_filt$gene,sc_markers_filt$cluster)
+names(gene_lists_for_cerebro) = paste("Marker cluster",names(gene_lists_for_cerebro))
+gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[,2]
+gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[,2]
+gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt,rownames(sc), v=TRUE)
+cerebro_species = gsub("_gene_ensembl", "", param$mart_dataset)
+cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", "Mm", cerebro_species)))
+
+res = ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project, species=cerebro_species, assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
+```
+
 # Output files
 All files generated with this report are written into the provided output folder `r param$path_out`: 
 
@@ -1514,7 +1542,9 @@ All files generated with this report are written into the provided output folder
   + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
     Import to Loupe through "Import Lists"   
 * Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database  
+  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Cerebro files:
+  + cerebro.crb: Can be loaded into the Cerebro Browser  
   
 ```{r save}
 save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
