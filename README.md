@@ -47,6 +47,63 @@ The repository provides several other test datasets that you can use for a quick
 # Documentation 
 TODO
 
+## Demultiplexing with hashtag oligos
+
+### Running the script
+When you are using the render function of the rmarkdown package you can run the script as follows:
+```
+rmarkdown::render(
+    "scrnaseq_hto.Rmd",
+    output_format = "html_document",
+    output_dir = ".",
+    output_file = "test",
+    params = paramsList)
+```
+with paramsList set as:
+```
+paramsList = list()
+
+paramsList$project = "HTO_testDataset"
+paramsList$path_data = "test_datasets/10x_pbmc_hto_GSE108313/counts"
+paramsList$path_out = "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed"
+paramsList$hto_names = setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
+paramsList$mt = "^MT-"
+paramsList$col = "palevioletred"
+paramsList$sample_cells = NULL
+```
+
+### Arguments
+#### project
+Provide a project ID.  
+Default: HTO_testDataset
+
+#### path_data
+Input data path in case Cell Ranger was run.  
+Default: test_datasets/10x_pbmc_hto_GSE108313/counts
+
+#### path_out
+Output path of analysis results.  
+Default: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
+
+#### hto_names
+HTOs have an ID that is included in the 'features.tsv' input file.  
+We additionally ask for readable names that are used throughout this report.   
+This could look like this, where HTO1-3 are the IDs included in raw dataset
+```param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))```
+Default: c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")
+
+#### mt
+Prefix of mitochondrial genes.
+Default: ^MT-
+
+#### col
+Main colour(s) to use for plots.
+Defaults: palevioletred
+
+#### sample_cells
+Sample data to at most n cells (mainly for tests); set to NULL to deactivate.
+Default: NULL
+
 # Credits
 The [Seurat Vignettes](https://satijalab.org/seurat/vignettes.html) were initially used as templates for this workflow. 
 
