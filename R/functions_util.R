@@ -190,3 +190,19 @@ Warning = function(x, options){
                 ':::\n'), collapse = '\n')
   return(warn)
 }
+
+# Report parameters of hto report in a table
+scrnaseq_hto_parameter_info = function(project, path_data, path_out, hto_names, mt, color, sample_cells) {
+  out=matrix(NA, nrow=0, ncol=2)
+  colnames(out) = c("Parameter", "Value")
+  
+  out = rbind(out, c("Project ID", project))
+  out = rbind(out, c("Input data path in case Cell Ranger was run", path_data))
+  out = rbind(out, c("Output path", path_out))
+  out = rbind(out, c("HTO names", toString(hto_names)))
+  out = rbind(out, c("Prefix of mitochondrial genes", mt))
+  out = rbind(out, c("Main color to use for plots", toString(color)))
+  out = rbind(out, c("Sample data", toString(sample_cells)))
+  
+  return(out)
+}
