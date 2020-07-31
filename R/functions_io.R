@@ -527,7 +527,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
     dplyr::summarise(num_cells=length(cluster)) %>%
     dplyr::group_by(sample) %>%
     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-    tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=0)
+    tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=list(num_cells=0))
   
   if ("Phase" %in% colnames(sc[[]])) {
     crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
@@ -535,7 +535,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
       dplyr::summarise(num_cells=length(phase)) %>%
       dplyr::group_by(sample) %>%
       dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
   }
   
   # Add cluster-related information
@@ -548,7 +548,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
     dplyr::summarise(num_cells=length(cluster)) %>%
     dplyr::group_by(cluster) %>%
     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-    tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=0)
+    tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=list(num_cells=0))
   
   if ("Phase" %in% colnames(sc[[]])) {
     crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
@@ -556,7 +556,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
       dplyr::summarise(num_cells=length(phase)) %>%
       dplyr::group_by(cluster) %>%
       dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=0)
+      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
   }
   
   tree = Tool(object=sc, slot="BuildClusterTree")

@@ -14,7 +14,11 @@ bibliography: "references.bib"
 
 ```{r setup, warning=FALSE, message=FALSE}
 # R Options
-options(stringsAsFactors=FALSE, "citation_format"="pandoc", dplyr.summarise.inform=FALSE, knitr.table.format="html")
+options(stringsAsFactors=FALSE, 
+        "citation_format"="pandoc", 
+        dplyr.summarise.inform=FALSE, 
+        knitr.table.format="html",
+        future.globals.maxSize=2000000000, mc.cores=4, future.fork.enable=TRUE, future.plan="multicore")
 
 # Python needed for clustering, umap, other python packages
 # Change location if necessary
@@ -27,9 +31,7 @@ library(patchwork) # combination of plots
 library(magrittr) # %>% operator
 library(reticulate) # required for 'leiden' clustering
 library(enrichR) # functional enrichment
-#library(future) # multicore support for Seurat
-#plan("multisession") # by default, this uses all available cores; use "workers=4" for example, to use 4 cores
-options(future.globals.maxSize = 800000000) # increase if the maximum allowed size in bytes of objects exported by future is exceeded
+library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
@@ -383,11 +385,10 @@ sc = purrr::map(sc, function(s) {
   })
 
 # Combine cell metadata of the Seurat objects into one big metadata
-sc_cell_metadata = purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame()
-sc_cell_metadata$orig.ident = factor(sc_cell_metadata$orig.ident,levels=unique(sc_cell_metadata$orig.ident))
+sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
 
 # Print table
-knitr::kable(head(sc[[1]][[]], 5), align="l", caption="Cell metadata, top 5 rows") %>%
+knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
@@ -418,13 +419,10 @@ for (i in names(cell_qc_features)) {
   p_list[[i]] = PlotMystyle(p_list[[i]], title=i, legend_position="none", fill=param$col_samples) + xlab("") + theme(axis.text.x = element_text(angle=45, hjust=1))
   
   # Creates a table with min/max values for filter i for each dataset
-  #
-  # Iterate over datasets
   cell_filter_for_plot = purrr::map_dfr(names(param$cell_filter), function(n) {
     # If filter i in cell filter of the dataset, then create dataframe with columns orig.ident, threshold and value
     if (i %in% names(param$cell_filter[[n]])){
-      orig_ident = head(sc[[n]][["orig.ident"]],1)
-      data.frame(orig.ident=orig_ident, threshold=c("min","max"), value=param$cell_filter[[n]][[i]], row.names = NULL)
+      data.frame(orig.ident=n, threshold=c("min", "max"), value=param$cell_filter[[n]][[i]], stringsAsFactors=FALSE)
     } 
   })
   
@@ -432,7 +430,11 @@ for (i in names(cell_qc_features)) {
   if (nrow(cell_filter_for_plot)>0) {
     # Remove entries that are NA
     cell_filter_for_plot = cell_filter_for_plot %>% dplyr::filter(!is.na(value))
-    p_list[[i]] = p_list[[i]] + geom_segment(data=cell_filter_for_plot,aes(x=as.integer(as.factor(orig.ident))-0.5, xend=as.integer(as.factor(orig.ident))+0.5, y=value, yend=value),lty=2, col="firebrick")
+    p_list[[i]] = p_list[[i]] + geom_segment(data=cell_filter_for_plot, 
+                                             aes(x=as.integer(as.factor(orig.ident))-0.5, 
+                                                 xend=as.integer(as.factor(orig.ident))+0.5, 
+                                                 y=value, yend=value), 
+                                             lty=2, col="firebrick")
   }
 }
 p = patchwork::wrap_plots(p_list, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
@@ -1512,7 +1514,7 @@ write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.
 
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser (https://github.com/romanhaa/cerebroApp).  
 
-```{r message=FALSE, warning=FALSE}
+```{r cerebro, message=FALSE, warning=FALSE}
 # top expressed genes
 sc = cerebroApp::getMostExpressedGenes(sc, column_cluster="seurat_clusters", column_sample="orig.ident", assay=Seurat::DefaultAssay(sc))
 

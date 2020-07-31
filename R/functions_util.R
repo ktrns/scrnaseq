@@ -170,7 +170,7 @@ Message = function(x, options){
   x = gsub('^##','',x)
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
           '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-          '<strong>Information:</strong>',
+          '<strong>(Message)</strong>',
           x,
           ':::\n'), collapse = '\n')
   return(msg)
@@ -185,7 +185,7 @@ Warning = function(x, options){
   x = gsub('^##','',x)
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-                '<strong>Warning:</strong>',
+                '<strong>(Warning)</strong>',
                 x,
                 ':::\n'), collapse = '\n')
   return(warn)
