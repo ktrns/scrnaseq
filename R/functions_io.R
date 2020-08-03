@@ -583,9 +583,10 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   
   pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
     d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
+    if (nrow(d) == 0) return(d)
     d$set = x
     d$cluster = gsub("\\S+_cluster_","",d$set)
-    d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))]
+    return(d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))])
   })
   pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
   pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
