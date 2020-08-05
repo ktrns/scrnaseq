@@ -14,7 +14,7 @@ cells_fisher = function(sc) {
       tbl.2by2 = matrix(c(a, b, c, d), ncol=2, nrow=2, byrow=TRUE)
       ft = fisher.test(tbl.2by2, alternative="greater")
       return(c(oddsRatio=round(as.numeric(ft$estimate), 2),
-               p=round(as.numeric(ft$p.value), 2)))
+               p=formatC(as.numeric(ft$p.value), format="e", digits=1)))
     })
     ft.matrix = purrr::reduce(ft.list, .f=rbind)
     colnames(ft.matrix) = paste0(s, ".", colnames(ft.matrix))
@@ -94,7 +94,7 @@ GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
     mirrors_to_test = c(mirror)
   }
   
-  mart_obj = NA
+  mart_obj = NULL
   if(is.null(host)) {
     # Test and if a mirror is not available, check the next one
     for(m in mirrors_to_test) {
@@ -102,12 +102,12 @@ GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
         biomaRt::useEnsembl(biomart=biomart, dataset=dataset, mirror=m, version=version)
       },
       error=function(cond) {
-        return(NA)
+        return(NULL)
       })
     
-      if(!is.na(mart_obj)) break
+      if(!is.null(mart_obj)) break
     }
-    if(is.na(mart_obj)) stop("The requested Ensembl mirror(s) are not available.")
+    if(is.null(mart_obj)) stop("The requested Ensembl mirror(s) are not available.")
     
   } else {
     # Use specific host
@@ -115,9 +115,9 @@ GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
       biomaRt::useEnsembl(biomart=biomart, dataset=dataset, host=host, version=version)
     },
     error=function(cond) {
-      return(NA)
+      return(NULL)
     })
-    if(is.na(mart_obj)) stop("The requested Ensembl host is not available.")
+    if(is.null(mart_obj)) stop("The requested Ensembl host is not available.")
   }
   
   return(mart_obj)
@@ -170,7 +170,7 @@ Message = function(x, options){
   x = gsub('^##','',x)
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
           '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-          '<strong>Information:</strong>',
+          '<strong>(Message)</strong>',
           x,
           ':::\n'), collapse = '\n')
   return(msg)
@@ -185,7 +185,7 @@ Warning = function(x, options){
   x = gsub('^##','',x)
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-                '<strong>Warning:</strong>',
+                '<strong>(Warning)</strong>',
                 x,
                 ':::\n'), collapse = '\n')
   return(warn)
