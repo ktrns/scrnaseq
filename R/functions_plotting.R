@@ -1,5 +1,5 @@
 # Plotting style 
-PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL) {
+PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL) {
   p = p + theme_light() + theme(panel.border = element_blank())
   if (!is.null(title)) p = p + ggtitle(title) #+ theme(plot.title = element_text(hjust=0.5))
   if (length(col) > 0) p = p + scale_colour_manual(values=col)
@@ -9,7 +9,9 @@ PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, le
   } else {
     p = p + theme(legend.title = element_blank()) 
   }
+  if (!is.null(xlab)) p = p + ggplot2::xlab(label=xlab)
   if (!is.null(legend_position)) p = p + theme(legend.position=legend_position)
+
   return(p)
 }
 

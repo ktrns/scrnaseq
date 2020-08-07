@@ -1361,7 +1361,7 @@ genes_example_df = sc_markers_filt %>%
 genes_example = genes_example_df$gene
 genes_example_titles = paste0(genes_example_df$cluster,": ",genes_example_df$gene)
 
-fig_height_deg = max(5, length(genes_example))
+fig_height_deg = max(5, 2*length(genes_example))
 ```
 
 ### Feature plots
@@ -1372,6 +1372,30 @@ for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i])
 p = patchwork::wrap_plots(p, ncol=2) + 
   patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data")
 p
+```
+
+### Violin plots (raw)
+```{r DEG_plot_violin_raw, fig.height=fig_height_deg, message=FALSE}
+# Violin plot of raw gene expression counts
+p = Seurat::VlnPlot(sc, features=genes_example, slot="counts", combine=FALSE, pt.size=0.2)
+for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i], legend_title="Cell identity", fill=param$col_clusters, xlab="Cluster")
+p = patchwork::wrap_plots(p, ncol=2) + 
+  patchwork::plot_annotation(title="Violin plot of raw gene expression counts") + 
+  patchwork::plot_layout(guides = "collect") &
+  theme(legend.position="bottom")
+suppressMessages(p)
+```
+
+### Violin plots (normalised)
+```{r DEG_plot_violin_norm, fig.height=fig_height_deg, message=FALSE}
+# Violin plot of normalised gene expression data
+p = Seurat::VlnPlot(sc, features=genes_example, combine=FALSE, pt.size=0.2)
+for (i in seq(p)) p[[i]] = PlotMystyle(p[[i]], title=genes_example_titles[i], legend_title="Cell identity", fill=param$col_clusters, xlab="Cluster")
+p = patchwork::wrap_plots(p, ncol=2) + 
+  patchwork::plot_annotation(title="Violin plot of normalised gene expression data") +
+  patchwork::plot_layout(guides = "collect") &
+  theme(legend.position="bottom")
+suppressMessages(p)
 ```
 
 ### Ridge plots (raw)
