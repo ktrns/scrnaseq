@@ -1,18 +1,20 @@
-# Plotting style 
-PlotMystyle = function(p, title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL) {
-  p = p + theme_light() + theme(panel.border = element_blank())
-  if (!is.null(title)) p = p + ggtitle(title) #+ theme(plot.title = element_text(hjust=0.5))
-  if (length(col) > 0) p = p + scale_colour_manual(values=col)
-  if (length(fill) > 0) p = p + scale_fill_manual(values=fill)
-  if (!is.null(legend_title)) {
-    p = p + labs(color=legend_title, fill=legend_title)
-  } else {
-    p = p + theme(legend.title = element_blank()) 
-  }
-  if (!is.null(legend_position)) p = p + theme(legend.position=legend_position)
-  return(p)
+# Plotting style
+AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
+  list(
+    theme_light() + theme(panel.border = element_blank()), 
+    if (!is.null(title)) ggtitle(title), 
+    if (length(col) > 0) scale_colour_manual(values=col),
+    if (length(fill) > 0)  scale_fill_manual(values=fill),
+    if (!is.null(legend_title)) {
+      labs(color=legend_title, fill=legend_title)
+    } else {
+      theme(legend.title = element_blank()) 
+    },
+    if (!is.null(legend_position)) theme(legend.position=legend_position),
+    if (!is.null(xlab)) xlab(xlab),
+    if (!is.null(ylab)) ylab(ylab)
+  )
 }
-
 # Transform a matrix cells (rows) x htos (cols) into a format that can be understood by 
 #   feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
 DfAllColumnCombinations = function(x, cell_classification) {
@@ -67,12 +69,12 @@ PlotRLE = function(x, col, id) {
     geom_ribbon(aes(x=cell, ymin=med, ymax=q75), fill="lightgrey") + 
     geom_ribbon(aes(x=cell, ymin=q25, ymax=med), fill="lightgrey") + 
     geom_ribbon(aes(x=cell, ymin=lowerWhisker, ymax=q25), fill="darkgrey") + 
-    geom_line(aes(x=cell, y=med))
-  p = p + geom_point(data=y_outlier, aes(x=cell, y=out, colour=id), size=0.5) + scale_color_manual(values=col)
-  p = PlotMystyle(p) + 
+    geom_line(aes(x=cell, y=med)) + 
+    geom_point(data=y_outlier, aes(x=cell, y=out, colour=id), size=0.5) + 
+    scale_color_manual(values=col) + 
+    AddStyle(xlab="Cells", ylab="Relative log expression") + 
     theme(axis.text.x=element_blank(),
-          axis.ticks.x=element_blank()) + 
-    xlab("Cells") + ylab("Relative log expression")
+          axis.ticks.x=element_blank())
   p
   
   return(p)
