@@ -154,7 +154,7 @@ param$col_palette_samples = "ggsci::pal_jama"
 param$col_palette_clusters = "ggsci::pal_startrek"
 
 # Sample data to at most n cells per dataset/sample (mainly for tests); set to NULL to deactivate
-param$sample_cells = 500
+param$sample_cells = NULL
 
 # Path to git repository
 param$path_to_git = "."
@@ -403,7 +403,8 @@ sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>%
 
 # Print table
 knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::scroll_box(width="100%")
 ```
 
 ```{r qc_calculate_features}
@@ -417,7 +418,8 @@ sc = purrr::map(list_names(sc), function(n) {
 
 # Print table
 knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::scroll_box(width="100%")
 ```
 
 ```{r qc_plot_cells}
@@ -1174,6 +1176,9 @@ p
 ## Known marker genes {.tabset}
 Do cells in individual clusters express provided known marker genes? 
 ```{r knownMarkers_read}
+known_markers_list=c()
+
+# Overwrite empty list of known markers 
 if (!is.null(param$file_known_markers)) {
   # Read known marker genes and map to rownames
   known_markers = openxlsx::read.xlsx(param$file_known_markers)
@@ -1186,19 +1191,23 @@ if (!is.null(param$file_known_markers)) {
     }
     return(y[!m])
   })
-  names(known_markers_list) = colnames(known_markers)
-  is_empty = lapply(known_markers_list,length)==0
-  known_markers_list = known_markers_list[!is_empty]
   
-  # Set plot options
-  known_markers_vect = unlist(known_markers_list) %>% unique() %>% sort()
-  idx_dotplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) <=50)
-  idx_avgplot = sapply(1:length(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
+  # Remove empty lists
+  names(known_markers_list) = colnames(known_markers)
+  is_empty = purrr::map_int(known_markers_list, .f=length) == 0 
+  known_markers_list = known_markers_list[!is_empty]
+}  
+
+# Set plot options
+if(length(known_markers_list) > 0) { 
   known_markers_n = length(known_markers_list) 
+  known_markers_vect = unlist(known_markers_list) %>% unique() %>% sort()
+  idx_dotplot = sapply(seq(known_markers_list), function(x) length(known_markers_list[[x]]) <=50)
+  idx_avgplot = sapply(seq(known_markers_list), function(x) length(known_markers_list[[x]]) >= 10)
 } else { 
-  known_markers_n = 0
+  known_markers_n=0
   idx_dotplot = idx_avgplot = FALSE
-  known_markers_vect = known_markers_list = c()
+  known_markers_vect = c()
 }
 ```
 
@@ -1355,7 +1364,6 @@ names(sc_markers_lst) = paste0("cluster", levels(sc_markers_filt$cluster))
 openxlsx::write.xlsx(sc_markers_lst, file=paste0(param$path_out, "/markers.xlsx"))
 
 # Number of DEGs per cluster
-cluster_all = levels(Idents(sc))
 sc_markers_filt_n = cbind(Down=sapply(cluster_all, function(x) sum(sc_markers_filt_down$cluster == x)), 
                           Up=sapply(cluster_all, function(x) sum(sc_markers_filt_up$cluster == x))) %>% 
   as.data.frame()
