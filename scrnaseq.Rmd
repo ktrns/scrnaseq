@@ -84,7 +84,7 @@ param$file_known_markers = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/k
 # Annotation via biomaRt
 param$mart_dataset = "hsapiens_gene_ensembl"
 param$annot_version = 98
-param$annot_main = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="external_gene_name")
+param$annot_main = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
 param$file_annot = NULL
 if (is.null(param$file_annot)) {
   param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
@@ -454,7 +454,7 @@ for (i in names(cell_qc_features)) {
                                              lty=2, col="firebrick")
   }
 }
-p = patchwork::wrap_plots(p_list, ncol = 3) + patchwork::plot_annotation("Distribution of feature values") 
+p = patchwork::wrap_plots(p_list, ncol=3) + patchwork::plot_annotation("Distribution of feature values") 
 p
 
 # Correlate QC metrics for cells
@@ -465,7 +465,7 @@ p_list[[1]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[2], y=cell_q
 p_list[[2]] = ggplot(sc_cell_metadata,aes_string(x=cell_qc_features[3], y=cell_qc_features[1], colour="orig.ident")) +
   geom_point() + 
   AddStyle(col=param$col_samples)
-p = patchwork::wrap_plots(p_list, ncol = 2) + patchwork::plot_annotation("Features plotted against each other")
+p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Features plotted against each other")
 
 if (length(sc)==1) {
   p = p & theme(legend.position="bottom")
@@ -1551,7 +1551,7 @@ for (i in seq(genesets)) {
       })
   } else { 
     message("Geneset ", names(genesets)[i], " has less than 3 genes; skip enrichr")
-    enriched[[i]] = NULL
+    enriched[[i]] = data.frame()
   }
 }
 names(enriched) = names(genesets)
@@ -1638,7 +1638,7 @@ gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[,2]
 gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[,2]
 gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt,rownames(sc), v=TRUE)
 cerebro_species = gsub("_gene_ensembl", "", param$mart_dataset)
-cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", "Mm", cerebro_species)))
+cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", cerebro_species), "Mm", cerebro_species))
 
 res = ExportToCerebro(sc=sc, path=paste0(param$path_out,"/cerebro.crb"), param=param, project=param$project_id, species=cerebro_species, assay=DefaultAssay(sc), column_sample="orig.ident", column_cluster="seurat_clusters", column_ccphase="Phase", gene_lists=gene_lists_for_cerebro, marker_genes=sc_markers_filt, enriched_pathways=enriched)
 ```
