@@ -137,10 +137,12 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   # Now create Seurat objects
   sc = list()
   for (s in names(samples_to_process)) {
-    n = paste(project,s,sep=".")
     
-    # create Seurat object with first assay
-    # include cell and feature metadata
+    # New name
+    n = paste(project, s, sep=".")
+    
+    # Create Seurat object with first assay
+    # Include cell and feature metadata
     c = samples_to_process[[s]] # cells to include for sample
     f = feature_types[1] # feature type
     a = feature_type_to_assay_name[f] # assay name
