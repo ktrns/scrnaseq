@@ -68,9 +68,8 @@ param$project_id = "pbmc"
 # Input data path in case Cell Ranger was run 
 param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
-                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/","test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"))
-
-param$file_mapping_stats = NULL
+                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/","test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
+                             stats=c(NA, NA))
 
 # Project-specific paths
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -351,7 +350,7 @@ for (i in seq(nrow(datasets))) {
 
 # Make cell names unique
 sc = purrr::map(list_indices(sc), function(i){
-  cell_names = gsub("-\\d+","",colnames(sc[[i]]))
+  cell_names = gsub("-\\d+", "", colnames(sc[[i]]))
   Seurat::RenameCells(sc[[i]], new.names=paste(cell_names,i,sep="-"))
 })
 
@@ -437,7 +436,7 @@ sc = purrr::map(list_names(sc), function(n) {
 })
 ```
 
-```{r qc_plot_cells, fig.height=7}
+```{r qc_plot_cells, fig.height=10}
 # Plot QC metrics for cells
 cell_qc_features = c("nFeature_RNA", "nCount_RNA", "percent_mt")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features,"percent_ercc")
@@ -671,7 +670,7 @@ To determine variable genes, we need to separate biological variability from tec
 
 #### Standard normalisation (RNA)
 ```{r plot_variable_features_heights}
-fig_height_vf = 3.5 * ceiling(length(names(sc))/2)
+fig_height_vf = 5 * ceiling(length(names(sc))/2)
 ```
 
 ```{r plot_variable_features_rna, warning=FALSE, fig.height=fig_height_vf}
@@ -685,12 +684,12 @@ p_list = purrr::map(list_names(sc), function(n) {
   return(p)
 })
 
-p = patchwork::wrap_plots(p_list) + patchwork::plot_annotation("Variable genes")
+p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Variable genes")
 p
 ```
 
 #### Advanced normalisation (SCT)
-```{r plot_variable_features_sct}
+```{r plot_variable_features_sct, fig.height=fig_height_vf}
 # Show variable genes
 p_list = purrr::map(list_names(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]], assay="SCT"), 10)
@@ -701,7 +700,7 @@ p_list = purrr::map(list_names(sc), function(n) {
   return(p)
 })
 
-p = patchwork::wrap_plots(p_list) + patchwork::plot_annotation("Variable genes")
+p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Variable genes")
 p
 ```
 
@@ -1078,6 +1077,7 @@ p = LabelClusters(p, id="seurat_clusters")
 p
 ```
 
+## Distribution of cells in clusters
 The following table shows the number of cells per sample per cluster:   
 
 * n: Number of cells per sample per cluster   
@@ -1465,7 +1465,7 @@ fig_height_variable = max(5, height_per_row * nr_rows)
 p_list = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
 for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i])
 p = patchwork::wrap_plots(p_list, ncol=2) + 
-  patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data (assay='SCT', slot='data')")
+  patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data")
 p
 ```
 
