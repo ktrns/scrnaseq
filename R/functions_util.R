@@ -39,7 +39,7 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
 #' @param path_to_git: Path to git repository.
 #' @return The session info as table.
 scrnaseq_session_info = function(path_to_git=".") {
-  out=matrix(NA, nrow=0, ncol=2)
+  out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
   repo = tryCatch({system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)},
@@ -147,14 +147,15 @@ GetBiomaRtMirror = function(mart_obj) {
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
 #' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
 #' @return The generated colours.
-GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0.3), palette_options=list()) {
+GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
+  palette = eval(parse(text=palette))
   colours = purrr::flatten_chr(purrr::map(alphas, function(a) {
     palette_options[["alpha"]] = a
-    cols = suppressWarnings(do.call(do.call(ggsci::pal_d3,palette_options),list(100)))
+    cols = suppressWarnings(do.call(do.call(palette, palette_options), list(100)))
     cols[!is.na(cols)]
   }))
   
-  if (num_colours>length(colours)) {
+  if (num_colours > length(colours)) {
     stop("GenerateColours: Cannot generate the requested number of colours. Please change palette or add alpha values.")
   }
   
@@ -169,10 +170,11 @@ GenerateColours = function(num_colours, palette=ggsci::pal_igv, alphas=c(1,0.7,0
 Message = function(x, options){
   x = gsub('^##','',x)
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
-          '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-          '<strong>(Message)</strong>',
-          x,
-          ':::\n'), collapse = '\n')
+                '<style> .alert-info { background-color: #abd9c6; color: black; } </style>', 
+                '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
+                '<strong>(Message)</strong>',
+                x,
+                ':::\n'), collapse = '\n')
   return(msg)
 }
 
@@ -184,25 +186,41 @@ Message = function(x, options){
 Warning = function(x, options){
   x = gsub('^##','',x)
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
-                '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
-                '<strong>(Warning)</strong>',
-                x,
-                ':::\n'), collapse = '\n')
+                 '<style> .alert-warning { background-color: #fae39c; color: black; } </style>', 
+                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
+                 '<strong>(Warning)</strong>',
+                 x,
+                 ':::\n'), collapse = '\n')
   return(warn)
 }
 
-# Report parameters of hto report in a table
-scrnaseq_hto_parameter_info = function(project, path_data, path_out, hto_names, mt, color, sample_cells) {
-  out=matrix(NA, nrow=0, ncol=2)
-  colnames(out) = c("Parameter", "Value")
+# Report parameters in a table
+scrnaseq_params_info = function(params) { 
   
-  out = rbind(out, c("Project ID", project))
-  out = rbind(out, c("Input data path in case Cell Ranger was run", path_data))
-  out = rbind(out, c("Output path", path_out))
-  out = rbind(out, c("HTO names", toString(hto_names)))
-  out = rbind(out, c("Prefix of mitochondrial genes", mt))
-  out = rbind(out, c("Main color to use for plots", toString(color)))
-  out = rbind(out, c("Sample data", toString(sample_cells)))
+  # Intitialize output table
+  out = matrix(NA, nrow=0, ncol=2)
+  colnames(out) = c("Name", "Value")
+  
+  # Convert a (named) vector to a string
+  VectorToString = function(x) { 
+    if (is.null(names(x))) return(toString(x))
+    if (sum(names(x) != "") != length(x)) return(toString(x))
+    return(paste(names(x), x, sep="=", collapse=", "))   
+  }
+  
+  # Convert list to table
+  for (i in seq(params)) {
+    x = params[[i]]
+    # List, function or simple vector?
+    if(is.list(x)) {
+      y = paste(names(x), sapply(names(x), function(j) VectorToString(x[[j]])), sep=":", collapse="; ")
+    } else if (is.function(x)) {
+      y = "function"
+    } else {
+      y = VectorToString(x)
+    }
+    out = rbind(out, c(names(params)[i], y))
+  }
   
   return(out)
 }

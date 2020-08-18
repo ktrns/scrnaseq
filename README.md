@@ -4,53 +4,61 @@
 # Workflow summary
 ## Pre-Workflow: Demultiplexing with hashtag oligos
 * Dataset description
-  + Project-specific parameters
+  * Project-specific parameters
 * Read input data
 * Demutliplexing with hashtag oligos (HTOs)
-  + Normalisation of HTO counts
-  + Classification of cells based on normalised HTO data
+  * Normalisation of HTO counts
+  * Classification of cells based on normalised HTO data
 * Visualisation of raw and normalised HTO data
 * Remove cells classified as doublet or negative
 * Preliminary visualisation of demultiplexed RNA data
-  + Visualisation with UMAP
+  * Visualisation with UMAP
 * Write out demultiplexed data
 
 ## Workflow: Single-cell RNA-seq analysis 
 * Dataset description
-  + Project-specific parameters  
-* Read input data  
-  + Read and print mapping statistics  
-  + Setup the Seurat object  
-  + Read gene annotation  
-* Pre-processing  
-  + Quality control  
-  + Normalisation, feature selection and scaling  
-  + Dimensional reduction  
-  + Dimensionality of the dataset  
-* Downstream analysis  
-  + Clustering  
-  + Visualisation with UMAP  
-  + Feature plots QC  
-  + Feature plots for known marker genes  
-  + Differentially expressed genes  
-  + Visualisation of differentially expressed genes  
-  + Functional enrichment analysis  
-* Cell Cycle Effect  
-* Loupe Cell Browser integration  
-* Output files  
+  * Project-specific parameters
+* Read data
+  * Read and print mapping statistics
+  * Read gene annotation
+  * Read scRNA-seq data
+* Pre-processing
+  * Quality control
+  * Filtering
+  * Normalisation, cell cycle scoring, scaling and variable genes
+    * Variable genes
+    * Relative log expression
+  * Integration of multiple datasets
+    * Relative log expression after integration
+  * Dimensionality reduction
+  * Dimensionality of the dataset
+* Downstream analysis
+  * Clustering
+  * Visualisation with UMAP
+  * Cell Cycle Effect
+  * Feature plots QC
+  * Known marker genes
+  * Differentially expressed genes
+  * Visualisation of differentially expressed genes
+  * Functional enrichment analysis
+* Further analysis with other tools
+  * Export to Loupe Cell Browser
+  * Export to the Cerebro Browser
+* Output files
+* Software versions
+* References
 
 # Quick start
-You can have a quick start using a 10X Genomics PMBC dataset, downloaded from [here](https://support.10xgenomics.com/single-cell-gene-expression/datasets/3.0.0/pbmc_1k_v3) and included in <code>test_datasets</code>. The workflow <code>scrnaseq.Rmd</code> is already initialised for this dataset, so all you have to do is to knit to html. 
+The workflow is inialised for test data in `test_datasets`. First, navigate to the respective test dataset folder(s), and download the test dataset(s) by running the `download.R` script(s). Once all test data is downloaded, you can knit the workflow to HTML. 
 
-The repository provides several other test datasets that you can use for a quick start. All you have to do is to modify the code chunk <code>Project-specific parameters</code>. 
+The repository provides several other useful test data that you can use to get to know the functionality of the workflow. To run the workflow for another than the initial dataset, you need to adapt the `project_parameters` code chunk and provide all relevant paths and parameters. 
 
 # Documentation 
-TODO
 
 ## Demultiplexing with hashtag oligos
 
 ### Running the script
-When you are using the render function of the rmarkdown package you can run the script as follows:
+The Pre-Workflow can be run from outside the actual Rmarkdown script. When you are using the render function of the `rmarkdown` package you can run the script as follows:
 ```
 rmarkdown::render(
     "scrnaseq_hto.Rmd",
@@ -73,36 +81,33 @@ paramsList$sample_cells = NULL
 ```
 
 ### Arguments
-#### project
-Provide a project ID.  
-Default: HTO_testDataset
+#### `project`
+ID of the project (Default: "HTO_testDataset").
 
-#### path_data
-Input data path in case Cell Ranger was run.  
-Default: test_datasets/10x_pbmc_hto_GSE108313/counts
+#### `path_data`
+Input directory where data are located (Default: "test_datasets/10x_pbmc_hto_GSE108313/counts").
 
-#### path_out
-Output path of analysis results.  
-Default: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
+#### `path_out`
+Output directory where the results will be saved (Default: "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed").
 
-#### hto_names
-HTOs have an ID that is included in the 'features.tsv' input file.  
-We additionally ask for readable names that are used throughout this report.   
-This could look like this, where HTO1-3 are the IDs included in raw dataset
+#### `hto_names`
+HTOs have an ID that is included in the 'features.tsv' input file. We additionally ask for readable names that are used throughout the report. Names could look as follows, where `HTO1-3` are the IDs included in raw dataset: 
 ```param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))```
-Default: c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH")
+(Default: `c("htoA", "htoB", "htoC", "htoD", "htoE", "htoF", "htoG", "htoH"), c("htoA", "htoB", "htoC", "htoD", "htoE", "htoF", "htoG", "htoH")`)
 
-#### mt
-Prefix of mitochondrial genes.
-Default: ^MT-
+#### `mt`
+Prefix of mitochondrial genes (Default: "^MT-").
 
-#### col
-Main colour(s) to use for plots.
-Defaults: palevioletred
+#### `col`
+Main colour(s) to use for plots (Defaults: "palevioletred").
 
-#### sample_cells
-Sample data to at most n cells (mainly for tests); set to NULL to deactivate.
-Default: NULL
+#### `sample_cells`
+Sample data to at most n cells (mainly for tests); set to NULL to deactivate (Default: NULL).
+
+## Single-cell RNA-seq analysis 
+
+### Running the script
+The main workflow is currently run from within Rstudio. Project-specific parameters are adapted in the `project_parameters` code chunk. 
 
 # Credits
 The [Seurat Vignettes](https://satijalab.org/seurat/vignettes.html) were initially used as templates for this workflow. 
