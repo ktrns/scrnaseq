@@ -104,12 +104,11 @@ if (!is.null(params$downsample_cells_n)) {
 }
 
 # Discard cells in other assays which have no HTO counts 
+# Discard cells in other assays which have no HTO counts 
 original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
-assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>%
-  as.data.frame %>%
-  colSums() == 0 
-if (sum(assay_cells_hto_zero)>0) {
-  sc = subset(sc, cells=which(assay_cells_hto_zero))
+assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>% Matrix::colSums()==0
+if (any(assay_cells_hto_zero)) {
+  sc = subset(sc, cells=names(which(!assay_cells_hto_zero)))
   warning("Discarded ", sum(assay_cells_hto_zero), " cells with 0 HTO counts.")
 }
 
