@@ -695,8 +695,9 @@ if (param$cc_remove) {
 ```{r regress_and_sctransform, results="hide", warning=FALSE}
 # Scale RNA assay
 # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+# Note: For a single dataset where no integration is needed, all features can already be scaled here. Otherwise, it is enough to scale only the variable features and scaling of all features will be done later.
 sc = purrr::map(sc, function(s) { 
-  Seurat::ScaleData(s, features=VariableFeatures(s), vars.to.regress=param$vars_to_regress, verbose=FALSE) 
+  Seurat::ScaleData(s, features=ifelse(param$integrate_samples[["method"]]=="single", rownames(s[["RNA"]]), VariableFeatures(s)), vars.to.regress=param$vars_to_regress, verbose=FALSE) 
   })
 
 # Run SCTransform
@@ -705,7 +706,8 @@ sc = purrr::map(sc, function(s) {
 # vignette: https://satijalab.org/seurat/v3.0/sctransform_vignette.html
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
 # Normalised data end up here: sc@assays$SCT@data
-sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$feature_filter[[n]][["min_cells"]], verbose=FALSE) })
+# Note: For a single dataset where no integration is needed, all features can already be scaled here. Otherwise, it is enough to scale only the variable features.
+sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$feature_filter[[n]][["min_cells"]], verbose=FALSE, return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) })
 
 # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. Consequently, some genes might be missing from the SCT assay. See: https://github.com/ChristophH/sctransform/issues/27
 ```
@@ -824,12 +826,7 @@ p
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
   
-  # Scale RNA assay
-  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-  DefaultAssay(sc) = "RNA"
-  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
-  
-  # Set default assay
+  # Just set default assay
   DefaultAssay(sc) = param$normalisation_default
 }
 ```
@@ -899,7 +896,8 @@ if (param$integrate_samples[["method"]]=="merge") {
   
   # Rerun SCTransform
   DefaultAssay(sc) = "SCT"
-  sc = suppressWarnings(SCTransform(sc, vars.to.regress=param$vars_to_regress, min_cells=1, verbose=FALSE))
+  min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) {as.integer(f[["min_cells"]])}))
+  sc = suppressWarnings(SCTransform(sc, vars.to.regress=param$vars_to_regress, min_cells=min_cells_overall, verbose=FALSE, return.only.var.genes=FALSE))
   
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {

@@ -342,6 +342,15 @@ for (s in samples) {
   demux_samples_paths = c(demux_samples_paths, p)
 }
 
+# Export cell classification for Loupe
+loupe_meta = as.data.frame(sc.all@meta.data)
+loupe_meta = loupe_meta[,c("HTO_classification", "HTO_classification.global")]
+idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
+loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
+p = file.path(params$path_out, "cell_classification_for_loupe.csv")
+write.table(x=loupe_meta, file=p, col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+demux_samples_paths = c(demux_samples_paths, p)
+
 message(demux_samples_paths)
 ```
 
