@@ -104,12 +104,11 @@ if (!is.null(params$downsample_cells_n)) {
 }
 
 # Discard cells in other assays which have no HTO counts 
+# Discard cells in other assays which have no HTO counts 
 original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
-assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>%
-  as.data.frame %>%
-  colSums() == 0 
-if (sum(assay_cells_hto_zero)>0) {
-  sc = subset(sc, cells=which(assay_cells_hto_zero))
+assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>% Matrix::colSums()==0
+if (any(assay_cells_hto_zero)) {
+  sc = subset(sc, cells=names(which(!assay_cells_hto_zero)))
   warning("Discarded ", sum(assay_cells_hto_zero), " cells with 0 HTO counts.")
 }
 
@@ -342,6 +341,15 @@ for (s in samples) {
                                                          "hash.ID"))
   demux_samples_paths = c(demux_samples_paths, p)
 }
+
+# Export cell classification for Loupe
+loupe_meta = as.data.frame(sc.all@meta.data)
+loupe_meta = loupe_meta[,c("HTO_classification", "HTO_classification.global")]
+idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
+loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
+p = file.path(params$path_out, "cell_classification_for_loupe.csv")
+write.table(x=loupe_meta, file=p, col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+demux_samples_paths = c(demux_samples_paths, p)
 
 message(demux_samples_paths)
 ```
