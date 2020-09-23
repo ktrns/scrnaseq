@@ -37,8 +37,8 @@ library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr, stringr, Matrix
-# Tables: kableExtra
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform
+# Tables: kableExtra, DT
 # Plots: ggsci, ggpubr
 # IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
@@ -48,9 +48,6 @@ library(future) # multicore support for Seurat
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=TRUE, warning=TRUE, tidy=FALSE, fig.width=10, class.source='fold-hide')
-
-# biomaRt mirror: NULL means the first working mirror is used
-mirror = NULL
 ```
 
 # Dataset description
@@ -65,15 +62,14 @@ param = list()
 # Project ID
 param$project_id = "pbmc"
 
-# Input data path in case Cell Ranger was run 
-param$path_data = data.frame(name=c("pbmc_10x", "pbmc_smartseq2"),
-                             type=c("10x", "smartseq2"),
-                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
+# Input data path
+param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
+                             type=c("10x","smartseq2"),
+                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
                              stats=c(NA, NA))
 
-# Project-specific paths
+# Output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
-if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 
 # Marker genes based on literature, translated to Ensembl IDs
 # xlsx file, one list per column, first row as header and Ensembl IDs below
@@ -85,12 +81,10 @@ param$mart_dataset = "hsapiens_gene_ensembl"
 param$annot_version = 98
 param$annot_main = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
 param$file_annot = NULL
-if (is.null(param$file_annot)) {
-  param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
-}
 param$mart_attributes = c(param$annot_main, 
                           c("chromosome_name", "start_position", "end_position", 
                             "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
+param$biomart_mirror = NULL
 
 # Prefix of mitochondrial genes 
 param$mt = "^MT-"
@@ -104,6 +98,9 @@ param$feature_filter = list(min_counts=1, min_cells=3) # feature has to be found
 # Example: param$samples_to_drop = c("pbmc_smartseq2.NC", "pbmc_smartseq2.RNA"), 
 #   where "smartseq2" is the name of the dataset (see path_data), and "NC" and "RNA" are the names of the samples
 param$samples_to_drop = c() 
+
+# Drop samples with too few cells
+param$samples_min_cells = 10
 
 # Whether or not to remove cell cycle effects
 param$cc_remove = FALSE
@@ -120,6 +117,7 @@ param$latent_vars = c()
 
 # When there are multiple datasets, how to integrate them:
 #   - method:
+#     - single: Automatically default when there is only one dataset after filtering. No integration is needed.
 #     - merge: Just merge them since no integration is needed (e.g. samples were multiplexed on the same chip)
 #     - standard: Anchors are computed for all pairs of datasets. This will give all datasets the same weight during dataset integration but can be computationally intensive.
 #     - reference: One dataset is used as reference and anchors are computed for all other datasets. Less accurate but computationally faster. 
@@ -164,13 +162,51 @@ param$downsample_cells_n = NULL
 param$path_to_git = "."
 ```
 
-```{r code}
-source(paste0(param$path_to_git, "/R/functions_io.R"))
-source(paste0(param$path_to_git, "/R/functions_plotting.R"))
-source(paste0(param$path_to_git, "/R/functions_analysis.R"))
-source(paste0(param$path_to_git, "/R/functions_util.R"))
+```{r initial_checks}
+# Git directory and files to source must be done first, then all helper functions can be sourced
+git_files_to_source = c("R/functions_io.R",
+              "R/functions_plotting.R",
+              "R/functions_analysis.R",
+              "R/functions_util.R")
+git_files_to_source = paste(param$path_to_git, git_files_to_source, sep="/")
+file_exists = purrr::map_lgl(git_files_to_source, file.exists)
+if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
+invisible(purrr::map(git_files_to_source, source))
 
-knitr::knit_hooks$set(message=Message, warning=Warning)
+# Set output hooks
+knitr::knit_hooks$set(message=format_message, warning=format_warning)
+
+# Do checks
+error_messages = c()
+
+# Check installed packages
+error_messages = c(error_messages, check_installed_packages())
+# Check python
+error_messages = c(error_messages, check_python())
+# Check parameters
+error_messages = c(error_messages, check_parameters(param))
+# Check enrichR
+error_messages = c(error_messages, check_enrichr(param$enrichr_dbs))
+# Check ensembl
+error_messages = c(error_messages, check_ensembl(biomart="ensembl", 
+                                                 dataset=param$mart_dataset, 
+                                                 mirror=param$biomart_mirror, 
+                                                 version=param$annot_version,
+                                                 attributes=param$mart_attributes))
+```
+
+```{r initial_checks_failed, eval=length(error_messages)>0, include=length(error_messages)>0}
+# Now format collected error messages as error boxes, print and exit
+# Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
+error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
+knitr::knit_exit()
+knitr::asis_output(error_message_blocks)
+```
+
+
+```{r preparation}
+# Create output directory
+if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 ```
 
 # Read data
@@ -208,13 +244,18 @@ if (!all(is.na(param$path_data$stats))) {
 ## Read gene annotation
 If not provided already, we read gene annotation from Ensembl and write the resulting table to file. We generate several dictionaries to translate between Ensembl IDs, gene symbols, Entrez Ids, and Seurat rownames. 
 ```{r read_annotation}
+# If not provided by user, save annotation in the path_out directory
+if (is.null(param$file_annot)) {
+  param$file_annot = file.path(param$path_out, paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
+}
+
 # Read annotation from csv or from Ensembl and a tab separated txt will be created
 if (file.exists(param$file_annot)) {
   annot_ensembl = read.delim(param$file_annot)
 } else {
   annot_mart = suppressWarnings(GetBiomaRt(biomart="ensembl", 
                                            dataset=param$mart_dataset, 
-                                           mirror=mirror, 
+                                           mirror=param$biomart_mirror, 
                                            version=param$annot_version))
   annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=param$mart_attributes)
   write.table(annot_ensembl, file=param$file_annot, sep='\t', col.names=TRUE, row.names=FALSE, append=FALSE)
@@ -284,7 +325,7 @@ if (file.exists(cc_genes_marker_file)) {
   # Note: both mart objects must point to the same mirror for biomarT::getLDS to work
   mart_human = suppressWarnings(GetBiomaRt(biomart="ensembl", 
                                            dataset="hsapiens_gene_ensembl", 
-                                           mirror=mirror, 
+                                           mirror=param$biomart_mirror, 
                                            version=param$annot_version))
   mart_myspecies = suppressWarnings(GetBiomaRt(biomart="ensembl", 
                                                dataset=param$mart_dataset, 
@@ -530,8 +571,14 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
   })
 
   # Samples to drop
-  cells_orig_sample = sc[[n]][["orig.ident", drop=TRUE]]
-  filter_result[["samples_to_drop"]] = names(cells_orig_sample[cells_orig_sample %in% param$samples_to_drop])
+  if (length(param$samples_to_drop)>0 && n %in% param$samples_to_drop) {
+    filter_result[["samples_to_drop"]] = colnames(sc[[n]])
+  }
+  
+  # Minimum number of cells for a sample to keep
+  if (!is.null(param$samples_min_cells) && param$samples_min_cells>0 && ncol(sc[[n]])<param$samples_min_cells) {
+    filter_result[["samples_min_cells"]] = colnames(sc[[n]])
+  }
   return(filter_result)
 })
 
@@ -648,8 +695,9 @@ if (param$cc_remove) {
 ```{r regress_and_sctransform, results="hide", warning=FALSE}
 # Scale RNA assay
 # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
+# Note: For a single dataset where no integration is needed, all features can already be scaled here. Otherwise, it is enough to scale only the variable features and scaling of all features will be done later.
 sc = purrr::map(sc, function(s) { 
-  Seurat::ScaleData(s, features=VariableFeatures(s), vars.to.regress=param$vars_to_regress, verbose=FALSE) 
+  Seurat::ScaleData(s, features=ifelse(param$integrate_samples[["method"]]=="single", rownames(s[["RNA"]]), VariableFeatures(s)), vars.to.regress=param$vars_to_regress, verbose=FALSE) 
   })
 
 # Run SCTransform
@@ -658,7 +706,8 @@ sc = purrr::map(sc, function(s) {
 # vignette: https://satijalab.org/seurat/v3.0/sctransform_vignette.html
 # paper: https://www.biorxiv.org/content/10.1101/576827v2
 # Normalised data end up here: sc@assays$SCT@data
-sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$feature_filter[[n]][["min_cells"]], verbose=FALSE) })
+# Note: For a single dataset where no integration is needed, all features can already be scaled here. Otherwise, it is enough to scale only the variable features.
+sc = purrr::map(list_names(sc), function(n) { SCTransform(sc[[n]], vars.to.regress=param$vars_to_regress, min_cells=param$feature_filter[[n]][["min_cells"]], verbose=FALSE, return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) })
 
 # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. Consequently, some genes might be missing from the SCT assay. See: https://github.com/ChristophH/sctransform/issues/27
 ```
@@ -777,12 +826,7 @@ p
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
   
-  # Scale RNA assay
-  # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-  DefaultAssay(sc) = "RNA"
-  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
-  
-  # Set default assay
+  # Just set default assay
   DefaultAssay(sc) = param$normalisation_default
 }
 ```
@@ -852,7 +896,8 @@ if (param$integrate_samples[["method"]]=="merge") {
   
   # Rerun SCTransform
   DefaultAssay(sc) = "SCT"
-  sc = suppressWarnings(SCTransform(sc, vars.to.regress=param$vars_to_regress, min_cells=1, verbose=FALSE))
+  min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) {as.integer(f[["min_cells"]])}))
+  sc = suppressWarnings(SCTransform(sc, vars.to.regress=param$vars_to_regress, min_cells=min_cells_overall, verbose=FALSE, return.only.var.genes=FALSE))
   
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
@@ -1187,7 +1232,8 @@ p1 = Seurat::FeaturePlot(sc, features="nCount_RNA", cols=c("lightgrey", param$co
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot", fill=param$col_clusters,
-           xlab="Cluster")
+           xlab="Cluster") +
+  theme(legend.position="none")
 
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title="Summed raw counts (nCount_RNA)")
@@ -1202,7 +1248,8 @@ p1 = Seurat::FeaturePlot(sc, features="nFeature_RNA", cols=c("lightgrey", param$
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot", fill=param$col_clusters,
-           xlab="Cluster")
+           xlab="Cluster") +
+  theme(legend.position="none")
 
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title="Number of features with raw count > 0 (nFeature_RNA)")
@@ -1217,7 +1264,8 @@ p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$co
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot", fill=param$col_clusters,
-           xlab="Cluster")
+           xlab="Cluster") +
+  theme(legend.position="none")
 
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title="Percent of mitochondrial features (percent_mt)")
