@@ -66,9 +66,9 @@ param = list()
 param$project_id = "pbmc"
 
 # Input data path in case Cell Ranger was run 
-param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
-                             type=c("10x","smartseq2"),
-                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/","test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
+param$path_data = data.frame(name=c("pbmc_10x", "pbmc_smartseq2"),
+                             type=c("10x", "smartseq2"),
+                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
                              stats=c(NA, NA))
 
 # Project-specific paths
@@ -292,21 +292,21 @@ if (file.exists(cc_genes_marker_file)) {
                                                version=param$annot_version)) 
   
   # S phase marker
-  genes_s = biomaRt::getLDS(attributes=c("ensembl_gene_id","external_gene_name"), 
+  genes_s = biomaRt::getLDS(attributes=c("ensembl_gene_id", "external_gene_name"), 
                           filters="external_gene_name", 
                           values=Seurat::cc.genes.updated.2019$s.genes, 
                           mart=mart_human, 
-                          attributesL=c("ensembl_gene_id","external_gene_name"), 
+                          attributesL=c("ensembl_gene_id", "external_gene_name"), 
                           martL=mart_myspecies, 
                           uniqueRows=TRUE)
   colnames(genes_s) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
   
   # G2/M marker
-  genes_g2m = biomaRt::getLDS(attributes=c("ensembl_gene_id","external_gene_name"), 
+  genes_g2m = biomaRt::getLDS(attributes=c("ensembl_gene_id", "external_gene_name"), 
                             filters="external_gene_name", 
                             values=Seurat::cc.genes.updated.2019$g2m.genes, 
                             mart=mart_human, 
-                            attributesL=c("ensembl_gene_id","external_gene_name"), 
+                            attributesL=c("ensembl_gene_id", "external_gene_name"), 
                             martL=mart_myspecies, 
                             uniqueRows=TRUE)
   colnames(genes_g2m) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
@@ -351,7 +351,7 @@ for (i in seq(nrow(datasets))) {
 # Make cell names unique
 sc = purrr::map(list_indices(sc), function(i){
   cell_names = gsub("-\\d+", "", colnames(sc[[i]]))
-  Seurat::RenameCells(sc[[i]], new.names=paste(cell_names,i,sep="-"))
+  Seurat::RenameCells(sc[[i]], new.names=paste(cell_names, i, sep="-"))
 })
 
 # Set up colors for samples
@@ -618,11 +618,11 @@ sc = purrr::map(list_names(sc), function(n) {
                                        g2m.features=genes_g2m[genes_g2m_exists,2], 
                                        set.ident=FALSE, verbose=FALSE)
     sc[[n]][["CC.Difference"]] = sc[[n]][["S.Score", drop=TRUE]] - sc[[n]][["G2M.Score", drop=TRUE]]
-    sc[[n]][["Phase"]] = factor(sc[[n]][["Phase", drop=TRUE]], levels=c("G1","G2M","S"))
+    sc[[n]][["Phase"]] = factor(sc[[n]][["Phase", drop=TRUE]], levels=c("G1", "G2M", "S"))
   } else {
     sc[[n]][["S.Score"]] = NA
     sc[[n]][["G2M.Score"]] = NA
-    sc[n][["Phase"]] = factor(NA, levels=c("G1","G2M","S"))
+    sc[n][["Phase"]] = factor(NA, levels=c("G1", "G2M", "S"))
     param$cc_remove = FALSE
     warning(paste0("There are not enough G2/M and S phase markers in the dataset '", n, "' to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle will not be done."))
   }
@@ -800,7 +800,7 @@ cat("## Integration of multiple datasets\n\n")
   feature_data_for_assay = purrr::map(values_to_names(assay_names), function(a) {
     # "feature_id", "feature_name", "feature_type" are accumulated for all assays and stored just once
     # This step is skipped for assays that do not contain all three types of feature information
-    contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { all(c("feature_id","feature_name","feature_type") %in% colnames(sc[[n]][[a]][[]])) })
+    contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]][[]])) })
 
     if (all(contains_neccessary_columns)) {
       feature_id_name_type = purrr::map(sc, function(s) { return(s[[a]][[c("feature_id", "feature_name", "feature_type")]]) })
@@ -817,7 +817,7 @@ cat("## Integration of multiple datasets\n\n")
     # For all other metadata, we prefix column names with the dataset
     other_feature_data = purrr::map(list_names(sc), function(n) {
       df = sc[[n]][[a]][[]]
-      if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id","feature_name","feature_type"),c()))
+      if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id", "feature_name", "feature_type"),c()))
       if (ncol(df)>0) colnames(df) = paste(n, colnames(df), sep=".")
       df$row_names = rownames(df)
       return(df)
