@@ -500,11 +500,11 @@ check_parameters = function(param) {
 check_python = function() {
   error_messages = c()
   
-  if (is.null(py_config())) {
-    error_messages = c(error_messages, "Python is not installed on this system!")
+  if (!reticulate::py_available() || is.null(reticulate::py_config())) {
+    return("Python is not installed on this system or not found in the specified path!")
   }
   
-  if (!py_available("leidenalg")) {
+  if (!reticulate::py_available("leidenalg")) {
     error_messages = c(error_messages, "The python package 'leidenalg' is missing!")
   }
 
