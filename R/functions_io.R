@@ -1,4 +1,5 @@
 #' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
+# useful environment variables
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -573,7 +574,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   crb_obj$marker_genes = list()
   crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
   if(!is.null(marker_genes) & nrow(marker_genes)>0) {
-    crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj"))
+    crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj"))
   } else {
     crb_obj$marker_genes[["by_cluster"]] = "no markers found"
   }
@@ -592,7 +593,7 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   })
   pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
   pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
-  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
+  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up", pathways_by_cluster$set), "UP", "DOWN"))
   pathways_by_cluster$set = NULL
   
   crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster

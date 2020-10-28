@@ -467,8 +467,8 @@ check_parameters = function(param) {
     error_messages = c(error_messages, "The parameter 'padj' is missing!")
   }
 
-  # log2fc
-  if (!"log2fc" %in% names(param)) {
+  # log2FC
+  if (!"log2FC" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'log2fc' is missing!")
   }
 
