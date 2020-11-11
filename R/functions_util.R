@@ -505,7 +505,7 @@ check_python = function() {
     return("Python is not installed on this system or not found in the specified path!")
   }
   
-  if (!reticulate::py_available("leidenalg")) {
+  if (!reticulate::py_module_available("leidenalg")) {
     error_messages = c(error_messages, "The python package 'leidenalg' is missing!")
   }
 
@@ -546,7 +546,7 @@ check_installed_packages = function() {
   is_installed = required_packages %in% installed.packages()[,"Package"]
   
   if(any(!is_installed)) {
-    return(paste("The R package '",required_packages[!is_installed],"' is not installed!"))
+    return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
     return(c())
   }

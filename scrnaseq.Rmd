@@ -135,7 +135,7 @@ param$latent_vars = c()
 param$integrate_samples = list(method="standard", reference_dataset=1, dimensions=30)
 
 # Which normalisation should be used for analysis: RNA or SCT?
-param$norm = "SCT"
+param$norm = "RNA"
 
 # The number of PCs to use; adjust this parameter based on the Elbowplot 
 param$pc_n = 10
@@ -174,7 +174,7 @@ param$path_to_git = "."
 git_files_to_source = c("R/functions_io.R",
               "R/functions_plotting.R",
               "R/functions_analysis.R",
-              "r/functions_degs.R",
+              "R/functions_degs.R",
               "R/functions_util.R")
 git_files_to_source = paste(param$path_to_git, git_files_to_source, sep="/")
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
@@ -752,12 +752,12 @@ if (param$norm == "RNA") {
   # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. 
   #   Consequently, some genes might be missing from the SCT assay. 
   #   See: https://github.com/ChristophH/sctransform/issues/27
-sc = purrr::map(list_names(sc), function(n) { 
-  SCTransform(sc[[n]], 
-              vars.to.regress=param$vars_to_regress, 
-              min_cells=param$feature_filter[[n]][["min_cells"]], 
-              verbose=FALSE, 
-              return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) 
+  sc = purrr::map(list_names(sc), function(n) { 
+    SCTransform(sc[[n]], 
+                vars.to.regress=param$vars_to_regress, 
+                min_cells=param$feature_filter[[n]][["min_cells"]], 
+                verbose=FALSE, 
+                return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) 
   })
 }
 ```
@@ -870,11 +870,11 @@ if (param$integrate_samples[["method"]]=="merge") {
   } else if (param$norm == "SCT") {
     # Rerun SCTransform
     min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) as.integer(f[["min_cells"]])))
-    sc = SCTransform(sc, 
-                     vars.to.regress=param$vars_to_regress, 
-                     min_cells=min_cells_overall, 
-                     verbose=FALSE, 
-                     return.only.var.genes=FALSE)
+    sc = suppressWarnings(SCTransform(sc, 
+                                      vars.to.regress=param$vars_to_regress, 
+                                      min_cells=min_cells_overall, 
+                                      verbose=FALSE, 
+                                      return.only.var.genes=FALSE))
   }
   
   # Add feature metadata
@@ -898,7 +898,7 @@ if (param$integrate_samples[["method"]]=="standard") {
   # The integration step will temporarily occupy a lot of memory. 
   #   However, R has problems with freeing unused memory.
   #   By wrapping the steps into a function, hopefully this works a bit better.
-  run_standard_integration = function(sc_objs, ndims=30, vars_to_regress=c(), verbose=FALSE, assay="RNA") {
+  run_standard_integration = function(sc_objs, ndims=30, vars_to_regress=c(), feature_filter=c(), verbose=FALSE, assay="RNA") {
     # How many neighbors to use when filtering anchors
     k.filter = min(200, min(sapply(sc_objs, ncol)))
 
@@ -916,14 +916,14 @@ if (param$integrate_samples[["method"]]=="standard") {
                                       verbose=verbose)
       # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
       sc_objs = Seurat::ScaleData(sc_objs, 
-                                  features=rownames(tmp_sc_objs[["RNAintegrated"]]), 
+                                  features=rownames(sc_objs[["RNAintegrated"]]), 
                                   vars.to.regress=vars_to_regress, 
                                   assay="RNAintegrated",
                                   verbose=verbose)
-      DefaultAssay(sc) = "RNA"
+      DefaultAssay(sc_objs) = "RNA"
       sc_objs = Seurat::ScaleData(sc_objs, 
                                   features=rownames(sc_objs[["RNA"]]), 
-                                  vars.to.regress=param$vars_to_regress, 
+                                  vars.to.regress=vars_to_regress, 
                                   assay="RNA",
                                   verbose=verbose)
       rm(integrate_RNA_anchors)
@@ -950,9 +950,9 @@ if (param$integrate_samples[["method"]]=="standard") {
                                       verbose=verbose)
       # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
       DefaultAssay(sc_objs) = "SCT"
-      min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) as.integer(f[["min_cells"]])))
+      min_cells_overall = max(purrr::map_int(feature_filter, function(f) as.integer(f[["min_cells"]])))
       sc_objs = SCTransform(sc_objs, 
-                            vars.to.regress=param$vars_to_regress, 
+                            vars.to.regress=vars_to_regress, 
                             min_cells=min_cells_overall, 
                             verbose=FALSE, 
                             return.only.var.genes=FALSE)
@@ -965,7 +965,7 @@ if (param$integrate_samples[["method"]]=="standard") {
   }
   
   # call function
-  sc = run_standard_integration(sc, ndims=param$integrate_samples[["dimensions"]], vars_to_regress=param$vars_to_regress, assay=param$norm)
+  sc = run_standard_integration(sc, ndims=param$integrate_samples[["dimensions"]], vars_to_regress=param$vars_to_regress, feature_filter=param$feature_filter, assay=param$norm)
   
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
@@ -1470,7 +1470,7 @@ degs = suppressMessages(Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
 
 # If no degs are found, initialize the degs table so that further downstream (export) chunks run
 if (ncol(degs) == 0){
-    degs$avg_log2FC = degs$p_val = degs$p_val_adj = degs$pct.1 = degs$pct.2 = degs$cluster = as.numeric()
+  degs$avg_log2FC = degs$p_val = degs$p_val_adj = degs$pct.1 = degs$pct.2 = degs$cluster = as.numeric()
   degs$gene = as.character()
 }
 
@@ -1572,7 +1572,7 @@ if (degs_found) {
   # Violin plot of raw gene expression counts
   p_list = Seurat::VlnPlot(sc, features=genes_example, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
-                                                              legend_title="Cell identity", 
+                                                              legend_title="Cluster", 
                                                               fill=param$col_clusters, 
                                                               xlab="Cluster")
   p = patchwork::wrap_plots(p_list, ncol=2) + 
@@ -1588,7 +1588,7 @@ if (degs_found) {
   # Violin plot of normalised gene expression data
   p_list = Seurat::VlnPlot(sc, features=genes_example, combine=FALSE, pt.size=0.2)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
-                                                              legend_title="Cell identity", 
+                                                              legend_title="Cluster", 
                                                               fill=param$col_clusters, 
                                                               xlab="Cluster") 
   p = patchwork::wrap_plots(p_list, ncol=2) + 
@@ -1606,7 +1606,7 @@ if (degs_found) {
   p_list = Seurat::RidgePlot(sc, features=genes_example, assay="RNA", slot="counts", combine=FALSE)
   for (i in seq(p_list)) {
     p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
-                                         legend_title="Cell identity", 
+                                         legend_title="Cluster", 
                                          fill=param$col_clusters, 
                                          ylab="Cluster")
   }
@@ -1625,7 +1625,7 @@ if (degs_found) {
   p_list = Seurat::RidgePlot(sc, features=genes_example, slot="data", combine=FALSE)
   for (i in seq(p_list)) {
     p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
-                                         legend_title="Cell identity", 
+                                         legend_title="Cluster", 
                                          fill=param$col_clusters, 
                                          ylab="Cluster")
   }
@@ -1661,6 +1661,8 @@ if (degs_found) {
 ### Heatmaps of all differentially expressed genes {.tabset}
 #### Up- and down-regulated genes
 ```{r degs_heatmap_all, eval=degs_found, fig.height=20}
+# Let us re-think if we want to limit the number of cells in this plot, since this takes a while. 
+
 if (degs_found) {
   # Heatmap of all differentially expressed genes
   p = Seurat::DoHeatmap(sc, features=degs_filt$all$gene, group.colors=param$col_clusters, label=FALSE) + 
