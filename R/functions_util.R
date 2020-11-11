@@ -4,7 +4,7 @@
 cells_fisher = function(sc) {
   cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
   cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% unique() %>% sort()
-  out = matrix(0+NA, nrow=length(cell_clusters), ncol=0) %>% as.data.frame()
+  out = matrix(0+NA, nrow=0, ncol=length(cell_clusters)) %>% as.data.frame()
   for(s in cell_samples) {
     ft.list = lapply(cell_clusters, function(cl) { 
       a = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
@@ -16,10 +16,11 @@ cells_fisher = function(sc) {
       return(c(oddsRatio=round(as.numeric(ft$estimate), 2),
                p=formatC(as.numeric(ft$p.value), format="e", digits=1)))
     })
-    ft.matrix = purrr::reduce(ft.list, .f=rbind)
-    colnames(ft.matrix) = paste0(s, ".", colnames(ft.matrix))
-    out = cbind(out, ft.matrix)
+    ft.matrix = purrr::reduce(ft.list, .f=cbind)
+    rownames(ft.matrix) = paste0(s, ".", rownames(ft.matrix))
+    out = rbind(out, ft.matrix)
   }
+  colnames(out) = paste0("Cl_", cell_clusters)
   return(out)
 }
 
@@ -448,8 +449,8 @@ check_parameters = function(param) {
   }
 
   # normalisation_default
-  if (!"normalisation_default" %in% names(param) || !param$normalisation_default %in% c("RNA", "SCT")) {
-    error_messages = c(error_messages, "The parameter 'normalisation_default' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
+  if (!"norm" %in% names(param) || !param$norm %in% c("RNA", "SCT")) {
+    error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
   }
 
   # pc_n
@@ -467,8 +468,8 @@ check_parameters = function(param) {
     error_messages = c(error_messages, "The parameter 'padj' is missing!")
   }
 
-  # log2fc
-  if (!"log2fc" %in% names(param)) {
+  # log2FC
+  if (!"log2FC" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'log2fc' is missing!")
   }
 
@@ -504,7 +505,7 @@ check_python = function() {
     return("Python is not installed on this system or not found in the specified path!")
   }
   
-  if (!reticulate::py_available("leidenalg")) {
+  if (!reticulate::py_module_available("leidenalg")) {
     error_messages = c(error_messages, "The python package 'leidenalg' is missing!")
   }
 
@@ -545,7 +546,7 @@ check_installed_packages = function() {
   is_installed = required_packages %in% installed.packages()[,"Package"]
   
   if(any(!is_installed)) {
-    return(paste("The R package '",required_packages[!is_installed],"' is not installed!"))
+    return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
     return(c())
   }
