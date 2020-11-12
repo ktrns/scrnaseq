@@ -1,50 +1,60 @@
 # Introduction
-**scrnaseq** is a bioinformatics analysis workflow for single-cell RNA-seq analysis using Seurat. The workflow currently supports RNA sequencing data derived for single samples processed with 10X Genomics and SmartSeq-2. 
+**scrnaseq** is a bioinformatics analysis workflow for single-cell RNA-seq analysis. The workflow is based on Seurat, and contains additional visualisations, tables and documentation to better understand the analysis. The workflow supports RNA sequencing data from one or more samples processed with 10X Genomics and SmartSeq-2. 
+
+# News
+(2020-11-12)  
+We just updated our master code branch, see [#59](https://github.com/ktrns/scrnaseq/pull/59). We updated our system to Seurat 4, python3, and all latest related R packages. We simplified the structure of our workflow, and focus on one type of normalisation per run. Cell cycle effects can be scored per sample, as well as after samples are combined. We added the visualisation of the highest expressed genes, and the number of cells per sample per cluster. We also added the export of average expression values alongside differentially expressed genes.  
+
+We will next incorporate the analysis of differentially expressed genes between samples of origin, and will additionally allow for specific comparisons between individual clusters and samples. Once this is done, we will create our first code release! 
 
 # Workflow summary
 ## Pre-Workflow: Demultiplexing with hashtag oligos
-* Dataset description
-  * Project-specific parameters
 * Read input data
 * Demutliplexing with hashtag oligos (HTOs)
-  * Normalisation of HTO counts
-  * Classification of cells based on normalised HTO data
+   * Normalisation of HTO counts
+   * Classification of cells based on normalised HTO data
 * Visualisation of raw and normalised HTO data
 * Remove cells classified as doublet or negative
 * Preliminary visualisation of demultiplexed RNA data
-  * Visualisation with UMAP
+   * Visualisation with UMAP
 * Write out demultiplexed data
+* Parameter table
+* Software versions
 
 ## Workflow: Single-cell RNA-seq analysis 
 * Dataset description
-  * Project-specific parameters
+   * Project-specific parameters
 * Read data
-  * Read and print mapping statistics
-  * Read gene annotation
-  * Read scRNA-seq data
+   * Read and print mapping statistics
+   * Read gene annotation
+   * Read scRNA-seq data
 * Pre-processing
-  * Quality control
-  * Filtering
-  * Normalisation, cell cycle scoring, scaling and variable genes
-    * Variable genes
-    * Relative log expression
-  * Integration of multiple datasets
-    * Relative log expression after integration
-  * Dimensionality reduction
-  * Dimensionality of the dataset
+   * Quality control
+   * Genes with highest expression
+   * Filtering
+   * Normalisation, scaling, variable genes, and cell cycle scoring
+      * Variable genes
+   * Combining multiple samples
+   * Relative log expression
+   * Dimensionality reduction
+   * Dimensionality of the dataset
 * Downstream analysis
-  * Clustering
-  * Visualisation with UMAP
-  * Cell Cycle Effect
-  * Feature plots QC
-  * Known marker genes
-  * Differentially expressed genes
-  * Visualisation of differentially expressed genes
-  * Functional enrichment analysis
+   * Clustering
+   * Visualisation with UMAP
+   * Distribution of cells in clusters
+   * Cell Cycle Effect
+   * Cluster QC
+   * Known marker genes
+   * Differentially expressed genes, comparing one cluster against the rest (marker genes)
+      * Table of top marker genes
+      * Visualisation of top marker genes
+      * Heatmaps of all differentially expressed genes
+      * Functional enrichment analysis
 * Further analysis with other tools
-  * Export to Loupe Cell Browser
-  * Export to the Cerebro Browser
+   * Export to Loupe Cell Browser
+   * Export to the Cerebro Browser
 * Output files
+* Parameter table
 * Software versions
 * References
 
@@ -55,7 +65,7 @@ The repository provides several other useful test data that you can use to get t
 
 # Documentation 
 
-## Demultiplexing with hashtag oligos
+## Pre-Workflow: Demultiplexing with hashtag oligos
 
 ### Running the script
 The Pre-Workflow can be run from outside the actual Rmarkdown script. When you are using the render function of the `rmarkdown` package you can run the script as follows:
@@ -104,7 +114,7 @@ Main colour(s) to use for plots (Defaults: "palevioletred").
 #### `sample_cells`
 Sample data to at most n cells (mainly for tests); set to NULL to deactivate (Default: NULL).
 
-## Single-cell RNA-seq analysis 
+## Workflow: Single-cell RNA-seq analysis 
 
 ### Running the script
 The main workflow is currently run from within Rstudio. Project-specific parameters are adapted in the `project_parameters` code chunk. 
