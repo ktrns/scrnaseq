@@ -147,6 +147,13 @@ param$cluster_resolution=0.5
 param$padj = 0.05
 param$log2FC = log2(2)
 
+# Specific sample contrasts of interest
+# Note to Andreas: This is just to show you how I had done it in my previous project. You need to adapt this. 
+param$contrasts = list()
+param$contrasts$samples = list()
+param$contrasts$samples$name1_vs_name2 = list(ident.1="sampleName1", ident.2="sampleName2")
+param$contrasts$samples$name2_vs_name3 = list(ident.1="sampleName2", ident.2="sampleName3")
+
 # P-value threshold for functional enrichment
 param$p_enrichr = 0.05
 
@@ -1795,6 +1802,120 @@ if (degs_found) {
   knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %>% 
     kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px")
+}
+```
+
+## Differentially expressed genes, comparing one sample of origin against the rest
+We next identify genes that are differentially expressed in one sample compared to all other samples. In general, we apply the same methods as before, just comparing different sets of cells with each other. 
+```{r degs_samples}
+# Note to Andreas: We need an additional test here to check, whether there are actually different samples to test them against each other. 
+
+suppressPackageStartupMessages(library(MAST))
+degs_found = TRUE
+
+# Change the default identity of cells to sample of origin
+# Then run the very same steps as for chunk "degs"
+Idents(sc) = "orig.ident"
+degs_samples = suppressMessages(suppressWarnings(
+  Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                         only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+                         latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE)))
+
+if (ncol(degs_samples) == 0){
+  degs_samples$avg_log2FC = degs_samples$p_val = degs_samples$p_val_adj = degs_samples$pct.1 = degs_samples$pct.2 = degs_samples$cluster = as.numeric()
+  degs_samples$gene = as.character()
+}
+
+degs_samples = degs_samples %>% DegsSort()
+degs_samples_filt = DegsFilter(degs_samples, cut_log2FC=param$log2FC, cut_padj=param$padj)
+
+if ((nrow(degs_samples) > 0) & (nrow(degs_filt$all) > 0)) { 
+  degs_samples_out = cbind(degs_samples_filt$all, DegsAvgData(sc, genes=degs_samples_filt$all$gene))
+  DegsWriteToFile(degs_samples_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/degs_sample_vs_rest.xlsx"))
+  p = DegsPlotNumbers(degs_up=degs_samples_filt$up, degs_down=degs_samples_filt$down, 
+                      title=paste0("Number of DEGs, comparing each sample to the rest\n(FC=", 2^param$log2FC, ", adj. p-value=", param$padj, ")"))
+  p
+} else { 
+  degs_samples_found=FALSE
+}
+
+detach("package:MAST", unload=TRUE)
+
+# Reset identity of cells
+Idents(sc) = "seurat_clusters"
+```
+
+```{r degs_samples_found, eval=!degs_samples_found}
+if (!degs_samples_found) warning("No differentially expressed genes found. The following related code is not executed, no degs-related plots and tables are generated.")
+```
+
+### Table of top up-regulated genes 
+```{r degs_samples_table, eval=degs_samples_found}
+if (degs_samples_found) {
+  degs_samples_top = DegsUpDisplayTop(degs_samples_filt$up, n=5)
+  
+  # Show table
+  knitr::kable(degs_samples_top, align="l", caption="Up to top 5 up-regulated genes per sample") %>% 
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::scroll_box(width="100%", height="700px") 
+}
+```
+
+## Differentially expressed genes, comparing specific samples of interest
+```{r degs_samples_contrasts}
+suppressPackageStartupMessages(library(MAST))
+degs_samples_contrasts_found = TRUE
+
+# Note to Andreas: I have not updated this chunk properly. I leave this up to you, since you want to change it anyhow. This is what I used in my latest project. 
+
+# Change the default identity of cells to sample of origin
+Idents(sc) = "orig.ident"
+
+# Loop through contrasts
+degs_samples_contrasts = list()
+for (co in names(param$contrasts$samples)) {
+
+  # Find differentially expressed genes for specific contrasts
+  degs_samples_contrasts[[co]] = suppressMessages(suppressWarnings(
+    Seurat::FindMarkers(sc, assay="RNA", test.use="MAST",
+                        ident.1=param$contrasts$samples[[co]]$ident.1,
+                        ident.2=param$contrasts$samples[[co]]$ident.2,
+                        only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+                        latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE)))
+  
+  # Add "cluster" column to contain the contrast name
+  degs_samples_contrasts[[co]]$cluster = co
+  degs_samples_contrasts[[co]]$gene = rownames(degs_samples_contrasts[[co]])
+}
+
+# Merge all contrasts into one table 
+degs_samples_contrasts = purrr::map_dfr(degs_samples_contrasts, .f=rbind)
+degs_samples_contrasts$cluster = as.factor(degs_samples_contrasts$cluster)
+
+# Then run the very same steps as for chunk "degs"
+degs_samples_contrasts = degs_samples_contrasts %>% DegsSort()
+degs_samples_contrasts_filt = DegsFilter(degs_samples_contrasts, cut_log2FC=param$log2FC, cut_padj=param$padj)
+degs_samples_contrasts_out = cbind(degs_samples_contrasts_filt$all, DegsAvgData(sc, genes=degs_samples_contrasts_filt$all$gene))
+DegsWriteToFile(degs_samples_contrasts_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/degs_specific_sample_contrasts.xlsx"))
+p = DegsPlotNumbers(degs_up=degs_samples_contrasts_filt$up, degs_down=degs_samples_contrasts_filt$down, 
+                    title=paste0("Number of DEGs, comparing specific samples of interest\n(FC=", 2^param$log2FC, ", adj. p-value=", param$padj, ")")) 
+p
+
+detach("package:MAST", unload=TRUE)
+
+# Reset identity of cells
+Idents(sc) = "seurat_clusters"
+```
+
+### Table of top up-regulated genes 
+```{r degs_samples_contrasts_table, eval=degs_samples_contrasts_found}
+if (degs_samples_contrasts_found) {
+  degs_samples_contrasts_top = DegsUpDisplayTop(degs_samples_contrasts_filt$up, n=5)
+
+  # Show table
+  knitr::kable(degs_samples_contrasts_top, align="l", caption="Up to top 5 up-regulated genes per contrast") %>% 
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::scroll_box(width="100%", height="700px") 
 }
 ```
 
