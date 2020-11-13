@@ -501,7 +501,7 @@ check_parameters = function(param) {
 check_python = function() {
   error_messages = c()
   
-  if (!reticulate::py_available() || is.null(reticulate::py_config())) {
+  if (!reticulate::py_available(initialize = TRUE) || is.null(reticulate::py_config())) {
     return("Python is not installed on this system or not found in the specified path!")
   }
   
@@ -541,7 +541,8 @@ check_installed_packages = function() {
                         "dplyr", "tidyr", "purrr", "stringr", "sctransform", 
                         "Matrix", "kableExtra", "DT", "ggsci", "ggpubr",
                         "openxlsx", "readr", "R.utils", "biomaRt",
-                        "MAST", "enrichR", "sessioninfo", "cerebroApp")
+                        "MAST", "enrichR", "sessioninfo", "cerebroApp",
+                        "knitcitations")
   
   is_installed = required_packages %in% installed.packages()[,"Package"]
   
