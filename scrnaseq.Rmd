@@ -25,9 +25,11 @@ options(stringsAsFactors=FALSE,
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
 
-# Python needed for clustering, umap, other python packages
-# Set location if necessary
-# Sys.setenv(RETICULATE_PYTHON = "/usr/bin/python")
+# Python3 needed for clustering, umap, other python packages
+# Path to binary will be automatically found
+# Set manually if it does not work
+reticulate_python3_path = unname(Sys.which("python3"))
+Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
