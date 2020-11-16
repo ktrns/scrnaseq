@@ -735,7 +735,7 @@ if (param$norm == "RNA") {
   #   Otherwise, scaling of all features will be done after integration/merging.
   if (param$integrate_samples[["method"]]=="single") {
     sc[[1]] = Seurat::ScaleData(sc[[1]], 
-                      features=rownames(s[["RNA"]]),
+                      features=rownames(sc[[1]][["RNA"]]),
                       vars.to.regress=param$vars_to_regress, 
                       verbose=FALSE) 
   }
