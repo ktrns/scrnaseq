@@ -25,9 +25,11 @@ options(stringsAsFactors=FALSE,
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
 
-# Python needed for clustering, umap, other python packages
-# Change location if necessary
-Sys.setenv(RETICULATE_PYTHON = "/usr/local/bin/python3")
+# Python3 needed for clustering, umap, other python packages
+# Path to binary will be automatically found
+# Set manually if it does not work
+reticulate_python3_path = unname(Sys.which("python3"))
+Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
@@ -738,15 +740,14 @@ if (param$norm == "RNA") {
   sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
   
   # Scale 
-  # Note: For a single dataset where no integration is needed, all features can already be scaled here. 
-  #   Otherwise, it is enough to scale variable features only and scaling of all features will be done later.
-  sc = purrr::map(sc, function(s) { 
-    Seurat::ScaleData(s, 
-                      features=ifelse(param$integrate_samples[["method"]]=="single", rownames(s[["RNA"]]), VariableFeatures(s)), 
+  # Note: For a single dataset where no integration/merging is needed, all features can already be scaled here. 
+  #   Otherwise, scaling of all features will be done after integration/merging.
+  if (param$integrate_samples[["method"]]=="single") {
+    sc[[1]] = Seurat::ScaleData(sc[[1]], 
+                      features=rownames(sc[[1]][["RNA"]]),
                       vars.to.regress=param$vars_to_regress, 
                       verbose=FALSE) 
-  })
-  
+  }
 } else if (param$norm == "SCT") {
   # Run SCTransform
   #
@@ -1019,7 +1020,9 @@ cells_RLE_subset = cells_RLE_subset %>% dplyr::pull(rowname)
 
 To better understand the efficiency of the applied normalisation procedures, we plot the relative log expression of genes in at most `r n_cells_rle_plot` randomly selected cells per sample before and after normalisation. This type of plot reveals unwanted variation in your data. The concept is taken from `r knitcitations::citet("10.1371/journal.pone.0191629")`. In brief, we remove variation between genes, leaving only variation between samples. If expression levels of most genes are similar in all cell types, sample heterogeneity is a sign of unwanted variation.
 
-For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (lightgrey), whiskers defined as 1.5 times the interquartile range (darkgrey), and outliers (`r param$col_samples`). 
+For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (<span style="color:lightgrey;font-weight:bold">lightgrey</span>), whiskers defined as 1.5 times the interquartile range (<span style="color:darkgrey;font-weight:bold">darkgrey</span>), and outliers (`r paste0('<span style="color:', param$col_samples, ';font-weight:bold">', param$col_samples, '</span>', collapse=', ')`)
+
+
 
 ### Raw counts
 ```{r plot_RLE_raw}
@@ -1475,6 +1478,14 @@ degs = suppressMessages(Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
                                                only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
                                                latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE))
 
+# For Seurat versions until 3.2, log fold change is based on the natural log. Convert to log base 2.
+if (ncol(degs)>0 & utils::packageVersion("Seurat")<='3.2.2') {
+  degs$avg_logFC = degs$avg_logFC / log(2)
+  col_nms = colnames(degs)
+  col_nms[2] = "avg_log2FC"
+  colnames(degs) = col_nms
+}
+
 # If no degs are found, initialize the degs table so that further downstream (export) chunks run
 if (ncol(degs) == 0){
   degs$avg_log2FC = degs$p_val = degs$p_val_adj = degs$pct.1 = degs$pct.2 = degs$cluster = as.numeric()
@@ -1662,6 +1673,9 @@ if (degs_found) {
       return(NULL)
     }
   })
+  
+  p = patchwork::wrap_plots(p_list, ncol=2)
+  print(p)
 }
 ```
 
@@ -1962,7 +1976,7 @@ write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r knitcitations::citep("https://github.com/romanhaa/cerebroApp/")`
 ```{r cerebro_integration, message=FALSE, warning=FALSE}
 # top expressed genes
-sc = cerebroApp::getMostExpressedGenes(sc, column_cluster="seurat_clusters", column_sample="orig.ident", assay=Seurat::DefaultAssay(sc))
+sc = cerebroApp::getMostExpressedGenes(sc, groups=c("seurat_clusters","orig.ident"), assay=Seurat::DefaultAssay(sc))
 
 gene_lists_for_cerebro = list()
 if (degs_found) {
