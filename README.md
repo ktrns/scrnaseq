@@ -8,18 +8,6 @@ We just updated our master code branch, see [#59](https://github.com/ktrns/scrna
 We will next incorporate the analysis of differentially expressed genes between samples of origin, and will additionally allow for specific comparisons between individual clusters and samples. Once this is done, we will create our first code release! 
 
 # Workflow summary
-## Pre-Workflow: Demultiplexing with hashtag oligos
-* Read input data
-* Demutliplexing with hashtag oligos (HTOs)
-   * Normalisation of HTO counts
-   * Classification of cells based on normalised HTO data
-* Visualisation of raw and normalised HTO data
-* Remove cells classified as doublet or negative
-* Preliminary visualisation of demultiplexed RNA data
-   * Visualisation with UMAP
-* Write out demultiplexed data
-* Parameter table
-* Software versions
 
 ## Workflow: Single-cell RNA-seq analysis 
 * Dataset description
@@ -58,12 +46,38 @@ We will next incorporate the analysis of differentially expressed genes between 
 * Software versions
 * References
 
+## Pre-Workflow: Demultiplexing with hashtag oligos
+* Read input data
+* Demutliplexing with hashtag oligos (HTOs)
+   * Normalisation of HTO counts
+   * Classification of cells based on normalised HTO data
+* Visualisation of raw and normalised HTO data
+* Remove cells classified as doublet or negative
+* Preliminary visualisation of demultiplexed RNA data
+   * Visualisation with UMAP
+* Write out demultiplexed data
+* Parameter table
+* Software versions
+
 # Quick start
 The workflow is inialised for test data in `test_datasets`. First, navigate to the respective test dataset folder(s), and download the test dataset(s) by running the `download.R` script(s). Once all test data is downloaded, you can knit the workflow to HTML. 
 
 The repository provides several other useful test data that you can use to get to know the functionality of the workflow. To run the workflow for another than the initial dataset, you need to adapt the `project_parameters` code chunk and provide all relevant paths and parameters. 
 
 # Documentation 
+
+## Workflow: Single-cell RNA-seq analysis 
+
+### Running the script
+The main workflow is currently run from within Rstudio. 
+
+Project-specific parameters are adapted in the `project_parameters` code chunk. Most importantly, you specify all input samples in a table called `param$path_data`. For each sample, you need to define the
+* `name` (any character string describing the sample)
+* `type` (currently "10x" or "smartseq2")  
+* `path` (path to the actual data)
+* `stats` (file name for mapping statistics if available).
+
+For 10X data, the workflow expects the Cell Ranger output files contained in the `filtered_feature_bc_matrix` directory. For SmartSeq-2 data, the workflow expects a counts matrix, where the first column contains Ensembl gene IDs, the first row contains cell names, and cells contain raw counts. 
 
 ## Pre-Workflow: Demultiplexing with hashtag oligos
 
@@ -113,11 +127,6 @@ Main colour(s) to use for plots (Defaults: "palevioletred").
 
 #### `sample_cells`
 Sample data to at most n cells (mainly for tests); set to NULL to deactivate (Default: NULL).
-
-## Workflow: Single-cell RNA-seq analysis 
-
-### Running the script
-The main workflow is currently run from within Rstudio. Project-specific parameters are adapted in the `project_parameters` code chunk. 
 
 # Credits
 The [Seurat Vignettes](https://satijalab.org/seurat/vignettes.html) were initially used as templates for this workflow. 
