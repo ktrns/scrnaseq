@@ -1419,7 +1419,7 @@ An average feature plot visualizes the average gene expression of each gene list
 ```{r knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot}
 if ((known_markers_n > 0) & any(idx_avgplot)) {
   known_markers_avgplot = known_markers_list[idx_avgplot]
-  sc = Seurat::AddModuleScore(sc, features=known_markers_avgplot, assay="SCT", ctrl=10, name="known_markers")
+  sc = Seurat::AddModuleScore(sc, features=known_markers_avgplot, ctrl=10, name="known_markers")
   idx_replace_names = grep("^known_markers[0-9]+$", colnames(sc@meta.data), perl=TRUE)
   colnames(sc@meta.data)[idx_replace_names] = names(known_markers_avgplot)
   p_list = Seurat::FeaturePlot(sc, features=names(known_markers_avgplot), cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
