@@ -446,6 +446,11 @@ check_parameters = function(param) {
     if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("reference") && !"reference" %in% names(param$integrate_samples)) {
       error_messages = c(error_messages, "The sub parameter 'reference' of parameter 'integrate_samples' is missing. Please specify the reference sample to use for integration!")
     }
+
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("single") && nrow(param$path_data)>1) {
+      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' cannot be 'single' when there are multiple datasets! Please set to another method. If after filtering only one dataset remains, the script will automatically set the 'method' parameter to 'single'.")
+    }
+    
   }
 
   # normalisation_default
@@ -463,14 +468,32 @@ check_parameters = function(param) {
     error_messages = c(error_messages, "The parameter 'cluster_resolution' is missing!")
   }
 
-  # padj
-  if (!"padj" %in% names(param)) {
+  # marker_padj
+  if (!"marker_padj" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'padj' is missing!")
   }
 
-  # log2FC
-  if (!"log2FC" %in% names(param)) {
+  # marker_log2FC
+  if (!"marker_log2FC" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'log2fc' is missing!")
+  }
+  
+  # deg_contrasts
+  if ("deg_contrasts" %in% names(param) & !is.null(param$deg_contrasts)) {
+    if (is.character(param$deg_contrasts) && file.exists(param$deg_contrasts)) {
+      deg_contrasts_table = openxlsx::read.xlsx(param$deg_contrasts)
+    } else {
+      deg_contrasts_table = param$deg_contrasts
+    }
+    
+    if (!is.data.frame(param$deg_contrasts)) {
+      error_messages = c(error_messages, "The parameter 'deg_contrasts' must be either a data.frame or an existing Excel file with a valid table in the first sheet!")
+    } else {
+      if (!all(c("condition_column","condition_group1", "condition_group2") %in% colnames(deg_contrasts_table))){
+        error_messages = c(error_messages, "The table specified by parameter 'deg_contrasts' must contain the following columns: 'condition_column', 'condition_group1' and 'condition_group2'!")
+      }
+      
+    }
   }
 
   # p_enrichr
@@ -523,8 +546,12 @@ check_enrichr = function(databases) {
     return("EnrichR is not available or cannot connect to the databases")
   }
   
-  # Are the databases available
-  available_databases = enrichR::listEnrichrDbs()[,"libraryName"]
+  # Are databases available at all
+  available_databases = tryCatch({ enrichR::listEnrichrDbs()[,"libraryName"] }, error=function(e) {return(NULL) })
+  if (is.null(available_databases)) return("Could not list databases available at enrichR! Please check the enrichR vignette!")
+  
+  
+  # Are the requested databases available
   are_valid = databases %in% available_databases
   if (any(!are_valid)) {
     return(paste("The following enrichR databases are not available:",paste(databases[!are_valid],collapse=", "),"!"))

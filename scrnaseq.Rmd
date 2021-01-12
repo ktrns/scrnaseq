@@ -31,6 +31,9 @@ options(stringsAsFactors=FALSE,
 reticulate_python3_path = unname(Sys.which("python3"))
 Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
 
+# custom - delete
+Sys.setenv(RETICULATE_PYTHON = "C:/Program Files/Python38/python.exe")
+
 # Required libraries
 library(Seurat) # main
 library(ggplot2) # plots
@@ -121,7 +124,7 @@ param$cc_rescore_after_merge = TRUE
 # Additional (unwanted) variables that will be regressed out for visualisation and clustering
 param$vars_to_regress = c()
 
-# Additional (unwanted) variables to be included in the statistical tests
+# Additional variables to be accounted for statistical tests
 param$latent_vars = c()
 
 # When there are multiple datasets, how to integrate them:
@@ -145,18 +148,34 @@ param$pc_n = 10
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
 
-# Thresholds to define differentially expressed genes 
-param$padj = 0.05
-param$log2FC = log2(2)
+# Thresholds to define marker genes
+param$marker_padj = 0.05
+param$marker_log2FC = log2(2)
+param$marker_pct = 0.25
 
-# Specific sample contrasts of interest
-# Note to Andreas: This is just to show you how I had done it in my previous project. You need to adapt this. 
-param$contrasts = list()
-param$contrasts$samples = list()
-param$contrasts$samples$name1_vs_name2 = list(ident.1="sampleName1", ident.2="sampleName2")
-param$contrasts$samples$name2_vs_name3 = list(ident.1="sampleName2", ident.2="sampleName3")
-
-# P-value threshold for functional enrichment
+# DEG contrasts
+#
+# The parameter takes a table in form of a data.frame or an Excel file.
+# These columns are required:
+# condition_column: categorial column in the cell metadata; specify "orig.ident" for sample and "seurat_clusters" for cluster
+# condition_group1: condition levels in group 1; can also be multiple levels concatenated by the plus character; empty string = all levels not in group2
+# condition_group2: condition levels in group 2; separate multiple levels concatenated by the plus character; empty string = all levels not in group1
+#
+# These columns are optional:
+# subset_column: categorial column in the cell metadata to subset before testing; specify "orig.ident" for sample and "seurat_clusters" for cluster (default: none)
+# subset_group: subset levels; for the individual analysis of multiple levels separate by semicolons; for the joint analysis of multiple levels concatenate by the plus character (default: none)
+# assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: RNA)
+# slot: when Seurat assay object, which slot to use (default: data)
+# padj: maximum adjusted p-value (default: 0.05)
+# log2FC: minimum absolute log2 fold change (default: 0)
+# min_pct: minimum percentage of cells expressing a gene to test (default: 0.1)
+# test: type of test; wilcox, bimod, roc, t, negbinom, poisson, LR, MAST, DESeq2; (default: wilcox)
+# latent_vars: Additional variables to be accounted for. Multiple variables need to be concatenated by semicolons. Will overwrite the default by param$latent_vars (default: none).
+param$deg_contrasts = data.frame(condition_column=c("orig.ident", "Phase"),
+                                 condition_group1=c("pbmc_10x", "G1"),
+                                 condition_group2=c("PBMC1_Smart-seq2", "G2M"))
+                                
+# P-value threshold for functional enrichment tests
 param$p_enrichr = 0.05
 
 # Enrichr databases of interest
@@ -178,7 +197,7 @@ param$downsample_cells_n = NULL
 param$path_to_git = "."
 ```
 
-```{r initial_checks}
+```{r preparation_and_initial_checks}
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
               "R/functions_plotting.R",
@@ -192,6 +211,9 @@ invisible(purrr::map(git_files_to_source, source))
 
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
+
+# Create output directory
+if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 
 # Do checks
 error_messages = c()
@@ -218,12 +240,6 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
 error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
 knitr::knit_exit()
 knitr::asis_output(error_message_blocks)
-```
-
-
-```{r preparation}
-# Create output directory
-if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 ```
 
 # Read data
@@ -392,25 +408,34 @@ for (i in seq(nrow(datasets))) {
   
   # Read 10X or smartseq2
   if (type == "10x") {
-    
     # Read 10X sparse matrix into a Seurat object
-    sc[[name]] = ReadSparseMatrix(path, 
+    sc = c(sc, ReadSparseMatrix(path, 
                                   project=name, 
                                   row_name_column=1, 
-                                  convert_row_names=ensembl_to_seurat_rowname)
+                                  convert_row_names=ensembl_to_seurat_rowname))
     
   } else if (type == "smartseq2") {
-    
     # Read counts table into a Seurat object
+    # Note: If a dataset contains multiple samples, the sample names could clash with sample names of other datasets. This will be taken care of next.
     sc = c(sc, ReadCountsTable(path, project=name, row_name_column=1, convert_row_names=ensembl_to_seurat_rowname, parse_plate_information=TRUE, return_samples_as_datasets=TRUE))
   } 
 }
 
-# Make cell names unique
-sc = purrr::map(list_indices(sc), function(i){
-  cell_names = gsub("-\\d+", "", colnames(sc[[i]]))
-  Seurat::RenameCells(sc[[i]], new.names=paste(cell_names, i, sep="-"))
-})
+# Make sure that sample names are unique. If not, just prefix with the dataset name. Also set orig.ident to this name.
+sample_names = names(sc)
+duplicated_sample_names_idx = which(sample_names %in% sample_names[duplicated(sample_names)])
+for (i in duplicated_sample_names_idx) {
+  sample_names[i] = paste(head(sc[[i]][["orig.dataset", drop=TRUE]],1), sample_names[i], sep=".")
+  sc[[i]][["orig.ident"]] = sample_names[i]
+}
+
+# Make cell names unique if needed
+if (any(duplicated(purrr::flatten_chr(purrr::map(sc, colnames))))) {
+  sc = purrr::map(list_indices(sc), function(i){
+    cell_names = gsub("-\\d+", "", colnames(sc[[i]]))
+    Seurat::RenameCells(sc[[i]], new.names=paste(cell_names, i, sep="-"))
+  })
+}
 
 # Set up colors for samples
 sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
@@ -1459,10 +1484,8 @@ if ((known_markers_n > 0) & length(known_markers_vect) <= 100) {
 
 ## Differentially expressed genes, comparing one cluster against the rest (marker genes)
 We next identify genes that are differentially expressed in one cluster compared to all other clusters, based on raw "RNA" data and the method "MAST". Resulting _p_-values are adjusted using the Bonferroni method. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
-```{r degs, warning=FALSE}
-# We load and unload the MAST R package in this chunk, as it overwrites Seurat functions
-suppressPackageStartupMessages(library(MAST))
-degs_found = TRUE
+```{r marker_degs, warning=FALSE}
+marker_degs_found = TRUE
 
 # Find DEGs for every cluster compared to all remaining cells, report positive (=markers) and negative ones
 # min.pct = requires feature to be detected at this minimum percentage in either of the two groups of cells 
@@ -1474,110 +1497,110 @@ degs_found = TRUE
 # DONT USE: assay=integrated datasets; this data is normalised and contains only 2k genes
 # Note: By default, the function uses slot="data". Mast requires log data, so this is the correct way to do it.
 #   https://www.bioconductor.org/packages/release/bioc/vignettes/MAST/inst/doc/MAST-interoperability.html
-degs = suppressMessages(Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
-                                               only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
+marker_degs = suppressMessages(Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
+                                               only.pos=FALSE, min.pct=param$marker_pct, logfc.threshold=param$marker_log2FC,
                                                latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE))
 
 # For Seurat versions until 3.2, log fold change is based on the natural log. Convert to log base 2.
-if (ncol(degs)>0 & utils::packageVersion("Seurat")<='3.2.2') {
-  degs$avg_logFC = degs$avg_logFC / log(2)
-  col_nms = colnames(degs)
+if (ncol(marker_degs)>0 & "avg_logFC" %in% colnames(marker_degs) & !"avg_log2FC" %in% colnames(marker_degs)) {
+  lfc_idx = grep("avg_log\\S*FC", colnames(marker_degs))
+  marker_degs[,lfc_idx] = marker_deg_results[,lfc_idx] / log(2)
+  col_nms = colnames(marker_degs)
   col_nms[2] = "avg_log2FC"
-  colnames(degs) = col_nms
+  colnames(marker_degs) = col_nms
 }
 
 # If no degs are found, initialize the degs table so that further downstream (export) chunks run
-if (ncol(degs) == 0){
-  degs$avg_log2FC = degs$p_val = degs$p_val_adj = degs$pct.1 = degs$pct.2 = degs$cluster = as.numeric()
-  degs$gene = as.character()
+if (ncol(marker_degs) == 0){
+  marker_degs$avg_log2FC = marker_degs$p_val = marker_degs$p_val_adj = marker_degs$pct.1 = marker_degs$pct.2 = marker_degs$cluster = as.numeric()
+  marker_degs$gene = as.character()
 }
 
 # Sort markers
-degs = degs %>% DegsSort()
+marker_degs = marker_degs %>% DegsSort(group=c("cluster"))
   
 # Filter markers 
-degs_filt = DegsFilter(degs, cut_log2FC=param$log2FC, cut_padj=param$padj)
+marker_degs_filt = DegsFilter(marker_degs, cut_log2FC=param$marker_log2FC, cut_padj=param$marker_padj)
 
 # Write and plot only if there are any degs found
-if ((nrow(degs) > 0) & (nrow(degs_filt$all) > 0)) {
+if ((nrow(marker_degs) > 0) & (nrow(marker_degs_filt$all) > 0)) {
   
   # Add average data to degs table and write to file
-  degs_out = cbind(degs_filt$all, DegsAvgData(sc, genes=degs_filt$all$gene))
-  DegsWriteToFile(degs_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/degs_cluster_vs_rest.xlsx"))
+  marker_degs_out = cbind(marker_degs_filt$all, DegsAvgData(sc, genes=marker_degs_filt$all$gene))
+  DegsWriteToFile(marker_degs_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/marker_degs_cluster_vs_rest.xlsx"))
 
   # Plot number of differentially expressed genes
-  p = DegsPlotNumbers(degs_up=degs_filt$up, degs_down=degs_filt$down, 
-                      title=paste0("Number of DEGs, comparing each cluster to the rest\n(FC=", 2^param$log2FC, ", adj. p-value=", param$padj, ")")) 
+  p = DegsPlotNumbers(degs_up=marker_degs_filt$up, degs_down=marker_degs_filt$down, 
+                      title=paste0("Number of DEGs, comparing each cluster to the rest\n(FC=", 2^param$marker_log2FC, ", adj. p-value=", param$marker_padj, ")")) 
   p
   
 } else { 
 
-  # Do not run the following degs-related chunks
-  degs_found = FALSE
+  # Do not run the following marker_degs-related chunks
+  marker_degs_found = FALSE
 }
-
-# Unload the MAST R package
-detach("package:MAST", unload=TRUE)
 ```
 
-```{r degs_found, eval=!degs_found}
-if (!degs_found) warning("No differentially expressed genes found. The following related code is not executed, no degs-related plots and tables are generated.")
+```{r no_marker_degs_found, eval=!marker_degs_found}
+if (!marker_degs_found) warning("No differentially expressed genes found. The following related code is not executed, no degs-related plots and tables are generated.")
 ```
 
-### Table of top marker genes 
-We use the term "marker genes" to specifically describe genes that are up-regulated in cells of one cluster compared to the rest. 
+### Table of top marker genes
+
+We use the term "marker genes" to specifically describe genes that are up-regulated in cells of one cluster compared to the rest.
+
 ```{r degs_table, eval=degs_found}
-if (degs_found) {
-  degs_top = DegsUpDisplayTop(degs_filt$up, n=5)
+if (marker_degs_found) {
+  marker_degs_top = DegsUpDisplayTop(marker_degs_filt$up, n=5)
 
   # Show table
-  knitr::kable(degs_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
+  knitr::kable(marker_degs_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
     kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px") 
 }
 ```
 
+
 ### Visualisation of top marker genes {.tabset}
 The following plots are exemplary to how we can visualize differentially expressed genes using the Seurat R-package. The selected genes are the top marker genes for each cluster, respectively. 
-```{r degs_plot, eval=degs_found}
-if (degs_found) {
+```{r marker_degs_plot, eval=marker_degs_found}
+if (marker_degs_found) {
   # Get top 1 gene per cluster and plot
-  if (nrow(degs_filt$all) > 0) {
-    genes_example_df = degs_filt$up %>% 
+  if (nrow(marker_degs_filt$all) > 0) {
+    marker_degs_examples = marker_degs_filt$up %>% 
       dplyr::group_by(cluster) %>% 
       dplyr::top_n(n=1, wt=avg_log2FC) %>% 
       dplyr::select(cluster, gene) %>% 
       as.data.frame()
   } else { 
-    genes_example_df = data.frame(cluster=numeric(), gene=character())
+    marker_degs_examples = data.frame(cluster=numeric(), gene=character())
   }
-  genes_example = genes_example_df$gene 
-  genes_example_titles = paste0(genes_example_df$cluster, ": ", genes_example_df$gene)
+  marker_degs_examples = setNames(marker_degs_examples$gene, paste0(marker_degs_examples$cluster, ": ", marker_degs_examples$gene))
 }
 ```
 
-```{r degs_fig_heights}
+```{r marker_degs_fig_heights}
 # Note: We need to run this chunk as it specifies a variable that is used in chunk definitions below
-if (degs_found) {
+if (marker_degs_found) {
   # Each row contains 2 plots
-  nr_rows = ceiling(length(genes_example)/2)
+  nr_rows = ceiling(length(marker_degs_examples)/2)
 
   # The height of each plot might depend on the number of clusters 
   height_per_row = max(2, 0.3 * length(cluster_all))
 
   # Total height of plots 
-  fig_height_degs = max(5, height_per_row * nr_rows)
+  fig_height_marker_degs = max(5, height_per_row * nr_rows)
 } else {
-  fig_height_degs = 7
+  fig_height_marker_degs = 7
 }
 ```
 
 #### Feature plots
-```{r degs_plot_umap, eval=degs_found, fig.height=fig_height_degs}
-if (degs_found) {
+```{r marker_degs_plot_umap, eval=marker_degs_found, fig.height=fig_height_marker_degs}
+if (marker_degs_found) {
   # Shows gene expression on the UMAP
-  p_list = Seurat::FeaturePlot(sc, features=genes_example, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i])
+  p_list = Seurat::FeaturePlot(sc, features=marker_degs_examples, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
+  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(marker_degs_examples)[i])
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data, top 1 marker gene per cluster")
   p
@@ -1585,11 +1608,11 @@ if (degs_found) {
 ```
 
 #### Violin plots (raw)
-```{r degs_plot_violin_raw, eval=degs_found, fig.height=fig_height_degs}
-if (degs_found) {
+```{r marker_degs_plot_violin_raw, eval=marker_degs_found, fig.height=fig_height_marker_degs}
+if (marker_degs_found) {
   # Violin plot of raw gene expression counts
-  p_list = Seurat::VlnPlot(sc, features=genes_example, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
+  p_list = Seurat::VlnPlot(sc, features=marker_degs_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
+  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(marker_degs_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
                                                               xlab="Cluster")
@@ -1601,11 +1624,11 @@ if (degs_found) {
 ```
 
 #### Violin plots (normalised)
-```{r degs_plot_violin_norm, eval=degs_found, fig.height=fig_height_degs}
-if (degs_found) {
+```{r marker_degs_plot_violin_norm, eval=marker_degs_found, fig.height=fig_height_marker_degs}
+if (marker_degs_found) {
   # Violin plot of normalised gene expression data
-  p_list = Seurat::VlnPlot(sc, features=genes_example, combine=FALSE, pt.size=0.2)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
+  p_list = Seurat::VlnPlot(sc, features=marker_degs_examples, combine=FALSE, pt.size=0.2)
+  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(marker_degs_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
                                                               xlab="Cluster") 
@@ -1618,12 +1641,12 @@ if (degs_found) {
 ```
 
 #### Ridge plots (raw)
-```{r degs_plot_ridge_raw, eval=degs_found, fig.height=fig_height_degs, message=FALSE}
-if (degs_found) {
+```{r marker_degs_plot_ridge_raw, eval=marker_degs_found, fig.height=fig_height_marker_degs, message=FALSE}
+if (marker_degs_found) {
   # Ridge plot of raw gene expression counts
-  p_list = Seurat::RidgePlot(sc, features=genes_example, assay="RNA", slot="counts", combine=FALSE)
+  p_list = Seurat::RidgePlot(sc, features=marker_degs_examples, assay="RNA", slot="counts", combine=FALSE)
   for (i in seq(p_list)) {
-    p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
+    p_list[[i]] = p_list[[i]] + AddStyle(title=names(marker_degs_examples)[i], 
                                          legend_title="Cluster", 
                                          fill=param$col_clusters, 
                                          ylab="Cluster")
@@ -1637,12 +1660,12 @@ if (degs_found) {
 ```
 
 #### Ridge plots (normalised)
-```{r degs_plot_ridge_norm, eval=degs_found, fig.height=fig_height_degs, message=FALSE}
-if (degs_found) {
+```{r marker_degs_plot_ridge_norm, eval=marker_degs_found, fig.height=fig_height_marker_degs, message=FALSE}
+if (marker_degs_found) {
   # Ridge plot of normalised gene expression data
-  p_list = Seurat::RidgePlot(sc, features=genes_example, slot="data", combine=FALSE)
+  p_list = Seurat::RidgePlot(sc, features=marker_degs_examples, slot="data", combine=FALSE)
   for (i in seq(p_list)) {
-    p_list[[i]] = p_list[[i]] + AddStyle(title=genes_example_titles[i], 
+    p_list[[i]] = p_list[[i]] + AddStyle(title=names(marker_degs_examples)[i], 
                                          legend_title="Cluster", 
                                          fill=param$col_clusters, 
                                          ylab="Cluster")
@@ -1656,11 +1679,11 @@ if (degs_found) {
 ```
 
 #### Dot plot
-```{r degs_plot_dot, eval=degs_found, fig.height=fig_height_degs*2}
-if (degs_found) {
+```{r marker_degs_plot_dot, eval=marker_degs_found, fig.height=fig_height_marker_degs*2}
+if (marker_degs_found) {
   # Visualises how feature expression changes across different clusters
   p_list = lapply(cluster_all, function(cl) {
-    genes = degs_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(gene)
+    genes = marker_degs_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(gene)
     if (length(genes) > 0) { 
       genes = genes[length(genes):1]
       p = Seurat::DotPlot(sc, features=genes, cols=c("lightgrey", param$col)) + 
@@ -1681,12 +1704,12 @@ if (degs_found) {
 
 ### Heatmaps of all differentially expressed genes {.tabset}
 #### Up- and down-regulated genes
-```{r degs_heatmap_all, eval=degs_found, fig.height=20}
+```{r marker_degs_heatmap_all, eval=marker_degs_found, fig.height=20}
 # Let us re-think if we want to limit the number of cells in this plot, since this takes a while. 
 
-if (degs_found) {
+if (marker_degs_found) {
   # Heatmap of all differentially expressed genes
-  p = Seurat::DoHeatmap(sc, features=degs_filt$all$gene, group.colors=param$col_clusters, label=FALSE) + 
+  p = Seurat::DoHeatmap(sc, features=marker_degs_filt$all$gene, group.colors=param$col_clusters, label=FALSE) + 
     NoLegend() + 
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, all genes differentially expressed between a cluster and the rest")
@@ -1695,10 +1718,10 @@ if (degs_found) {
 ```
 
 #### Up-regulated genes (marker genes)
-```{r degs_heatmap_all_up, eval=degs_found, fig.height=20}
-if (degs_found) {
+```{r marker_degs_heatmap_all_up, eval=marker_degs_found, fig.height=20}
+if (marker_degs_found) {
   # Heatmap of all up-regulated genes
-  p = Seurat::DoHeatmap(sc, features=degs_filt$up$gene, group.colors=param$col_clusters, label=FALSE) + 
+  p = Seurat::DoHeatmap(sc, features=marker_degs_filt$up$gene, group.colors=param$col_clusters, label=FALSE) + 
     NoLegend() + 
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, genes up-regulated in a cluster compared to the rest")
@@ -1707,10 +1730,10 @@ if (degs_found) {
 ```
 
 #### Down-regulated genes
-```{r degs_heatmap_all_down, eval=degs_found, fig.height=20}
-if (degs_found) {
+```{r marker_degs_heatmap_all_down, eval=marker_degs_found, fig.height=20}
+if (marker_degs_found) {
   # Heatmap of all differentially expressed genes
-  p = Seurat::DoHeatmap(sc, features=degs_filt$down$gene, group.colors=param$col_clusters, label=FALSE) + 
+  p = Seurat::DoHeatmap(sc, features=marker_degs_filt$down$gene, group.colors=param$col_clusters, label=FALSE) + 
     NoLegend() + 
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, , genes down-regulated in a cluster compared to the rest")
@@ -1729,12 +1752,12 @@ knitr::kable(dbs_all, align="l", caption="Enrichr databases") %>%
   kableExtra::scroll_box(width="100%", height="300px")
 ```
 
-```{r functional_enrichment, results="hide"}
-# Note: We need to run this chunk to initialize the variable "enriched", which is used during the Cerebro export
-if (degs_found) {
+```{r marker_degs_functional_enrichment, results="hide"}
+# Note: We need to run this chunk to initialize the variable "marker_degs_enriched", which is used during the Cerebro export
+if (marker_degs_found) {
   # DEGs up and down per cluster
-  genesets_up = lapply(cluster_all, function(x) {
-    tmp = degs_filt$up %>% 
+  marker_genesets_up = lapply(cluster_all, function(x) {
+    tmp = marker_degs_filt$up %>% 
       dplyr::filter(cluster==x) %>% 
       dplyr::pull(gene)
     # Pick the first matching Entrez symbol
@@ -1742,8 +1765,8 @@ if (degs_found) {
       na.exclude() %>% unique()
     return(tmp)
   })
-  genesets_down = lapply(cluster_all, function(x) {
-    tmp = degs_filt$down %>% 
+  marker_genesets_down = lapply(cluster_all, function(x) {
+    tmp = marker_degs_filt$down %>% 
       dplyr::filter(cluster==x) %>% 
       dplyr::pull(gene)
     # Pick the first matching Entrez symbol
@@ -1751,186 +1774,131 @@ if (degs_found) {
       na.exclude() %>% unique()
     return(tmp)
   })
-  names(genesets_up) = paste0("DEG_up_cluster_", cluster_all)
-  names(genesets_down) = paste0("DEG_down_cluster_", cluster_all)
-  genesets = c(genesets_up, genesets_down)
+  names(marker_genesets_up) = paste0("DEG_up_cluster_", cluster_all)
+  names(marker_genesets_down) = paste0("DEG_down_cluster_", cluster_all)
+  marker_genesets = c(marker_genesets_up, marker_genesets_down)
   
   # Loop through gene lists
-  enriched = list()
-  for (i in seq(genesets)) {
-    if (length(genesets[[i]]) >= 3) {
-      enriched[[i]] = enrichR::enrichr(genesets[[i]], databases=param$enrichr_dbs)
-      enriched[[i]] = purrr::map(enriched[[i]], function(df) {
+  marker_degs_enriched = list()
+  for (i in seq(marker_genesets)) {
+    if (length(marker_genesets[[i]]) >= 3) {
+      marker_degs_enriched[[i]] = enrichR::enrichr(marker_genesets[[i]], databases=param$enrichr_dbs)
+      marker_degs_enriched[[i]] = purrr::map(marker_degs_enriched[[i]], function(df) {
         df %>% dplyr::filter(Adjusted.P.value < param$p_enrichr)
       })
     
       # No enrichments found -> remove entry from the results 
-      idx_rm = sapply(seq(enriched[[i]]), function(j) nrow(enriched[[i]][[j]]) == 0)
+      idx_rm = sapply(seq(marker_degs_enriched[[i]]), function(j) nrow(marker_degs_enriched[[i]][[j]]) == 0)
       if (sum(idx_rm) == length(param$enrichr_dbs)) {
-        message("Geneset ", names(genesets)[i], " does not result in any functional enrichments.")
-        enriched[[i]] = NA
+        message("Geneset ", names(marker_genesets)[i], " does not result in any functional enrichments.")
+        marker_degs_enriched[[i]] = NA
       } else if (sum(idx_rm) > 0) {
-        enriched[[i]][idx_rm] = NULL
+        marker_degs_enriched[[i]][idx_rm] = NULL
       }
     } else { 
-      message("Geneset ", names(genesets)[i], " has less than 3 genes, we skip enrichr.")
-      enriched[[i]] = NA
+      message("Geneset ", names(marker_genesets)[i], " has less than 3 genes, we skip enrichr.")
+      marker_degs_enriched[[i]] = NA
     }
   }
-  names(enriched) = names(genesets)
+  names(marker_degs_enriched) = names(marker_genesets)
 
   # Remove NA entries for lists that were too short to be tested
-  is_na = is.na(enriched)
-  if (sum(is_na) > 0) enriched = enriched[!is_na]
+  is_na = is.na(marker_degs_enriched)
+  if (sum(is_na) > 0) marker_degs_enriched = marker_degs_enriched[!is_na]
 
   # Write enrichment results to file
-  enriched_top = matrix(NA, nrow=0, ncol=6)
-  colnames(enriched_top) = c("GeneSet", "Database", "Term", "Overlap", "Adjusted_pval", "Genes")
-  for (i in seq(enriched)) { 
-    if (!is.null(enriched[[i]])) { 
-      openxlsx::write.xlsx(enriched[[i]], file=paste0(param$path_out, "/Functions_", names(enriched)[i], ".xlsx"))
+  marker_degs_enriched_top = matrix(NA, nrow=0, ncol=6)
+  colnames(marker_degs_enriched_top) = c("GeneSet", "Database", "Term", "Overlap", "Adjusted_pval", "Genes")
+  for (i in seq(marker_degs_enriched)) { 
+    if (!is.null(marker_degs_enriched[[i]])) { 
+      openxlsx::write.xlsx(marker_degs_enriched[[i]], file=paste0(param$path_out, "/Functions_", names(marker_degs_enriched)[i], ".xlsx"))
     }
   }
 } else { 
-  enriched=list()
+  marker_degs_enriched=list()
 }
 ```
 
 The following table contains the top enriched term per geneset and database. 
 ```{r functional_enrichment_results, eval=degs_found}
-if (degs_found) {
-  for (i in seq(enriched)) { 
-    if (!is.null(enriched[[i]])) { 
+# Top enriched terms
+
+if (marker_degs_found) {
+  for (i in seq(marker_degs_enriched)) { 
+    if (!is.null(marker_degs_enriched[[i]])) { 
   
       # Remember top term per geneset
-      for (j in seq(enriched[[i]])) {
-          enriched_top = rbind(enriched_top, 
-                               c(names(enriched)[i], 
-                               names(enriched[[i]])[j], 
-                               enriched[[i]][[j]][1, c("Term", "Overlap", "Adjusted.P.value", "Genes")]))
+      for (j in seq(marker_degs_enriched[[i]])) {
+          marker_degs_enriched_top = rbind(marker_degs_enriched_top, 
+                               c(names(marker_degs_enriched)[i], 
+                               names(marker_degs_enriched[[i]])[j], 
+                               marker_degs_enriched[[i]][[j]][1, c("Term", "Overlap", "Adjusted.P.value", "Genes")]))
       }
     }
   }
 
   # Print table of top terms per gene set
-  knitr::kable(enriched_top, align="l", caption="Top enriched term per geneset") %>% 
+  knitr::kable(marker_degs_enriched_top, align="l", caption="Top enriched term per geneset") %>% 
     kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px")
 }
 ```
 
-## Differentially expressed genes, comparing one sample of origin against the rest
-We next identify genes that are differentially expressed in one sample compared to all other samples. In general, we apply the same methods as before, just comparing different sets of cells with each other. 
-```{r degs_samples}
-# Note to Andreas: We need an additional test here to check, whether there are actually different samples to test them against each other. 
+## Differentially expressed genes, comparing two groups of cells
+If requested, we next identify genes that are differentially expressed between two groups of cells. Groups can be defined by columns in the cell metadata. Different types of tests can be used and input data for testing can be the different assays as well as the computed dimensionality reductions. Resulting _p_-values are adjusted using the Bonferroni method. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
 
-suppressPackageStartupMessages(library(MAST))
-degs_found = TRUE
+```{r computing_deg_contrasts, warning=FALSE}
+# We first compute the DEGs for all requested contrasts
 
-# Change the default identity of cells to sample of origin
-# Then run the very same steps as for chunk "degs"
-Idents(sc) = "orig.ident"
-degs_samples = suppressMessages(suppressWarnings(
-  Seurat::FindAllMarkers(sc, assay="RNA", test.use="MAST",
-                         only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
-                         latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE)))
+# Prepare a list with contrasts (input can be R data.frame table or Excel file)
+deg_contrasts_list = SetupDegContrastsList(sc, param$deg_contrasts, param$latent_vars)
 
-if (ncol(degs_samples) == 0){
-  degs_samples$avg_log2FC = degs_samples$p_val = degs_samples$p_val_adj = degs_samples$pct.1 = degs_samples$pct.2 = degs_samples$cluster = as.numeric()
-  degs_samples$gene = as.character()
-}
+# Add the actual data to the list
+deg_contrasts_list = purrr::map(deg_contrasts_list, function(contrast){
+  # cells indices
+  cells_group1_idx = contrast[["cells_group1_idx"]]
+  cells_group2_idx = contrast[["cells_group2_idx"]]
 
-degs_samples = degs_samples %>% DegsSort()
-degs_samples_filt = DegsFilter(degs_samples, cut_log2FC=param$log2FC, cut_padj=param$padj)
-
-if ((nrow(degs_samples) > 0) & (nrow(degs_filt$all) > 0)) { 
-  degs_samples_out = cbind(degs_samples_filt$all, DegsAvgData(sc, genes=degs_samples_filt$all$gene))
-  DegsWriteToFile(degs_samples_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/degs_sample_vs_rest.xlsx"))
-  p = DegsPlotNumbers(degs_up=degs_samples_filt$up, degs_down=degs_samples_filt$down, 
-                      title=paste0("Number of DEGs, comparing each sample to the rest\n(FC=", 2^param$log2FC, ", adj. p-value=", param$padj, ")"))
-  p
-} else { 
-  degs_samples_found=FALSE
-}
-
-detach("package:MAST", unload=TRUE)
-
-# Reset identity of cells
-Idents(sc) = "seurat_clusters"
-```
-
-```{r degs_samples_found, eval=!degs_samples_found}
-if (!degs_samples_found) warning("No differentially expressed genes found. The following related code is not executed, no degs-related plots and tables are generated.")
-```
-
-### Table of top up-regulated genes 
-```{r degs_samples_table, eval=degs_samples_found}
-if (degs_samples_found) {
-  degs_samples_top = DegsUpDisplayTop(degs_samples_filt$up, n=5)
+  # object
+  if (!contrast[["use_reduction"]]) {
+    contrast[["object"]] = Seurat::GetAssay(sc[,unique(c(cells_group1_idx,cells_group2_idx))], assay=contrast[["assay"]])
+    
+    # This saves a lot of memory for parallelisation
+    if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class = 'matrix')
+  } else{
+    contrast[["object"]] = Seurat::Reductions(sc, slot=contrast[["assay"]])
+  }
   
-  # Show table
-  knitr::kable(degs_samples_top, align="l", caption="Up to top 5 up-regulated genes per sample") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-    kableExtra::scroll_box(width="100%", height="700px") 
-}
-```
-
-## Differentially expressed genes, comparing specific samples of interest
-```{r degs_samples_contrasts}
-suppressPackageStartupMessages(library(MAST))
-degs_samples_contrasts_found = TRUE
-
-# Note to Andreas: I have not updated this chunk properly. I leave this up to you, since you want to change it anyhow. This is what I used in my latest project. 
-
-# Change the default identity of cells to sample of origin
-Idents(sc) = "orig.ident"
-
-# Loop through contrasts
-degs_samples_contrasts = list()
-for (co in names(param$contrasts$samples)) {
-
-  # Find differentially expressed genes for specific contrasts
-  degs_samples_contrasts[[co]] = suppressMessages(suppressWarnings(
-    Seurat::FindMarkers(sc, assay="RNA", test.use="MAST",
-                        ident.1=param$contrasts$samples[[co]]$ident.1,
-                        ident.2=param$contrasts$samples[[co]]$ident.2,
-                        only.pos=FALSE, min.pct=0.25, logfc.threshold=0.25,
-                        latent.vars=param$latent_vars, verbose=FALSE, silent=TRUE)))
+  # latent vars must be passed as data.frame
+  if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]])>0) contrast[["latent_vars"]] = sc[[unique(c(cells_group1_idx,cells_group2_idx)), contrast[["latent_vars"]], drop=FALSE]]
   
-  # Add "cluster" column to contain the contrast name
-  degs_samples_contrasts[[co]]$cluster = co
-  degs_samples_contrasts[[co]]$gene = rownames(degs_samples_contrasts[[co]])
-}
+  # now update cell indices so that they match to subset
+  contrast[["cells_group1_idx"]] = match(colnames(sc)[cells_group1_idx], colnames(contrast[["object"]]))
+  contrast[["cells_group2_idx"]] = match(colnames(sc)[cells_group2_idx], colnames(contrast[["object"]]))
+  
+  return(contrast)
+})
 
-# Merge all contrasts into one table 
-degs_samples_contrasts = purrr::map_dfr(degs_samples_contrasts, .f=rbind)
-degs_samples_contrasts$cluster = as.factor(degs_samples_contrasts$cluster)
-
-# Then run the very same steps as for chunk "degs"
-degs_samples_contrasts = degs_samples_contrasts %>% DegsSort()
-degs_samples_contrasts_filt = DegsFilter(degs_samples_contrasts, cut_log2FC=param$log2FC, cut_padj=param$padj)
-degs_samples_contrasts_out = cbind(degs_samples_contrasts_filt$all, DegsAvgData(sc, genes=degs_samples_contrasts_filt$all$gene))
-DegsWriteToFile(degs_samples_contrasts_out, annot_ensembl=annot_ensembl, file=paste0(param$path_out, "/degs_specific_sample_contrasts.xlsx"))
-p = DegsPlotNumbers(degs_up=degs_samples_contrasts_filt$up, degs_down=degs_samples_contrasts_filt$down, 
-                    title=paste0("Number of DEGs, comparing specific samples of interest\n(FC=", 2^param$log2FC, ", adj. p-value=", param$padj, ")")) 
-p
-
-detach("package:MAST", unload=TRUE)
-
-# Reset identity of cells
-Idents(sc) = "seurat_clusters"
-```
-
-### Table of top up-regulated genes 
-```{r degs_samples_contrasts_table, eval=degs_samples_contrasts_found}
-if (degs_samples_contrasts_found) {
-  degs_samples_contrasts_top = DegsUpDisplayTop(degs_samples_contrasts_filt$up, n=5)
-
-  # Show table
-  knitr::kable(degs_samples_contrasts_top, align="l", caption="Up to top 5 up-regulated genes per contrast") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-    kableExtra::scroll_box(width="100%", height="700px") 
-}
+# Compute the tests; TODO: this chunk may be done in parallel in future
+degs = purrr::map(deg_contrasts_list, function(contrast) {
+  # Note: a contrast is invalid if there is an error message
+  if (length(contrast$error_messages)==0) {
+    test_results = DegTestCellSets(object=contrast[["object"]],
+                                   slot=contrast[["slot"]],
+                                   cells_1=colnames(contrast[["object"]])[contrast[["cells_group1_idx"]]],
+                                   cells_2=colnames(contrast[["object"]])[contrast[["cells_group2_idx"]]],
+                                   is_reduction=contrast[["use_reduction"]],
+                                   logfc.threshold=contrast[["log2FC"]],
+                                   test.use=contrast[["test"]],
+                                   min.pct=contrast[["min_pct"]],
+                                   latent.vars=contrast[["latent_vars"]])
+  } else {
+    test_results = EmptyDegResultsTable()
+  }
+  
+  test_results = test_results %>% DegsSort() %>% DegsFilter(contrast[["log2FC"]], contrast[["padj"]], split_by_dir=FALSE)
+  return(c(contrast, list(results=test_results)))
+})
 ```
 
 # Further analysis with other tools

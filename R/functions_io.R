@@ -109,6 +109,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
     rownames(metadata_table) = metadata_table[, 1]
   }
+  metadata_table$orig.dataset = project
   
   # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
   if (parse_plate_information) {
@@ -143,8 +144,9 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   for (s in names(samples_to_process)) {
     
     # New name
-    n = paste(project, s, sep=".")
-    
+    #n = paste(project, s, sep=".")
+    n = s
+
     # Create Seurat object with first assay
     # Include cell and feature metadata
     c = samples_to_process[[s]] # cells to include for sample
@@ -281,7 +283,11 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                                     first_n_elements_to_string(missed))
     rownames(metadata_table) = metadata_table[, 1]
+  } else {
+    metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
+    rownames(metadata_table) = metadata_table[, 1]
   }
+  metadata_table$orig.dataset = project
   
   # feature type to assay name
   feature_types = names(feature_data)
@@ -294,36 +300,40 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   
   # create Seurat object with first assay
   # include cell and feature metadata
-  f = feature_types[1]
-  a = feature_type_to_assay_name[f]
-  sc = Seurat::CreateSeuratObject(counts=feature_data[[f]], 
+  sc = list()
+  f = feature_types[1] # feature type
+  a = feature_type_to_assay_name[f] # cell data
+  n = project # project name
+  m = metadata_table[, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
+
+  sc[[n]] = Seurat::CreateSeuratObject(counts=feature_data[[f]], 
                                   project=project, 
                                   assay=a, 
                                   min.cells=0, 
                                   min.features=0, 
                                   names.delim=NULL, 
                                   names.field=NULL, 
-                                  meta.data=metadata_table)
+                                  meta.data=m)
   
   # check that the feature symbols are the same and add feature meta information
-  nms = rownames(sc[[a]])
+  nms = rownames(sc[[n]][[a]])
   missed = nms[!nms %in% rownames(features_ids_types)]
   if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed))
   
-  sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
+  sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
   
   # now add remaining assays
   for (f in feature_types[-1]) {
     a = feature_type_to_assay_name[f]
-    sc[[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
+    sc[[n]][[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
     
-    nms = rownames(sc[[a]])
+    nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed))
     
-    sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
   }
   
   return(sc)
