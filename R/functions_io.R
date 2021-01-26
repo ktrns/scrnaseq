@@ -109,7 +109,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
     rownames(metadata_table) = metadata_table[, 1]
   }
-  metadata_table$orig.dataset = project
+  metadata_table$orig.dataset = factor(project)
   
   # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
   if (parse_plate_information) {
@@ -287,7 +287,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
     rownames(metadata_table) = metadata_table[, 1]
   }
-  metadata_table$orig.dataset = project
+  metadata_table$orig.dataset = factor(project)
   
   # feature type to assay name
   feature_types = names(feature_data)

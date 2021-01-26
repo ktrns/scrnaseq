@@ -37,6 +37,7 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
 }
 
 #' Report session info in a table
+#' 
 #' @param path_to_git: Path to git repository.
 #' @return The session info as table.
 scrnaseq_session_info = function(path_to_git=".") {
@@ -58,7 +59,46 @@ scrnaseq_session_info = function(path_to_git=".") {
   return(out)
 }
 
+#' Returns a subsample of cells.
+#' 
+#' @param sc A Seurat sc object.
+#' @param num Number of cells to subsample.
+#' @param seed Seed for sampling. Default is 1.
+#' @param group Metadata colum group to consider for sampling with group_proportional.
+#' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
+#' @return Sampled cell names.
+ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE, group_min_cells=0) {
+  set.seed(seed)
+
+  # n
+  if (n>ncol(sc)) n = ncol(sc)
+  
+  # Sample cells
+  cell_names = sc[[]] %>% tibble::rownames_to_column() %>% dplyr::select(dplyr::all_of(c("rowname", group)))
+  colnames(cell_names) = c("rowname", ifelse(is.null(group), NULL, "group"))
+  
+  if (!is.null(group) && !group_proportional) {
+    num_groups = length(unique(cell_names$group))
+    n_per_group = round(n/num_groups)
+    
+    cell_names_sample = lapply(split(cell_names$rowname, cell_names$group), function(l) {
+      if (length(l)<n_per_group) {
+        return(sample(l, length(l)))
+      } else {
+        return(sample(l, n_per_group))
+      }
+    }) %>% unlist() %>% unname() 
+    
+  } else {
+    cell_names_sample = sample(cell_names$rowname, n)
+  }
+  
+  return(cell_names_sample)
+}
+
+
 #' Returns the names of an object
+#' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and names as values.
 list_names = function(x) {
@@ -66,6 +106,7 @@ list_names = function(x) {
 }
 
 #' Returns a vector with its values as names.
+#' 
 #' @param x A vector.
 #' @return A vector with its values as names.
 values_to_names = function(x) {
@@ -73,6 +114,7 @@ values_to_names = function(x) {
 }
 
 #' Returns the indices of an object
+#' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and indices as values.
 list_indices = function(x) {
@@ -80,6 +122,7 @@ list_indices = function(x) {
 }
 
 #' Wrapper around the biomaRt::useEnsembl function to cope with unavailable Ensembl mirrors. Tries different Ensembl mirrors and returns a mart object with the mirror that works.
+#' 
 #' @param biomart A biomaRt database name. Possible database names can be retrieved with the function listEnsembl().
 #' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
 #' @param mirror Specify an Ensembl mirror to connect to. The valid options here are 'www', 'uswest', 'useast', 'asia'. If no mirror is specified, then the first mirror that works will be used. Will be ignored if a host is specified.
@@ -124,6 +167,7 @@ GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
 
 
 #' Returns the mirror of a biomaRt object.
+#' 
 #' @param mart_obj A biomaRt object obtained by GetBiomaRt or useEnsembl name.
 #' @return The mirror of the biomaRt object. Can be 'www', 'uswest', 'useast' or 'asia'.
 GetBiomaRtMirror = function(mart_obj) {
@@ -141,6 +185,7 @@ GetBiomaRtMirror = function(mart_obj) {
 }
 
 #' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
+#' 
 #' @param num_colours The number of colours to generate.
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
@@ -163,6 +208,7 @@ GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7
 
 #' Returns a message formatted for markdown. 
 #' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
@@ -179,6 +225,7 @@ format_message = function(x, options){
 
 #' Prints a message so that it will be included in the markdown document.
 #' Note that cat is used since print will not work.
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return No return value.
@@ -205,6 +252,7 @@ format_warning = function(x, options){
 
 #' Prints a warning so that it will be included in the markdown document.
 #' Note that cat is used since print will not work. Will only work with chunk option results="asis".
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return No return value.
@@ -230,6 +278,7 @@ format_error = function(x, options){
 }
 
 #' Prints an error so that it will be included in the markdown document.
+#' 
 #' Note that cat is used since print will not work.
 #' @param x The message.
 #' @param options Further options.
@@ -273,6 +322,7 @@ scrnaseq_params_info = function(params) {
 }
 
 # Checks if the parameters are valid.
+#'
 #' @param params The parameter list.
 #' @param 
 #' @return Returns a list with error messages.
@@ -520,6 +570,7 @@ check_parameters = function(param) {
 }
 
 # Checks if python is valid.
+#'
 #' @return Returns a list with error messages.
 check_python = function() {
   error_messages = c()
@@ -536,6 +587,7 @@ check_python = function() {
 }
 
 # Checks if enrichR is live.
+#'
 #' @param databases The enrichR databases to use.
 #' @return Returns a list with error messages.
 check_enrichr = function(databases) {
@@ -561,6 +613,7 @@ check_enrichr = function(databases) {
 }
 
 # Checks if all required packages are installed.
+#'
 #' @return Returns a list with error messages.
 check_installed_packages = function() {
   required_packages = c("Seurat", "ggplot2", "patchwork", "magrittr",
@@ -581,6 +634,7 @@ check_installed_packages = function() {
 }
 
 # Checks if Ensembl annotation is available
+#'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.
 #' @param mirror Ensembl mirror.
@@ -609,4 +663,21 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
   }
 
   return(error_messages)
+}
+
+# Wrapper around citep and citet. Takes care of connection problems.
+#'
+#' @param reference Argument for citep or citet.
+#' @param type Use 'citet' or 'citep'.
+#' @return Returns the output of citep or citet.
+Cite = function(reference, type="citet") {
+  formatted = tryCatch({
+    if (type=="citet") knitcitations::citet(reference) else knitcitations::citep(reference)
+  },
+  error=function(cond) {
+    return(NULL)
+  })
+  
+  if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
+  return(formatted)
 }
