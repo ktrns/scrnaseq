@@ -1,4 +1,5 @@
 #' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
+# useful environment variables
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -29,7 +30,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
                                                                           "ERCC"="ERCC")
   
   # read counts data
-  if (!file.exists(counts_table)) futile.logger::flog.error("The counts file %s does not exist!",counts_table)
+  if (!file.exists(counts_table)) stop(sprintf("The counts file %s does not exist!",counts_table))
   feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
   
   #  row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
@@ -53,8 +54,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     } else {
       # otherwise print an error
       invalid = invalid[which(invalid)]
-      futile.logger::flog.error("Some columns in the counts table do not contain numeric data: %s!", 
-                                first_n_elements_to_string(names(invalid)))
+      stop(sprintf("Some columns in the counts table do not contain numeric data: %s!", 
+                                first_n_elements_to_string(names(invalid))))
     }
   }
   
@@ -89,8 +90,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   # feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
-  if (length(missed)>0) futile.logger::flog.error("The 'feature_type_to_assay_name' argument misses some feature types: %s!", 
-                                                  first_n_elements_to_string(missed))
+  if (length(missed)>0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!",
+                                     first_n_elements_to_string(missed)))
   
   # sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
@@ -101,8 +102,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
     barcodes = colnames(feature_data[[1]])
     missed = barcodes[!barcodes %in% metadata_table[, 1]]
-    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                                    first_n_elements_to_string(missed))
+    if (length(missed)>0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+                                                    first_n_elements_to_string(missed)))
     rownames(metadata_table) = metadata_table[, 1]
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
@@ -113,23 +114,26 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   if (parse_plate_information) {
     plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
     
-    # Then add to metadata
-    if (nrow(plate_information) > 0) {
-      
-      metadata_table = merge(metadata_table,plate_information,by="row.names", all.x=TRUE)
-      rownames(metadata_table) = metadata_table$Row.names
-      metadata_table$Row.names = NULL
-    } else {
-      futile.logger::flog.warn("The 'ReadCountsTable' method could not parse plate information from the names though requested! Check the regular expression ('plate_information_regex'). Cannot return dataset by samples ('return_samples_as_datasets')!")
-      return_samples_as_datasets = FALSE
+    # if the pattern did not match for names, warn; then set plate_information$SampleName to the unparsed name
+    invalid = rownames(plate_information[is.na(plate_information$SampleName),])
+    if (any(is.na(plate_information$SampleName))) {
+      stop(sprintf("The 'ReadCountsTable' method could not parse plate information from the following cell names: %s. Check the regular expression ('plate_information_regex')!", first_n_elements_to_string(invalid)))
     }
+    
+    # Then add to metadata
+    metadata_table = merge(metadata_table,plate_information,by="row.names", all.x=TRUE)
+    rownames(metadata_table) = metadata_table$Row.names
+    metadata_table$Row.names = NULL
   }
-
+  
   # Group cells by samples for datasets
   samples_to_process = list()
   if (return_samples_as_datasets) {
-    if(!parse_plate_information) futile.logger::flog.error("The 'ReadCountsTable' method cannot return datasets by samples without parsing this information from the name ('parse_plate_information')!")
-    samples_to_process = split(rownames(metadata_table), metadata_table$SampleName)
+    if (parse_plate_information) {
+      samples_to_process = split(rownames(metadata_table), metadata_table$SampleName)
+    } else {
+      warning("The option 'return_samples_as_datasets' can only work when the sample name is parsed from the cell name.")
+    }
   } else {
     samples_to_process[[project]] = rownames(metadata_table)
   }
@@ -161,8 +165,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     # check that the feature symbols are the same and add feature meta information
     nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
-    if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed))
+    if (length(missed)>0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                  a, first_n_elements_to_string(missed)))
     sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
     
     # now add remaining assays
@@ -174,8 +178,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
                                           min.features=0)
       nms = rownames(sc[[n]][[a]])
       missed = nms[!nms %in% rownames(features_ids_types)]
-      if (length(missed)>0) futile.logger::flog.error("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed))
+      if (length(missed)>0) stop(sprintf("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                    a, first_n_elements_to_string(missed)))
       sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]),])
     }
   }
@@ -397,8 +401,8 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
 #' Parses plate information from the cell names. Mainly used for Smartseq2 datasets where this information is often included in the cell name.
 #' 
 #' @param cell_names A vector with cell names.
-#' @param pattern A regular expression pattern with capture groups for sample name, plate number, row or column which must match the entire cell name. Default is '^(\\S+)_(\\d+)_([A-Z])(\\d+)$'. Information for which no capture groups will be set to NA.
-#' @param sample_name_group Index of the capture group which contains the sample name. Can be NULL in which case it will not be evaluated and the sample name will be NA. Default is 1.
+#' @param pattern A regular expression pattern with capture groups for sample name, plate number, row or column which must match the entire cell name. Default is '^(\\S+)_(\\d+)_([A-Z])(\\d+)$'. If the pattern does not match, all information will be set to NA.
+#' @param sample_name_group Index of the capture group which contains the sample name. Can be NULL in which case it will not be evaluated and the sample name will be the cell name. Default is 1.
 #' @param plate_number_group Index of the capture group which contains the plate number name. Can be NULL in which case it will not be evaluated and the plate number will be NA. Default is 2.
 #' @param row_name_group Index of the capture group which contains the plate row name. Can be NULL in which case it will not be evaluated and the plate row name will be NA. Default is 3.
 #' @param col_name_group Index of the capture group which contains the plate col name. Can be NULL in which case it will not be evaluated and the plate col name will be NA. Default is 4.
@@ -416,6 +420,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   if (!is.null(sample_name_group)) {
     plate_information$SampleName = cell_names_matched_and_split[, 1+sample_name_group]
   } else {
+    plate_information$SampleName = cell_names
   }
   plate_information$SampleName = as.factor(plate_information$SampleName)
   
@@ -444,23 +449,21 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   plate_information$PlateCol = as.integer(plate_information$PlateCol)
   
   # decide on plate layout
-  if ("Q" %in% plate_information$PlateRow | max(plate_information$PlateCol)>24) {
+  if ("Q" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T)>24) {
     # super plate?
     plate_information$PlateRow = factor(plate_information$PlateRow, 
                                         levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"), 
                                         ordered=TRUE)
-    plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:max(plate_information$PlateCol), ordered=TRUE)
-  } else if ("I" %in% plate_information$PlateRow | max(plate_information$PlateCol)>12) {
+    plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:max(c(-Inf,plate_information$PlateCol), na.rm=T), ordered=TRUE)
+  } else if ("I" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T)>12) {
     # 384 plate
     plate_information$PlateRow = factor(plate_information$PlateRow, 
                                         levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"), 
                                         ordered=TRUE)
     plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:24, ordered=TRUE)
   } else {
-    plate_information$PlateRow = factor(plate_information$PlateRow, 
-                                        levels=c("A","B","C","D","E","F","G","H"),
-                                        ordered=TRUE)
-    plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:12, ordered=TRUE)
+    plate_information$PlateRow = factor(plate_information$PlateRow, ordered=TRUE)
+    plate_information$PlateCol = factor(plate_information$PlateCol, ordered=TRUE)
   }
   plate_information$rowname = NULL
   
@@ -491,115 +494,115 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   cerebroApp::exportFromSeurat(sc,
                                file=path,
                                assay=assay,
+                               slot="data",
                                experiment_name=project,
                                organism=species,
-                               column_sample=column_sample,
-                               column_cluster=column_cluster,
-                               column_nUMI=paste("nCount", assay, sep="_"),
-                               column_nGene=paste("nFeature", assay, sep="_"),
-                               column_cell_cycle_seurat=column_ccphase,
+                               groups=c(column_sample, column_cluster),
+                               nUMI=paste("nCount", assay, sep="_"),
+                               nGene=paste("nFeature", assay, sep="_"),
+                               cell_cycle=column_ccphase,
                                add_all_meta_data=T)
   
   # Export function does not include all information - need to add manually
-  crb_obj = readRDS(path)
-  
-  # Add basic parameters (are hardcoded unfortunately)
-  crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
-  crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
-  crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
-  crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
-  crb_obj$parameters[["number_PCs"]] = param$pc_n
-  crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
-  crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
-  crb_obj$parameters[["tSNE_perplexity"]] = "NA"
-  
-  # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
-  if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
-  
-  # Add technical information
-  crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
-  
-  # Add sample-related information
-  crb_obj$samples = list()
-  crb_obj$samples[["colors"]] = param$col_samples
-  crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
-  
-  crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-    dplyr::group_by(sample, cluster) %>%
-    dplyr::summarise(num_cells=length(cluster)) %>%
-    dplyr::group_by(sample) %>%
-    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-    tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=list(num_cells=0))
-  
-  if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-      dplyr::group_by(sample, phase) %>%
-      dplyr::summarise(num_cells=length(phase)) %>%
-      dplyr::group_by(sample) %>%
-      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  }
-  
-  # Add cluster-related information
-  crb_obj$clusters = list()
-  crb_obj$clusters[["colors"]] = param$col_clusters
-  crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
-  
-  crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-    dplyr::group_by(sample, cluster) %>%
-    dplyr::summarise(num_cells=length(cluster)) %>%
-    dplyr::group_by(cluster) %>%
-    dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-    tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=list(num_cells=0))
-  
-  if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-      dplyr::group_by(cluster, phase) %>%
-      dplyr::summarise(num_cells=length(phase)) %>%
-      dplyr::group_by(cluster) %>%
-      dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-      tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  }
-  
-  tree = Tool(object=sc, slot="BuildClusterTree")
-  if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
-  
-  # Fix cell cycle information
-  if ("Phase" %in% colnames(sc[[]])) {
-    crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
-  }
-  
-  # Add marker genes
-  crb_obj$marker_genes = list()
-  crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
-  if(!is.null(marker_genes) & nrow(marker_genes)>0) {
-    crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj"))
-  } else {
-    crb_obj$marker_genes[["by_cluster"]] = "no markers found"
-  }
-  crb_obj$marker_genes[["by_sample"]]
-  
-  # Add enriched pathways
-  crb_obj$enriched_pathways = list(enrichr=list())
-  crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
-  
-  pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
-    d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
-    if (nrow(d) == 0) return(d)
-    d$set = x
-    d$cluster = gsub("\\S+_cluster_","",d$set)
-    return(d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))])
-  })
-  pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
-  pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
-  pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up",pathways_by_cluster$set),"UP","DOWN"))
-  pathways_by_cluster$set = NULL
-  
-  crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
-  crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
-  
-  # Save modified object
-  saveRDS(crb_obj, file=path)
+  # crb_obj = readRDS(path)
+  # 
+  # # Add basic parameters (are hardcoded unfortunately)
+  # crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
+  # crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
+  # crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
+  # crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
+  # crb_obj$parameters[["number_PCs"]] = param$pc_n
+  # crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
+  # crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
+  # crb_obj$parameters[["tSNE_perplexity"]] = "NA"
+  # 
+  # # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
+  # if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
+  # 
+  # # Add technical information
+  # crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
+  # 
+  # # Add sample-related information
+  # crb_obj$samples = list()
+  # crb_obj$samples[["colors"]] = param$col_samples
+  # crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
+  # 
+  # crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+  #   dplyr::group_by(sample, cluster) %>%
+  #   dplyr::summarise(num_cells=length(cluster)) %>%
+  #   dplyr::group_by(sample) %>%
+  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+  #   tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=list(num_cells=0))
+  # 
+  # if ("Phase" %in% colnames(sc[[]])) {
+  #   crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+  #     dplyr::group_by(sample, phase) %>%
+  #     dplyr::summarise(num_cells=length(phase)) %>%
+  #     dplyr::group_by(sample) %>%
+  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
+  # }
+  # 
+  # # Add cluster-related information
+  # crb_obj$clusters = list()
+  # crb_obj$clusters[["colors"]] = param$col_clusters
+  # crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
+  # 
+  # crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
+  #   dplyr::group_by(sample, cluster) %>%
+  #   dplyr::summarise(num_cells=length(cluster)) %>%
+  #   dplyr::group_by(cluster) %>%
+  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+  #   tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=list(num_cells=0))
+  # 
+  # if ("Phase" %in% colnames(sc[[]])) {
+  #   crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
+  #     dplyr::group_by(cluster, phase) %>%
+  #     dplyr::summarise(num_cells=length(phase)) %>%
+  #     dplyr::group_by(cluster) %>%
+  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
+  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
+  # }
+  # 
+  # tree = Tool(object=sc, slot="BuildClusterTree")
+  # if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
+  # 
+  # # Fix cell cycle information
+  # if ("Phase" %in% colnames(sc[[]])) {
+  #   crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
+  # }
+  # 
+  # # Add marker genes
+  # crb_obj$marker_genes = list()
+  # crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
+  # if(!is.null(marker_genes) & nrow(marker_genes)>0) {
+  #   crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj"))
+  # } else {
+  #   crb_obj$marker_genes[["by_cluster"]] = "no markers found"
+  # }
+  # crb_obj$marker_genes[["by_sample"]]
+  # 
+  # # Add enriched pathways
+  # crb_obj$enriched_pathways = list(enrichr=list())
+  # crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
+  # 
+  # pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
+  #   d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
+  #   if (nrow(d) == 0) return(d)
+  #   d$set = x
+  #   d$cluster = gsub("\\S+_cluster_","",d$set)
+  #   return(d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))])
+  # })
+  # pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
+  # pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
+  # pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up", pathways_by_cluster$set), "UP", "DOWN"))
+  # pathways_by_cluster$set = NULL
+  # 
+  # crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
+  # crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
+  # 
+  # # Save modified object
+  # saveRDS(crb_obj, file=path)
   
   return(TRUE)
 }
