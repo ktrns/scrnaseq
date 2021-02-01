@@ -167,7 +167,7 @@ GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_message = function(x, options){
-  x = gsub('^##','',x)
+  x = gsub('##', '<br/>', gsub('^## Message:','',x))
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
                 '<style> .alert-info { background-color: #abd9c6; color: black; } </style>', 
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
@@ -193,7 +193,7 @@ Message = function(x, options){
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_warning = function(x, options){
-  x = gsub('^## Warning:','',x)
+  x = gsub('##', '<br/>', gsub('^## Warning:','',x))
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
                  '<style> .alert-warning { background-color: #fae39c; color: black; } </style>', 
                  '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',

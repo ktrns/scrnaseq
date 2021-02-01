@@ -18,15 +18,10 @@ AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_p
 # Transform a matrix cells (rows) x htos (cols) into a format that can be understood by 
 #   feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
 DfAllColumnCombinations = function(x, cell_classification) {
-  out = matrix(NA, nrow=0, ncol=4)
-  for (i in 1:(ncol(x)-1)) {
-    for (j in (i+1):ncol(x)) {
-      a = x %>% dplyr::select(i) %>% tidyr::pivot_longer(1)
-      b = x %>% dplyr::select(j) %>% tidyr::pivot_longer(1)
-      out = rbind(out, cbind(cell_classification, a, b))
-    }
-  }
-  colnames(out) = c("cell_classification", "name1", "value1", "name2", "value2")
+  out = combn(x, 2, simplify=FALSE)
+  out = lapply(out, function(o) {
+    return(data.frame(cell_classification=unname(cell_classification[rownames(o)]), name1=colnames(o)[1], value1=o[,1], name2=colnames(o)[2], value2=o[,2]))
+  }) %>% dplyr::bind_rows()
   
   # Define plot order so that the two levels of interest are always on top, then negatives, doublets, 
   #   and finally all other samples

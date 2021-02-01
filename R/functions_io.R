@@ -149,7 +149,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     # Include cell and feature metadata
     c = samples_to_process[[s]] # cells to include for sample
     f = feature_types[1] # feature type
-    a = feature_type_to_assay_name[f] # assay name
+    a = unname(feature_type_to_assay_name[f]) # assay name
     d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix") # cell data
     m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
     if (ncol(m)==0 | nrow(m)==0) m=NULL
@@ -171,7 +171,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     
     # now add remaining assays
     for (f in feature_types[-1]) {
-      a = feature_type_to_assay_name[f]
+      a = unname(feature_type_to_assay_name[f])
       d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix")
       sc[[n]][[a]] = Seurat::CreateAssayObject(counts=d,
                                           min.cells=0,
@@ -195,10 +195,11 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
 #' @param convert_row_names Named vector for converting the row names obtained from features.tsv.gz (e.g. from Ensembl ids to gene symbols). Does not need to contain all row names. Can be NULL in which case row names are not converted.
 #' @param feature_type_column Name or index of the column which should be used for feature types (3).
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
-#' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param hto_names If Antibody Capture data is used as hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param hto_regex If Antibody Capture data is used as hashtags for multiplexing, a regular expression to identify the hashtag (e.g. HashTag).
 #' @param return_samples_as_datasets If there are multiple samples in the dataset: return each as separate dataset ("TRUE").
 #' @return A Seurat object.
-ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
+ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL, hto_regex=NULL) {
   library(magrittr)
   
   # defaults
@@ -240,6 +241,12 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   }
 
   # special case: if hashtags are specified and if there is a Antibody Capture data, then split and add as separate assay
+  # if a regular expression is defined for HTO, overwrite hto_names 
+  if ("Antibody Capture" %in% names(feature_data) && !is.null(hto_regex) && nchar(hto_regex)>0) {
+    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE)
+    if (length(hto_names)==0) futile.logger::flog.error("Could not find HTO names with the 'hto_regex' argument '%s'!", hto_regex)
+  }
+  
   if ("Antibody Capture" %in% names(feature_data) & length(hto_names)>0) {
     # check to avoid special chars
     invalid = grep(pattern="[-_]", x=hto_names, v=TRUE)
@@ -260,10 +267,10 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     feature_data[["Antibody Capture"]] = feature_data[["Antibody Capture"]][!is_hashtag,, drop=FALSE]
     
     # rename if neccessary
-    rownames(feature_data[["_HashTags_"]]) = hto_names[rownames(feature_data[["_HashTags_"]])]
+    rownames(feature_data[["_HashTags_"]]) = unname(hto_names[rownames(feature_data[["_HashTags_"]])])
     nms = rownames(features_ids_types)
     nms[nms %in% names(hto_names)] = hto_names[nms[nms %in% names(hto_names)]]
-    rownames(features_ids_types) = nms
+    rownames(features_ids_types) = unname(nms)
     
     # this will be the HashTag assay
     feature_type_to_assay_name = c(feature_type_to_assay_name, c("_HashTags_" = "HTO"))
@@ -295,7 +302,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   # create Seurat object with first assay
   # include cell and feature metadata
   f = feature_types[1]
-  a = feature_type_to_assay_name[f]
+  a = unname(feature_type_to_assay_name[f])
   sc = Seurat::CreateSeuratObject(counts=feature_data[[f]], 
                                   project=project, 
                                   assay=a, 
@@ -315,7 +322,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   
   # now add remaining assays
   for (f in feature_types[-1]) {
-    a = feature_type_to_assay_name[f]
+    a = unname(feature_type_to_assay_name[f])
     sc[[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
     
     nms = rownames(sc[[a]])
@@ -338,8 +345,9 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
 #' @param feature_type_to_assay_name How should the feature types for the different assays be named? Default is: "RNA" = "Gene expression","ADT" = "Antibody Capture" ,"HTO" = "Antibody Capture","Crispr" = "CRISPR Guide Capture", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the feature types are written.
 #' @param include_cell_metadata_cols Vector with names of cell metadata columns to be written to the metadata.tsv.gz. Can be NULL in which case no file is created.
 #' @param include_feature_metadata_cols Vector with names of feature metadata columns to be written. Can be NULL in which case only the first three columns (feature id, feature symbol and feature type) are written.
+#' @param metadata_prefix Prefix for cell metadata column names. If NULL, no prefix. Separator must be included.
 #' @return The path to the data directory.
-ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", assay_name_to_feature_type=NULL, include_cell_metadata_cols=NULL, include_feature_metadata_cols=NULL) {
+ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", assay_name_to_feature_type=NULL, include_cell_metadata_cols=NULL, include_feature_metadata_cols=NULL, metadata_prefix=NULL) {
   # defaults
   if (is.null(assay_name_to_feature_type)) assay_name_to_feature_type = c("RNA"="Gene Expression",
                                                                           "ADT"="Antibody Capture",
@@ -386,7 +394,11 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
                                                     first_n_elements_to_string(missed))
     
     metadata_table = sc[[include_cell_metadata_cols]]
+    if (!is.null(metadata_prefix)) {
+      colnames(metadata_table) = paste0(metadata_prefix, colnames(metadata_table))
+    }
     metadata_table_nms = colnames(metadata_table)
+
     metadata_table$CELL_ID_METADATA = rownames(metadata_table)
     metadata_table = metadata_table[, c("CELL_ID_METADATA", metadata_table_nms)]
     

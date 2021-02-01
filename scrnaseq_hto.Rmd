@@ -22,10 +22,20 @@ params:
    
    # HTO names
    #   HTOs have an ID that is included in the 'features.tsv' input file
-   #   We additionally ask for readable names that are used throughout this report 
+   #   We additionally ask for readable names that are used throughout this report (optional)
    #   This could look like this, where HTO1-3 are the IDs included raw dataset
-   #     param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))
+   #    - without names: 'hto.names: c("HTO1", "HTO2", "HTO3")'
+   #    - with names: 'hto.names: !r setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))'
+   # 
    hto_names: !r setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
+   
+   # HTO regular expression (alternative to HTO names)
+   #   Identify HTOs via a regular expression. Names cannot be provided here.
+   #   If specified will overrule hto_names
+   #hto_regex: "^hto"
+   
+   # HTO normalisation: CLR (default) or LogNorm
+   norm: "CLR"
    
    # Prefix of mitochondrial genes
    mt_names: "^MT-"
@@ -35,13 +45,22 @@ params:
    
    # Downsample data to at most N cells (mainly for tests); set to NULL to deactivate
    downsample_cells_n: NULL
+   
+   # Path to git
+   path_to_git: "."
 title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
 subtitle: "Demultiplexing with hashtag oligos"
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
 # R Options
-options(stringsAsFactors=FALSE)
+options(stringsAsFactors=FALSE,
+        "citation_format"="pandoc", 
+        dplyr.summarise.inform=FALSE, 
+        knitr.table.format="html",
+        future.globals.maxSize=2000000000, mc.cores=4, 
+        future.fork.enable=TRUE, future.plan="multicore",
+        future.rng.onMisuse="ignore")
 
 # Required libraries
 library(Seurat) # main
@@ -62,22 +81,58 @@ source("R/functions_analysis.R")
 source("R/functions_util.R")
 
 # Knitr default options
-knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+knitr::opts_chunk$set(echo=TRUE,                     # output code
+                      cache=FALSE,                   # do not cache results
+                      message=TRUE,                  # show messages
+                      warning=TRUE,                  # show warnings
+                      tidy=FALSE,                    # do not auto-tidy-up code
+                      fig.width=10,                  # default fig width in inches
+                      class.source='fold-hide',      # by default collapse code blocks
+                      dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
+                      dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                                    pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                      dpi=96                         # figure resolution
+                                     
+)
+
 ```
 
-```{r hto_colours}
-hto_colours = list()
-hto_colours$col_hto_global = ggsci::pal_npg()(3)
-hto_colours$col_hto_all = ggsci::pal_npg()(factorial(length(params$hto_names)) + 1)
-hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(params$hto_names) + 2)
-hto_levels = c("Negative", "Doublet", params$hto_names[length(params$hto_names):1])
-names(hto_colours$col_hto_collapsed) = hto_levels
+```{r preparation_and_initial_checks}
+# Path for figures in png and pdf format
+knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
+
+# Git directory and files to source must be done first, then all helper functions can be sourced
+git_files_to_source = c("R/functions_io.R",
+              "R/functions_plotting.R",
+              "R/functions_analysis.R",
+              "R/functions_util.R")
+git_files_to_source = paste(params$path_to_git, git_files_to_source, sep="/")
+file_exists = purrr::map_lgl(git_files_to_source, file.exists)
+
+if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", params$path_to_git, "'.!"))
+invisible(purrr::map(git_files_to_source, source))
+
+# Set output hooks
+knitr::knit_hooks$set(message=format_message, warning=format_warning)
+
+# Create output directories
+if (!file.exists(params$path_out)) dir.create(params$path_out, recursive=TRUE, showWarnings=FALSE)
+
+# Do checks
+error_messages = c()
+# Check installed packages
+error_messages = c(error_messages, check_installed_packages())
+# Check parameters TODO
+#error_messages = c(error_messages, check_parameters(param))
 ```
 
-```{r create_output_path}
-if (!file.exists(params$path_out)) dir.create(params$path_out, recursive=TRUE)
+```{r initial_checks_failed, eval=length(error_messages)>0, include=length(error_messages)>0}
+# Now format collected error messages as error boxes, print and exit
+# Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
+error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
+knitr::knit_exit()
+knitr::asis_output(error_message_blocks)
 ```
-
 # Read input data
 In this first section of the report, we read 10X data from the files produced by CellRanger:  
 
@@ -94,8 +149,8 @@ and setup a Seurat object. This object includes different data types in separate
 
 Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and are distinguished based on provided HTO names. 
 ```{r hto_read}
-# Load the dataset with its assays and create a Seurat object; pass hto_names so that HTO will be a separate assay
-sc = ReadSparseMatrix(params$path_data, project=params$project_id, row_name_column=1, hto_names=params$hto_names)
+# Load the dataset with its assays and create a Seurat object; pass hto_names (or hto_regex if set) so that HTO will be a separate assay
+sc = ReadSparseMatrix(params$path_data, project=params$project_id, row_name_column=1, hto_names=params$hto_names, hto_regex=params$hto_regex)
 
 # If requested: sample at most n cells
 if (!is.null(params$downsample_cells_n)) {
@@ -103,8 +158,7 @@ if (!is.null(params$downsample_cells_n)) {
   sc = subset(sc, cells=sampled_barcodes)
 }
 
-# Discard cells in other assays which have no HTO counts 
-# Discard cells in other assays which have no HTO counts 
+# Discard cells which have no HTO counts 
 original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
 assay_cells_hto_zero = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>% Matrix::colSums()==0
 if (any(assay_cells_hto_zero)) {
@@ -113,7 +167,15 @@ if (any(assay_cells_hto_zero)) {
 }
 
 # Remember original assay names
-original_assay_names = setdiff(Seurat::Assays(sc), "HTO") 
+original_assay_names = setdiff(Seurat::Assays(sc), "HTO")
+
+# Set colours
+hto_samples = rownames(sc[["HTO"]])
+hto_colours = list()
+hto_colours$col_hto_global = ggsci::pal_npg()(3)
+hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(hto_samples) + 2)
+hto_levels = c("Negative", "Doublet", params$hto_names[1:length(hto_samples)])
+names(hto_colours$col_hto_collapsed) = hto_levels
 ```
 
 ```{r hto_cells_summary}
@@ -133,31 +195,41 @@ This section of the report shows how cells are assigned to their sample-of-origi
 
 ## Normalisation of HTO counts
 We start the analysis by normalising raw HTO counts. HTO counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed. 
-```{r hto_norm}
-sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="LogNormalize")
+```{r hto_normalisation}
 
-# alternative: CLR
-# sc = NormalizeData(sc, assay="HTO", normalization.method="CLR") 
+# HTO
+if (params$norm=="CLR") {
+  # normalisation: CLR
+  sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="CLR", verbose=FALSE)
+} else if (params$norm=="LogNorm") {
+  # alternative: LogNorm
+  sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="LogNormalize", verbose=FALSE)
+}
+
+# RNA
+sc = Seurat::NormalizeData(sc, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
+sc = Seurat::FindVariableFeatures(sc, assay="RNA", selection.method="vst", verbose=FALSE)
+sc = Seurat::ScaleData(sc, assay="RNA", features=Seurat::VariableFeatures(sc, assay="RNA"), verbose=FALSE)
 ```
 
 ## Classification of cells based on normalised HTO data
 We assign cells to their sample-of-origin, annotate negative cells that cannot be assigned to any sample, and doublet cells that are assigned to two samples. 
 ```{r hto_demux, results="asis"}
 # Demultiplex HTOs
-sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.95)
+sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.95, verbose=FALSE)
   
 # Sort Idents levels for nicer plotting
 Seurat::Idents(sc) = factor(Seurat::Idents(sc), levels=hto_levels)
 sc$hash.ID = factor(sc$hash.ID, levels=hto_levels)
   
 # HTO classification results
-hash_ID_table = sc@meta.data %>% 
+hash_ID_table = sc[["hash.ID"]] %>% 
   dplyr::count(hash.ID) %>% 
   dplyr::rename(HTO=hash.ID) %>% 
   dplyr::mutate(Perc=round(n/sum(n)*100,2)) %>% 
   as.data.frame
 
-p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global), 
+p1 = ggplot(sc[["HTO_classification.global"]] %>% dplyr::count(HTO_classification.global), 
             aes(x="", y=n, fill=HTO_classification.global)) + 
   geom_bar(width=1, stat="identity") + 
   coord_polar("y", start=0) + 
@@ -165,7 +237,7 @@ p1 = ggplot(sc@meta.data %>% dplyr::count(HTO_classification.global),
            fill=hto_colours$col_hto_global, 
            xlab="", ylab="")
 
-p2 = ggplot(sc@meta.data %>% dplyr::count(hash.ID), 
+p2 = ggplot(sc[["hash.ID"]] %>% dplyr::count(hash.ID), 
             aes(x="", y=n, fill=hash.ID)) + 
   geom_bar(width=1, stat="identity") + 
   coord_polar("y", start=0) + 
@@ -179,7 +251,7 @@ p = p1 + p2 +
 p
 ```
 
-# Visualisation of raw and normalised HTO data {.tabset}
+# Visualisation of raw and normalised HTO data
 This section of the report visualises raw and normalised HTO data to understand whether the demultiplexing step has worked well. 
 ```{r hto_plot_counts_raw}
 # Distribution of HTO counts before and after normalisation
@@ -189,7 +261,7 @@ hto_t_raw_pseudo = hto_t_raw + 1
 hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
   as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x=name, y=value, fill=name)) + 
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::gather(key="name"), aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   AddStyle(title="HTO raw counts", 
@@ -197,7 +269,7 @@ p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x
            legend_title="HTO", 
            xlab="", ylab="")
   
-p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
+p2 = ggplot(hto_t_norm %>% tidyr::gather(key="name"), 
             aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   AddStyle(title="HTO normalised counts", 
@@ -234,6 +306,7 @@ p
 
 ```{r hto_plot_norm_scatter, fig.height=10}  
 n = DfAllColumnCombinations(x=hto_t_norm, cell_classification=sc$hash.ID)
+n = n[n$value1>0 & n$value2>0,]
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
   geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
@@ -245,11 +318,11 @@ p = p + facet_grid(name2~name1, drop=FALSE) +
         strip.background = element_rect(colour="white", fill="lightgrey"),
         legend.position="bottom") + 
   patchwork::plot_annotation("Normalised HTO data")
-p
+suppressMessages(p)
 ```
 
 The following ridge plots visualise the enrichment of assigned sample-of-origin for the respective normalised HTO counts. 
-```{r hto_plot_norm, fig.height=10}
+```{r hto_plot_norm, fig.height=10, message=FALSE}
 # Group cells based on HTO classification 
 p_list = RidgePlot(sc, assay="HTO", features=rownames(Seurat::GetAssay(sc, assay="HTO")), 
                    same.y.lims=TRUE, cols=hto_colours$col_hto_collapsed, combine=FALSE)
@@ -258,23 +331,40 @@ p = patchwork::wrap_plots(p_list, ncol = 2) +
   patchwork::plot_annotation("Normalised HTO data") + 
   patchwork::plot_layout(guides = "collect") & 
   theme(legend.position="bottom") 
-p
+suppressMessages(p)
 ```
 
-Lastly, we compare the number of features between classified cells. 
+Lastly, we compare the counts and number of features between classified cells. 
 ```{r hto_plot_features}
 # Number of features in the different cells
 nfeature_metrics = grep("_HTO", 
                         grep("nFeature_", colnames(sc[[]]), v=TRUE),
                         v=TRUE,
                         invert=TRUE)
-p = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), pt.size=0) + 
+ncounts_metrics = grep("_HTO", 
+                        grep("nCount_", colnames(sc[[]]), v=TRUE),
+                        v=TRUE,
+                        invert=TRUE)
+
+p1 = VlnPlot(sc, features=ncounts_metrics, idents=levels(Seurat::Idents(sc)), pt.size=0) + 
   geom_violin(color=NA) +
-  AddStyle(title="Number of features for HTO-classified cells", 
+  AddStyle(title="Counts (RNA)", 
            fill=hto_colours$col_hto_collapsed, 
            legend_title="Classified cells",
            legend_position="bottom", 
            xlab="")
+
+p2 = VlnPlot(sc, features=nfeature_metrics, idents=levels(Seurat::Idents(sc)), pt.size=0) + 
+  geom_violin(color=NA) +
+  AddStyle(title="Features (RNA)", 
+           fill=hto_colours$col_hto_collapsed, 
+           legend_title="Classified cells",
+           legend_position="bottom", 
+           xlab="")
+
+p = patchwork::wrap_plots(list(p1, p2), ncol=2) & theme(legend.position="bottom") 
+p = p + patchwork::plot_annotation("Number of counts and features for HTO-classified cells") + 
+  patchwork::plot_layout(guides = "collect")
 p
 ```
 
@@ -289,8 +379,38 @@ sc
 # Preliminary visualisation of demultiplexed RNA data
 This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the standard scRNA-seq workflow. 
 ```{r prelim_analysis, results='hide'}
-sc.all = prelim.analysis(sc=sc.all, mt=params$mt_names, pc_n=10)
-sc = prelim.analysis(sc=sc, mt=params$mt_names, pc_n=10)
+# normalise and scale sc
+sc = Seurat::NormalizeData(sc, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
+sc = Seurat::FindVariableFeatures(sc, assay="RNA", selection.method="vst", verbose=FALSE)
+sc = Seurat::ScaleData(sc, assay="RNA", features=Seurat::VariableFeatures(sc, assay="RNA"), verbose=FALSE)
+
+# run pca, umap and clustering for sc and sc.all
+sc = Seurat::RunPCA(sc, assay="RNA", features=VariableFeatures(object=sc, assay="RNA"), verbose=FALSE)
+sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:10, verbose=FALSE, umap.method="uwot"))
+sc = Seurat::FindNeighbors(sc, dims=1:10, verbose=FALSE)
+sc = Seurat::FindClusters(sc, algorithm=1, verbose=FALSE, method="igraph")
+Idents(sc) = "hash.ID"
+
+sc.all = Seurat::RunPCA(sc.all, assay="RNA", features=VariableFeatures(object=sc.all, assay="RNA"), verbose=FALSE)
+sc.all = suppressWarnings(Seurat::RunUMAP(sc.all, dims=1:10, verbose=FALSE, umap.method="uwot"))
+sc.all = Seurat::FindNeighbors(sc.all, dims=1:10, verbose=FALSE)
+sc.all = Seurat::FindClusters(sc.all, algorithm=1, verbose=FALSE, method="igraph")
+Idents(sc.all) = "hash.ID"
+
+# figure height
+sc_fig_height = round((length(hto_samples))*1.25)
+sc_qc_fig_height = round((length(hto_samples))*0.75)
+sc_all_fig_height = round((length(hto_samples)+2)*1.25)
+sc_all_qc_fig_height = round((length(hto_samples)+2)*0.75)
+
+# cluster colors
+cluster_names = levels(sc$seurat_clusters)
+sc_col_clusters = GenerateColours(num_colours=length(cluster_names), palette="ggsci::pal_d3", palette_options = list(palette="category20"))
+names(sc_col_clusters) = cluster_names
+
+cluster_names = levels(sc.all$seurat_clusters)
+sc_all_col_clusters = GenerateColours(num_colours=length(cluster_names), palette="ggsci::pal_d3", palette_options = list(palette="category20"))
+names(sc_all_col_clusters) = cluster_names
 ```
 
 ## Visualisation with UMAP {.tabset}
@@ -314,6 +434,8 @@ p = Seurat::DimPlot(sc.all, reduction="umap", group.by="hash.ID", cols=hto_colou
 p
 ```
 
+* Note: HTO colors are the same before and after filtering
+
 ### After filtering
 ```{r umap_after}
 # Plot UMAP after HTO filtering
@@ -324,10 +446,112 @@ p = Seurat::DimPlot(sc, reduction="umap", group.by="hash.ID", cols=hto_colours$c
 p
 ```
 
+* Note: HTO colors are the same before and after filtering
+
+### Before filtering (each hto)
+```{r umap_cluster_before, fig.height=sc_all_fig_height}
+p = Seurat::DimPlot(sc.all, reduction="umap", group.by="seurat_clusters", split.by="hash.ID", ncol=2, cols=sc_all_col_clusters) + 
+  AddStyle(title="UMAP for each HTO, including doublets and negatives", 
+           legend_title="Cluster", 
+           legend_position="right")
+p
+```
+
+* Important: cluster colors are not neccessarily the same before and after filtering!
+
+### After filtering (each hto)
+```{r umap_cluster_after, fig.height=sc_fig_height}
+p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", split.by="hash.ID", ncol=2, cols=sc_col_clusters) + 
+  AddStyle(title="UMAP for each HTO, singlets only", 
+           legend_title="Cluster", 
+           legend_position="right")
+p
+```
+
+* Important: cluster colors are not neccessarily the same before and after filtering!
+
+## Distribution of cells in HTO and in clusters
+
+Next, we examine how the HTOs are distributed in the individual clusters and how the clusters are distributed in each individual HTO. We include negatives and doublets as they often group into specific clusters.
+
+```{r hto_cluster distribution}
+
+p1 = ggplot(sc.all[[c("seurat_clusters","hash.ID")]], aes(x=seurat_clusters, fill=hash.ID)) +
+  geom_bar(position="fill", colour="black") +
+  scale_x_discrete("Cluster") +
+  scale_y_continuous("Fraction of cells") +
+  scale_fill_manual(values=hto_colours$col_hto_collapsed) +
+  AddStyle(title="HTO cells in cluster", 
+           legend_title="Cell classification", 
+           legend_position="right")  
+
+p2 = ggplot(sc.all[[c("seurat_clusters","hash.ID")]], aes(x=hash.ID, fill=seurat_clusters)) +
+  geom_bar(position="fill", colour="black") +
+  scale_x_discrete("Cluster") +
+  scale_y_continuous("Fraction of cells") +
+  scale_fill_manual(values=sc_all_col_clusters) +
+  AddStyle(title="Clusters in individual HTO", 
+           legend_title="Cluster", 
+           legend_position="right")  
+
+p = patchwork::wrap_plots(list(p1, p2), ncol=2) & theme(legend.position="bottom") 
+p = p + patchwork::plot_annotation("Distribution of HTO and clusters") + 
+  patchwork::plot_layout(guides = "collect")
+p
+
+```
+
+Here it also helps to inspect RNA counts and features in these clusters by hto.
+
+```{r hto_cluster_counts, fig.height=sc_all_qc_fig_height}
+ncounts_metrics = grep("_HTO", 
+                        grep("nCount_", colnames(sc.all[[]]), v=TRUE),
+                        v=TRUE,
+                        invert=TRUE)
+
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", ncounts_metrics[1])]], aes_string(x="hash.ID", y=ncounts_metrics[1], fill="hash.ID")) +
+  geom_violin() +
+  xlim(levels(sc.all$hash.ID)) +
+  scale_y_continuous("Counts (RNA)") +
+  facet_wrap(~seurat_clusters, ncol=3, scales="free_y") +
+  #scale_fill_manual(values=hto_colours$col_hto_collapsed) +
+  AddStyle(fill=hto_colours$col_hto_collapsed, 
+           legend_title="Classified cells",
+           legend_position="bottom", 
+           xlab="") +
+  theme(axis.text.x = element_text(angle=45, hjust=1), legend.position="none")
+p = p + patchwork::plot_annotation("Number of counts for each cluster and HTO")
+p
+```
+
+```{r hto_cluster_features, fig.height=sc_all_qc_fig_height}
+nfeature_metrics = grep("_HTO", 
+                        grep("nFeature_", colnames(sc.all[[]]), v=TRUE),
+                        v=TRUE,
+                        invert=TRUE)
+
+
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", nfeature_metrics[1])]], aes_string(x="hash.ID", y=nfeature_metrics[1], fill="hash.ID")) +
+  geom_violin() +
+  xlim(levels(sc.all$hash.ID)) +
+  facet_wrap(~seurat_clusters, ncol=3, scales="free_y") +
+  scale_y_continuous("Features (RNA)") +
+  #scale_fill_manual(values=hto_colours$col_hto_collapsed) +
+  AddStyle(fill=hto_colours$col_hto_collapsed, 
+           legend_title="Classified cells",
+           legend_position="bottom", 
+           xlab="") +
+  theme(axis.text.x = element_text(angle=45, hjust=1), legend.position="none")
+p = p + patchwork::plot_annotation("Number of features for each cluster and HTO")
+p
+```
+
 # Write out demultiplexed data
-Finally, demultiplexed RNA data are written back to file. 
+Finally, demultiplexed RNA data are written back to file. Results are included as metadata which may help for further analysis (e.g. filtering).
 ```{r hto_save_samples}
 # Save each sample in a separate directory
+Idents(sc) = "hash.ID"
+sc$HTO_hash_ID = sc$hash.ID
 samples = levels(Seurat::Idents(sc))
 demux_samples_paths = c()
 for (s in samples) {
@@ -335,23 +559,24 @@ for (s in samples) {
                             dir=file.path(params$path_out, s), 
                             assays=original_assay_names, 
                             slot="counts",
-                            include_cell_metadata_cols=c("HTO_maxID", 
-                                                         "HTO_classification", 
-                                                         "HTO_classification.global", 
-                                                         "hash.ID"))
+                            include_cell_metadata_cols=c("HTO_classification", 
+                                                         "HTO_hash_ID"))
   demux_samples_paths = c(demux_samples_paths, p)
 }
+message("Demultiplexed datasets are: ", paste(demux_samples_paths, collapse=", "))
 
 # Export cell classification for Loupe
+demux_samples_paths = c()
+sc.all$HTO_hash_ID = sc.all$hash.ID
 loupe_meta = as.data.frame(sc.all@meta.data)
-loupe_meta = loupe_meta[,c("HTO_classification", "HTO_classification.global")]
+loupe_meta = loupe_meta[,c("HTO_classification", "HTO_hash_ID")]
 idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
 loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
 p = file.path(params$path_out, "cell_classification_for_loupe.csv")
 write.table(x=loupe_meta, file=p, col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 demux_samples_paths = c(demux_samples_paths, p)
 
-message(demux_samples_paths)
+message(paste("Classification file for Loupe is:", demux_samples_paths))
 ```
 
 # Parameter table
