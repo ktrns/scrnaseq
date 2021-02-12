@@ -16,6 +16,9 @@ params:
    
    # Input directory
    path_data: test_datasets/10x_pbmc_hto_GSE108313/counts
+  
+   # Metrics summary
+   stats:
    
    # Output directory
    path_out: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
@@ -74,12 +77,6 @@ library(magrittr) # %>% operator
 # Tables: kableExtra
 # Plots: ggsci
 
-# Source plotting functions
-source("R/functions_io.R")
-source("R/functions_plotting.R")
-source("R/functions_analysis.R")
-source("R/functions_util.R")
-
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE,                     # output code
                       cache=FALSE,                   # do not cache results
@@ -134,7 +131,33 @@ knitr::knit_exit()
 knitr::asis_output(error_message_blocks)
 ```
 # Read input data
-In this first section of the report, we read 10X data from the files produced by CellRanger:  
+In this first section of the report, we begin by printing mapping statistics that have been produced prior to this workflow.
+```{r mapping_stats, message=TRUE, results='asis'}
+# Are statistics provided?
+if (!is.null(params$stats)) {
+  cat('\n## Stats {.tabset}\n\n')
+  mapping_stats = read.delim(params$stats,sep=",", header=FALSE, check.names=FALSE) %>% t() %>% as.data.frame()
+  colnames(mapping_stats) = c("V1","Dataset")
+  rownames(mapping_stats) = mapping_stats$V1
+  mapping_stats$V1 = NULL
+
+  mapping_stats_general = mapping_stats[!grepl("^Antibody:",rownames(mapping_stats)),,drop=FALSE]
+  mapping_stats_antibodies = mapping_stats[grepl("^Antibody:",rownames(mapping_stats)),,drop=FALSE]
+  
+  cat('\n### General\n\n')
+  print(knitr::kable(mapping_stats_general, align="l", caption="General statistics") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")))
+ 
+  cat('\n### Antibodies\n\n')
+  print(knitr::kable(mapping_stats_antibodies, align="l", caption="Antibody statistics") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")))
+} else { 
+  message("Mapping statistics cannot be shown. No valid file provided.")
+}
+```
+
+## Dataset
+Then, we read 10X data from the files produced by CellRanger:  
 
 * **barcodes.tsv.gz**: All cell barcodes  
 * **features.tsv.gz**: (Ensembl) ID, name, and type for each feature  
@@ -250,6 +273,85 @@ p = p1 + p2 +
   gridExtra::tableGrob(hash_ID_table, rows=NULL)
 p
 ```
+
+```{r hto_demux_debug, eval=FALSE, include=FALSE}
+# This chunk contains parts of the HTODemux function and is used for further debugging. Set eval and include to TRUE to run.
+library(Seurat)
+
+# make a copy first
+object = sc
+assay = "HTO"
+positive.quantile = 0.99
+init = NULL
+nstarts = 100
+kfunc = "clara"
+nsamples = 100
+seed = 42
+verbose = TRUE
+
+# Set seed
+if (!is.null(x = seed)) {
+  set.seed(seed = seed)
+}
+
+# Get raw HTO counts
+#assay <- assay %||% DefaultAssay(object = object)
+if (is.null(assay)) assay = DefaultAssay(object = object)
+
+data <- GetAssayData(object = object, assay = assay)
+counts <- GetAssayData(object = object, assay = assay, slot = "counts")[, colnames(x = object)]
+counts <- as.matrix(x = counts)
+#ncenters <- init %||% (nrow(x = data) + 1)
+if (is.null(init)) ncenters = (nrow(x = data) + 1) else ncenters = init
+
+# This will clusters cells based on their normalised HTO counts into '#hashtags+negative' clusters
+switch(EXPR = kfunc, 
+       kmeans = {
+         init.clusters <- kmeans(x = t(x = GetAssayData(object = object,assay = assay)), centers = ncenters, nstart = nstarts)
+        Idents(object = object, cells = names(x = init.clusters$cluster)) <- init.clusters$cluster}, 
+       clara = {
+        init.clusters <- cluster::clara(x = t(x = GetAssayData(object = object, assay = assay)), k = ncenters, samples = nsamples)
+        Idents(object = object, cells = names(x = init.clusters$clustering), drop = TRUE) <- init.clusters$clustering
+    }, stop("Unknown k-means function ", kfunc, ", please choose from 'kmeans' or 'clara'"))
+
+# Get average expression per cluster
+average.expression <- AverageExpression(object = object, assays = assay, verbose = FALSE)[[assay]]
+if (sum(average.expression == 0) > 0) {
+  stop("Cells with zero counts exist as a cluster.")
+}
+
+
+discrete <- GetAssayData(object = object, assay = assay)
+discrete[discrete > 0] <- 0
+
+# iterate over hashtags
+for (iter in rownames(x = data)) {
+  # counts for the hashtag
+  values <- counts[iter, colnames(object)]
+  
+  # get the cluster with the lowest expressed for this hashtag and returns the counts => this is the negative cluster?
+  values.use <- values[WhichCells(object = object, idents = levels(x = Idents(object = object))[[which.min(x = average.expression[iter, ])]])]
+  
+  # fits a negative binomial distribution for these values (why?)     
+  fit <- suppressWarnings(expr = fitdistrplus::fitdist(data = values.use, distr = "nbinom"))
+  
+  # the cutoff will be everything above the 0.99 quantile - so basically the top 0.01 percent of the data?
+  cutoff <- as.numeric(x = quantile(x = fit, probs = positive.quantile)$quantiles[1])
+  
+  discrete[iter, names(x = which(x = values > cutoff))] <- 1
+  if (verbose) {
+    message(paste0("Cutoff for ", iter, " : ", cutoff, " reads"))
+  }
+}
+
+npositive <- colSums(x = discrete)
+classification.global <- npositive
+classification.global[npositive == 0] <- "Negative"
+classification.global[npositive == 1] <- "Singlet"
+classification.global[npositive > 1] <- "Doublet"
+```
+
+
 
 # Visualisation of raw and normalised HTO data
 This section of the report visualises raw and normalised HTO data to understand whether the demultiplexing step has worked well. 
