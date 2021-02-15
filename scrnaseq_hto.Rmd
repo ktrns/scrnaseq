@@ -51,6 +51,10 @@ params:
    
    # Path to git
    path_to_git: "."
+   
+   # Debugging mode: 
+   # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+   debugging_mode: on_error_default_debugging
 title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
 subtitle: "Demultiplexing with hashtag oligos"
 ---
@@ -91,7 +95,6 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dpi=96                         # figure resolution
                                      
 )
-
 ```
 
 ```{r preparation_and_initial_checks}
@@ -108,6 +111,14 @@ file_exists = purrr::map_lgl(git_files_to_source, file.exists)
 
 if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", params$path_to_git, "'.!"))
 invisible(purrr::map(git_files_to_source, source))
+
+# Debugging mode: 
+# 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+switch (params$debugging_mode, 
+        default_debugging=on_error_default_debugging(), 
+        terminal_debugger=on_error_start_terminal_debugger(),
+        print_traceback=on_error_just_print_traceback(),
+        on_error_default_debugging())
 
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)

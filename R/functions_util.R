@@ -583,3 +583,27 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
 
   return(error_messages)
 }
+
+#' On error, R will not start a debugger but just print a traceback. For non-interactive use.
+#' @return None.
+on_error_just_print_traceback = function(x) {
+  options(rlang_trace_top_env = rlang::current_env())
+  options(error = function() {
+    sink()
+    print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")
+  })
+}
+
+#' On error, R will start a debugger on the terminal. For interactive use without X11.
+#' @return None.
+on_error_start_terminal_debugger = function(x) {
+  options(error = function() {
+    sink()
+    recover()
+  })
+}
+
+#' On error, R will run the default debugging process. Default.
+#' @return None.
+on_error_default_debugging = function(x) {
+}
