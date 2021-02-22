@@ -1,5 +1,4 @@
 #' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
-# useful environment variables
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").

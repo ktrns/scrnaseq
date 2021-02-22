@@ -378,8 +378,54 @@ These columns are optional:
   * `DESeq2`: tests using the DESeq2 package
   * For more information on the tests, please see the documentation on the `FindMarkers` function of the Seurat R package 
 * `latent_vars`: Additional variables to account for when testing (e.g. batches). Can be one or more cell metadata columns. Can contain multiple column names concatenated by semicolons.
-  
-##### __`p_enrichr`__
+
+Here are some examples:
+
+* Compare cluster 1 vs cluster 2:
+  * `condition_column`: `seurat_clusters`
+  * `condition_group1`: `1`
+  * `condition_group2`: `2`
+* Compare cluster 1 vs cluster 2 and cluster 3 combined :
+  * `condition_column`: `seurat_clusters`
+  * `condition_group1`: `1`
+  * `condition_group2`: `2+3`
+* Compare cluster 1 vs rest:
+  * `condition_column`: `seurat_clusters`
+  * `condition_group1`: `1`
+  * `condition_group2`: ``
+* For cell cycle (if computed), compare all G1 cells vs all S cells:
+  * `condition_column`: `Phase`
+  * `condition_group1`: `G1`
+  * `condition_group2`: `S`
+* For cell cycle (if computed), compare G1 cells vs S cells for cluster 1:
+  * `condition_column`: `Phase`
+  * `condition_group1`: `G1`
+  * `condition_group2`: `S`
+  * `subset_column`: `seurat_clusters`
+  * `subset_group`: `1`
+* For cell cycle (if computed), compare G1 cells vs S cells for cluster 1, 2, 3 (separately):
+  * `condition_column`: `Phase`
+  * `condition_group1`: `G1`
+  * `condition_group2`: `S`
+  * `subset_column`: `seurat_clusters`
+  * `subset_group`: `1;2;3`
+  * this will be three tests
+* For cell cycle (if computed), compare G1 cells vs S cells for cluster 1+2+3 (combined):
+  * `condition_column`: `Phase`
+  * `condition_group1`: `G1`
+  * `condition_group2`: `S`
+  * `subset_column`: `seurat_clusters`
+  * `subset_group`: `1+2+3`
+  * this will be one test
+* For cell cycle (if computed), compare G1 cells vs S cells for cluster 1+2+3 (combined) as well as cluster 4 (separately):
+  * `condition_column`: `Phase`
+  * `condition_group1`: `G1`
+  * `condition_group2`: `S`
+  * `subset_column`: `seurat_clusters`
+  * `subset_group`: `1+2+3;4`
+  * this will be two tests
+
+##### __`enrichr_padj`__
 
 P-value threshold for functional enrichment tests by Enrichr.
 

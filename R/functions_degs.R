@@ -1,7 +1,8 @@
-#' Introduce signed p-value and sort table of differentially expressed genes per performed test
+#' Sorts table of differentially expressed genes per performed test. Introduces a signed p-value score calculated as follows:
+#' p_val_adj_score = -log10(p_val_adj) * sign(avg_log2FC).
 #' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function or the "Seurat::FindMarkers" function
-#' @param group Group results first by column(s) before sorting
+#' @param degs Result table of the "Seurat::FindAllMarkers" function or the "Seurat::FindMarkers" function.
+#' @param group Group results first by column(s) before sorting.
 #' @return Sorted table with differentially expressed genes. 
 DegsSort = function(degs, group=NULL) { 
   # Introduce signed p-value score and group (if requested)
@@ -17,8 +18,8 @@ DegsSort = function(degs, group=NULL) {
 #' Filter table of differentially expressed genes.
 #' 
 #' @param degs Result table of the "Seurat::FindAllMarkers" or the "Seurat::FindMarkers" functions.
-#' @param cut_log2FC Log2 fold change threshold
-#' @param cut_padj Adjusted p-value threshold
+#' @param cut_log2FC Log2 fold change threshold.
+#' @param cut_padj Adjusted p-value threshold.
 #' @param split_by_dir Split filtered table into a table with all degs, a table with up-regulated degs and a table down-regulated degs.
 #' @return If split_by_dir is set to FALSE filtered table else list of filtered tables with all, up-regulated and down-regulated degs.
 DegsFilter = function(degs, cut_log2FC, cut_padj, split_by_dir=TRUE) { 
@@ -43,9 +44,9 @@ DegsFilter = function(degs, cut_log2FC, cut_padj, split_by_dir=TRUE) {
   return(filt)
 }
 
-#' Display top marker genes (=up-regulated genes)
+#' Display top marker genes (=up-regulated genes).
 #' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function (requires column "cluster")
+#' @param degs Result table of the "Seurat::FindAllMarkers" function (requires column "cluster").
 DegsUpDisplayTop = function(degs, n=5, caption=NULL) { 
   
   # Get top 5 up-regulated markers
@@ -66,9 +67,9 @@ DegsUpDisplayTop = function(degs, n=5, caption=NULL) {
 
 #' Compute average gene expression data per identity class for a set of genes.
 #' 
-#' @param sc Seurat object
-#' @param genes Gene list for which average data are to be extracted
-#' @return A table with average RNA counts and data per identity class for each gene
+#' @param sc Seurat object.
+#' @param genes Gene list for which average data are to be extracted.
+#' @return A table with average RNA counts and data per identity class for each gene.
 DegsAvgDataPerIdentity = function(sc, genes) { 
   # The standard average log FC is derived from assay="RNA" and slot="data"
   # Add average scaled data per cluster for default assay
@@ -103,11 +104,11 @@ DegsAvgDataPerIdentity = function(sc, genes) {
 
 #' Compute average gene expression data for a set of cells and a set of genes.
 #' 
-#' @param object Seurat assay object
-#' @param cells Cells to be used. NULL if all cells should be used
-#' @param genes Gene list for which average data are to be extracted. Can be NULL where all genes will be calculated
+#' @param object Seurat assay object.
+#' @param cells Cells to be used. NULL if all cells should be used.
+#' @param genes Gene list for which average data are to be extracted. Can be NULL where all genes will be calculated.
 #' @param slot Slot to be used (data). Can be 'counts' or 'data' or both (vector).
-#' @return A table with average data for each gene
+#' @return A table with average data for each gene.
 DegsAvgData = function(object, cells=NULL, genes=NULL, slot="data") {
   if ("data" %in% slot) avg_data = as.numeric() else avg_data = NULL
   if ("counts" %in% slot) avg_counts = as.numeric() else avg_counts = NULL
@@ -141,69 +142,23 @@ DegsAvgData = function(object, cells=NULL, genes=NULL, slot="data") {
   return(avg)
 }
 
-#' Write marker genes to an Excel file.
-#' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function (requires column "cluster"). The table is split by the column "cluster", and each split table is written into a separate Excel tab. 
-#' @param annot_ensembl Ensembl annotation for all genes with Seurat-compatible unique rownames.
-#' @param file Output file name
-DegsWriteMarkerToFile = function(degs, annot_ensembl, file) {
-  # Write results to file if there are degs
-  if (nrow(degs) > 0) {
-    
-    # Convert to list, one table per cluster
-    degs_cluster = levels(degs$cluster)
-    degs_lst = lapply(degs_cluster, function(x) {degs %>% dplyr::filter(cluster==x)})
-    names(degs_lst) = degs_cluster
-  
-    # Add Ensembl annotation
-    for (i in seq(degs_lst)) {
-      annot_ensembl_idx = match(as.character(degs_lst[[i]]$gene), rownames(annot_ensembl))
-      degs_lst[[i]] = cbind(degs_lst[[i]], annot_ensembl[annot_ensembl_idx,])
-    }
-    
-    # Add README
-    readme_table = data.frame(Column=c("p_val"), Description=c("Uncorrected p-value of test"))
-    readme_table = rbind(readme_table, c("avg_log2FC", "Mean log2 fold change cluster of interest vs other cells"))
-    readme_table = rbind(readme_table, c("pct.1", "Fraction cells expressing gene in cluster of interest"))
-    readme_table = rbind(readme_table, c("pct.2", "Fraction cells expressing gene in other cells"))
-    readme_table = rbind(readme_table, c("p_val_adj", "Adjusted p-value of test"))
-    readme_table = rbind(readme_table, c("cluster", "Cluster"))
-    readme_table = rbind(readme_table, c("gene", "Gene"))
-    readme_table = rbind(readme_table, c("p_val_adj_score", "Score calculated as follows: -log10(p_val_adj)*sign(avg_log2FC)"))
-    readme_table = rbind(readme_table, c("avg_<assay>_<slot>_id<cluster>", "Average expression value for cluster; <assay> can be RNA or SCT; <slot> can be (raw) counts or (normalised) data"))
-    readme_table = rbind(readme_table, c("ensembl_gene_id","Ensembl gene id (if available)"))
-    readme_table = rbind(readme_table, c("external_gene_name","Gene symbol (if available)"))
-    readme_table = rbind(readme_table, c("chromosome_name","Chromosome name of gene (if available)"))    
-    readme_table = rbind(readme_table, c("start_position","Start position of gene (if available)"))
-    readme_table = rbind(readme_table, c("end_position","End position of gene (if availablen)"))
-    readme_table = rbind(readme_table, c("percentage_gene_gc_content","GC content of gene (if available)"))
-    readme_table = rbind(readme_table, c("gene_biotype","Biotype of gene (if available)"))    
-    readme_table = rbind(readme_table, c("strand","Strand of gene (if available)"))
-    readme_table = rbind(readme_table, c("description","Description of gene (if available)"))
-    
-    degs_lst = c(list("README"=readme_table), degs_lst)
-    
-    # Output in Excel sheet
-    openxlsx::write.xlsx(degs_lst, file=file)
-  }
-  
-  return(file)
-}
 
-#' Write differentially expressed genes to an Excel file.
+#' Write differentially expressed genes or markers to an Excel file.
 #' 
-#' @param degs Result table of the "Seurat::FindMarkers" function. Can also be a list of tables so that each table is written into an extra Excel tab. 
-#' @param annot Ensembl annotation for all genes with Seurat-compatible unique rownames.
-#' @param file Output file name
-#' @return Output file name
-DegsWriteToFile = function(degs, annot_ensembl, file) {
+#' @param degs Result table of the "Seurat::FindMarkers" or "Seurat::FindAllMarkers" functions. Can also be a list of tables so that each table is written into an extra Excel tab. 
+#' @param annot_ensembl Ensembl annotation for all genes with Ensembl IDs as rownames.
+#' @param gene_to_ensembl Named vector for translating the Seurat gene names of the result table(s) to Ensembl IDs.
+#' @param file Output file name.
+#' @param additional_readme A data.frame to describe additional columns. Should contain columns 'Column' and 'Description'. Can be NULL.
+#' @return Output file name.
+DegsWriteToFile = function(degs, annot_ensembl, gene_to_ensembl, file, additional_readme=NULL) {
   # Always use list and add annotation
   if (is.data.frame(degs)) degs_lst = list(All=degs) else degs_lst = degs
   
   # Add Ensembl annotation
   for (i in seq(degs_lst)) {
-    annot_ensembl_idx = match(as.character(degs_lst[[i]]$gene), rownames(annot_ensembl))
-    degs_lst[[i]] = cbind(degs_lst[[i]], annot_ensembl[annot_ensembl_idx,])
+    degs_ensembl = gene_to_ensembl[as.character(degs_lst[[i]]$gene)]
+    degs_lst[[i]] = cbind(degs_lst[[i]], annot_ensembl[degs_ensembl,])
   }
   
   # Add README
@@ -226,18 +181,21 @@ DegsWriteToFile = function(degs, annot_ensembl, file) {
   readme_table = rbind(readme_table, c("strand","Strand of gene (if available)"))
   readme_table = rbind(readme_table, c("description","Description of gene (if available)"))
   
+  if (!is.null(additional_readme)) readme_table = dplyr::bind_rows(readme_table, additional_readme)
+  
   degs_lst = c(list("README"=readme_table), degs_lst)
-    
+  
   # Output in Excel sheet
   openxlsx::write.xlsx(degs_lst, file=file)
   return(file)
 }
 
-#' Plot the number of DEGs per test 
+#' Plot the number of DEGs per test.
 #' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function
-#' @param group Group results by column for plotting
-#' @param title Plot title
+#' @param degs Result table of the "Seurat::FindAllMarkers" function.
+#' @param group Group results by column for plotting.
+#' @param title Plot title.
+#' @return A ggplot object.
 DegsPlotNumbers = function(degs, group=NULL, title=NULL) {
   
   degs_up = degs %>% dplyr::filter(avg_log2FC > 0)
@@ -263,22 +221,23 @@ DegsPlotNumbers = function(degs, group=NULL, title=NULL) {
   }
 }
 
-#' Returns an empty deg marker test table with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj', 'cluster' and 'gene'.
-#' 
-#' @param clusters: Cluster names to set factor levels of empty 'cluster' column. If NULL will not be set.
-#' @return An R data.frame with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj' and 'gene'.
-DegsEmptyMarkerResultsTable = function(clusters=NULL) {
-  empty_table = data.frame(p_val=as.numeric(), avg_log2FC=as.numeric(), pct.1=as.numeric(), pct.2=as.numeric(), p_val_adj=as.numeric(), cluster=as.character(), gene=as.character())
-  if (!is.null(clusters)) empty_table$cluster = factor(empty_table$cluster, levels=clusters)
-  return(empty_table)
-}
-
 #' Returns an empty deg test table with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj' and 'gene'.
 #' 
+#' @param col_def Additional columns.
 #' @return An R data.frame with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj' and 'gene'.
 DegsEmptyResultsTable = function() {
   empty_table = data.frame(p_val=as.numeric(), avg_log2FC=as.numeric(), pct.1=as.numeric(), pct.2=as.numeric(), p_val_adj=as.numeric(), gene=as.character())
   return(empty_table)
+}
+
+#' Returns an empty deg marker test table with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj', 'cluster' and 'gene'.
+#' 
+#' @param clusters: Cluster names to set factor levels of empty 'cluster' column.
+#' @return An R data.frame with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj', 'cluster' and 'gene'.
+DegsEmptyMarkerResultsTable = function(clusters) {
+  empty_table = DegsEmptyResultsTable()
+  empty_table$cluster = factor(as.character(), levels=clusters)
+  return(empty_table[ c('p_val','avg_log2FC','pct.1','pct.2','p_val_adj','cluster','gene')])
 }
 
 #' Splits a specification string. Multiple levels are specified by semicolons. Combining levels is done with the plus sign. Trims leading and trailing whitespaces.
@@ -492,7 +451,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     if (!"slot" %in% names(contrast) || is.na(contrast[["slot"]])) contrast[["slot"]] = "data"
     if (!contrast[["slot"]] %in% c("counts", "data", "scale.data")) c(error_messages, paste0("The 'slot' column value '",contrast[["assay"]], "' in row ", i, " of the deg contrasts table must be 'counts', 'data' or 'scale.data'."))
     
-    # Getlatent_vars
+    # Get latent_vars
     if (!"latent_vars" %in% names(contrast) || is.na(contrast[["latent_vars"]])) {
       if (length(latent_vars) > 0) contrast[["latent_vars"]] = latent_vars else contrast[["latent_vars"]] = NULL
     } else {
@@ -598,9 +557,9 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
 
 #' Tests a list of entrez gene symbols for functional enrichment via Enrichr.
 # '
-#' @param genes: A vector of entrez gene symbols
-#' @param databases: A vector of Enrichr databases with functional annotation
-#' @param padj: Maximum adjusted p-value (0.05)
+#' @param genes: A vector of entrez gene symbols.
+#' @param databases: A vector of Enrichr databases with functional annotation.
+#' @param padj: Maximum adjusted p-value (0.05).
 #' @return The path to the data directory.
 EnrichrTest = function(genes, databases, padj=0.05) {
   empty_enrichr_df = data.frame(Term=as.character(), Overlap=as.character(), P.value=as.numeric(), Adjusted.P.value=as.numeric(),
@@ -616,7 +575,14 @@ EnrichrTest = function(genes, databases, padj=0.05) {
   }
   databases = setNames(databases, databases)
   enrichr_results = purrr::map(databases, function(d) {
-    if (is.null(enrichr_results[[d]])) return(empty_enrichr_df) else return(enrichr_results[[d]])
+    if (is.null(enrichr_results[[d]])) {
+      return(empty_enrichr_df)
+    } else if (ncol(enrichr_results[[d]])==1) {
+      warning(paste("Enrichr returns with error: ", enrichr_results[[d]][1, 1]))
+      return(empty_enrichr_df)
+    } else {
+      return(enrichr_results[[d]])
+    }
   })
   
   # Filter by adjusted p-value
@@ -643,8 +609,8 @@ EnrichrTest = function(genes, databases, padj=0.05) {
 
 #' Writes the enrichr results to an Excel file(s). Includes a README.
 # '
-#' @param enrichr_results: A list with enrichr results
-#' @param file: A file path
+#' @param enrichr_results: A list with enrichr results.
+#' @param file: A file path.
 #' @return The path to the file.
 EnrichrWriteResults = function(enrichr_results, file) {
   

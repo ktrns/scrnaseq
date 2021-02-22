@@ -1,6 +1,7 @@
-# 'Calculate enrichment of cells per sample per cluster
+# 'Calculate enrichment of cells per sample per cluster.
 #' 
-#' @param sc Seurat object
+#' @param sc Seurat object.
+#' @return A table with counts, odd ratios and p-values.
 cells_fisher = function(sc) {
   cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
   cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% unique() %>% sort()
@@ -97,7 +98,7 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
 }
 
 
-#' Returns the names of an object
+#' Returns the names of an object.
 #' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and names as values.
@@ -113,7 +114,7 @@ values_to_names = function(x) {
   return(setNames(x,x))
 }
 
-#' Returns the indices of an object
+#' Returns the indices of an object.
 #' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and indices as values.
@@ -230,12 +231,12 @@ format_message = function(x, options){
 #' @param options Further options.
 #' @return No return value.
 Message = function(x, options){
-  # asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
+  # Function asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
   knitr::asis_output(format_message(x, options))
 }
 
 #' Returns a warning message formatted for markdown. 
-#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html.
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
@@ -257,12 +258,12 @@ format_warning = function(x, options){
 #' @param options Further options.
 #' @return No return value.
 Warning = function(x, options){
-  # asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
+  # Function asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup".
   knitr::asis_output(format_warning(x, options))
 }
 
 #' Returns a error formatted for markdown.
-#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html.
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
@@ -288,7 +289,7 @@ Error = function(x, options){
   knitr::asis_output(format_error(x, options))
 }
 
-# Report parameters in a table
+# Report parameters in a table.
 #' @param params The parameter list.
 #' @return A table with parameters for printing.
 scrnaseq_params_info = function(params) { 
@@ -546,8 +547,8 @@ check_parameters = function(param) {
     }
   }
 
-  # Check p_enrichr
-  if (!"p_enrichr" %in% names(param)) {
+  # Check enrichr_padj
+  if (!"enrichr_padj" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'p_enrichr' is missing!")
   }
 
@@ -633,7 +634,7 @@ check_installed_packages = function() {
   }
 }
 
-# Checks if Ensembl annotation is available
+# Checks if Ensembl annotation is available.
 #'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.

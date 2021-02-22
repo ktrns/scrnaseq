@@ -808,7 +808,60 @@ paramsList$sample_cells = NULL</code></pre>
 <li><code>DESeq2</code>: tests using the DESeq2 package</li>
 <li>For more information on the tests, please see the documentation on the <code>FindMarkers</code> function of the Seurat R package</li>
 </ul></li>
-<li><code>latent_vars</code>: Additional variables to account for when testing (e.g. batches). Can be one or more cell metadata columns. Can contain multiple column names concatenated by the plus character.</li>
+<li><code>latent_vars</code>: Additional variables to account for when testing (e.g. batches). Can be one or more cell metadata columns. Can contain multiple column names concatenated by semicolons.</li>
+</ul>
+<p>Here are some examples:</p>
+<ul>
+<li>Compare cluster 1 vs cluster 2:
+<ul>
+<li><code>condition_column</code>: <code>seurat_clusters</code></li>
+<li><code>condition_group1</code>: <code>1</code></li>
+<li><code>condition_group2</code>: <code>2</code></li>
+</ul></li>
+<li>Compare cluster 1 vs cluster 2 and cluster 3 combined :
+<ul>
+<li><code>condition_column</code>: <code>seurat_clusters</code></li>
+<li><code>condition_group1</code>: <code>1</code></li>
+<li><code>condition_group2</code>: <code>2+3</code></li>
+</ul></li>
+<li>Compare cluster 1 vs rest:
+<ul>
+<li><code>condition_column</code>: <code>seurat_clusters</code></li>
+<li><code>condition_group1</code>: <code>1</code></li>
+<li><code>condition_group2</code>: ``</li>
+</ul></li>
+<li>For cell cycle (if computed), compare all G1 cells vs all S cells:
+<ul>
+<li><code>condition_column</code>: <code>Phase</code></li>
+<li><code>condition_group1</code>: <code>G1</code></li>
+<li><code>condition_group2</code>: <code>S</code></li>
+</ul></li>
+<li>For cell cycle (if computed), compare G1 cells vs S cells for cluster 1:
+<ul>
+<li><code>condition_column</code>: <code>Phase</code></li>
+<li><code>condition_group1</code>: <code>G1</code></li>
+<li><code>condition_group2</code>: <code>S</code></li>
+<li><code>subset_column</code>: <code>seurat_clusters</code></li>
+<li><code>subset_group</code>: <code>1</code></li>
+</ul></li>
+<li>For cell cycle (if computed), compare G1 cells vs S cells for cluster 1, 2, 3 (separately):
+<ul>
+<li><code>condition_column</code>: <code>Phase</code></li>
+<li><code>condition_group1</code>: <code>G1</code></li>
+<li><code>condition_group2</code>: <code>S</code></li>
+<li><code>subset_column</code>: <code>seurat_clusters</code></li>
+<li><code>subset_group</code>: <code>1;2;3</code></li>
+<li>this will be in three tests</li>
+</ul></li>
+<li>For cell cycle (if computed), compare G1 cells vs S cells for cluster 1+2+3 (combined):
+<ul>
+<li><code>condition_column</code>: <code>Phase</code></li>
+<li><code>condition_group1</code>: <code>G1</code></li>
+<li><code>condition_group2</code>: <code>S</code></li>
+<li><code>subset_column</code>: <code>seurat_clusters</code></li>
+<li><code>subset_group</code>: `1;2;3</li>
+<li>this will be one test</li>
+</ul></li>
 </ul>
 </div>
 <div id="p_enrichr" class="section level5">

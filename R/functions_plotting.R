@@ -1,4 +1,13 @@
-# Plotting style
+#' Out plotting style.
+#'
+#'@param title The plot title.
+#'@param col A vector of colours to use.
+#'@param fill A vector of fill colours to use.
+#'@param legend_title The legend title.
+#'@param legend_position The legend position.
+#'@param xlab The title of the x-axis.
+#'@param ylab The title of the y-axis.
+#'@return None, add as theme.
 AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
   list(
     theme_light() + theme(panel.border = element_blank()), 
@@ -15,8 +24,10 @@ AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_p
     if (!is.null(ylab)) ylab(ylab)
   )
 }
-# Transform a matrix cells (rows) x htos (cols) into a format that can be understood by 
-#   feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
+#' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
+#' 
+#' @param x: A matrix cells (rows) x htos (cols).
+#' @param cell_classification A vector of cell classifications.
 DfAllColumnCombinations = function(x, cell_classification) {
   out = matrix(NA, nrow=0, ncol=4)
   for (i in 1:(ncol(x)-1)) {
