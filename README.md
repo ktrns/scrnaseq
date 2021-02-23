@@ -28,7 +28,7 @@
 <a name="news"/>
 
 (2021-02-23)  
-We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67)).
+We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67) and [#68](https://github.com/ktrns/scrnaseq/pull/68)).
 
 The biggest changes are:
 
@@ -36,8 +36,9 @@ The biggest changes are:
 * Updated README and improved documentation ([#60](https://github.com/ktrns/scrnaseq/issues/60))
 * Figures are exported to png and pdf ([#62](https://github.com/ktrns/scrnaseq/issues/62))
 * Fixed bugs ([#63](https://github.com/ktrns/scrnaseq/issues/63) and [#65](https://github.com/ktrns/scrnaseq/issues/65))
+* Updated pre-workflow
 
-We will next update the pre-workflow ([#68](https://github.com/ktrns/scrnaseq/pull/68)). Once this is done, we will create our first code release! 
+Stay tuned, we will create our first code release! 
 
 # Workflow summary
 <a name="workflow_summary"/>
