@@ -1,11 +1,3 @@
-
-
-#' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
-#' 
-AreValidMetadataColumns = function() {
-  
-}
-
 #' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
@@ -370,7 +362,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
 #' @param feature_type_to_assay_name How should the feature types for the different assays be named? Default is: "RNA" = "Gene expression","ADT" = "Antibody Capture" ,"HTO" = "Antibody Capture","Crispr" = "CRISPR Guide Capture", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the feature types are written.
 #' @param include_cell_metadata_cols Vector with names of cell metadata columns to be written to the metadata.tsv.gz. Can be NULL in which case no file is created.
 #' @param include_feature_metadata_cols Vector with names of feature metadata columns to be written. Can be NULL in which case only the first three columns (feature id, feature symbol and feature type) are written.
-#' @param metadata_prefix Prefix for cell metadata column names. If NULL, no prefix. Separator must be included.
+#' @param metadata_prefix Prefix for cell metadata column names. If NULL, no prefix is prepended. The prefix should end with a separator character that separates the prefix from the original column name.
 #' @return The path to the data directory.
 ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", assay_name_to_feature_type=NULL, include_cell_metadata_cols=NULL, include_feature_metadata_cols=NULL, metadata_prefix=NULL) {
   # defaults
