@@ -364,6 +364,10 @@ Minimum absolute log2 fold change for defining a marker gene
 
 Minimum fraction of cells expressing a marker gene
 
+##### __`latent_vars`__
+
+Confounding variables to adjust for in finding markers and differentially expressed genes
+
 ##### __`deg_contrasts`__
 
 Contrasts for testing differential expression. Can be a table in form of an R `data.frame` or an Excel file. The table needs to have the following columns:
