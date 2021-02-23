@@ -90,6 +90,7 @@ We will next update the pre-workflow ([#68](https://github.com/ktrns/scrnaseq/pu
 
 # Quick start
 <a name="quick_start"/>
+
 The workflow is inialised for test data in `test_datasets`. First, navigate to the respective test dataset folder(s), and download the test dataset(s) by running the `download.R` script(s). Once all test data is downloaded, you can knit the workflow to HTML. 
 
 The repository provides several other useful test data that you can use to get to know the functionality of the workflow. To run the workflow for another than the initial dataset, you need to adapt the `project_parameters` code chunk and provide all relevant paths and parameters. 
@@ -139,7 +140,7 @@ Input directory where data are located (Default: "test_datasets/10x_pbmc_hto_GSE
 Output directory where the results will be saved (Default: "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed")
 
 #### `hto_names`
-HTOs have an ID that is included in the 'features.tsv' input file. We additionally ask for readable names that are used throughout the report. Names could look as follows, where `HTO1-3` are the IDs included in raw dataset: 
+HTOs have an ID that is included in the "features.tsv" input file. We additionally ask for readable names that are used throughout the report. Names could look as follows, where `HTO1-3` are the IDs included in raw dataset: 
 ```param$hto.names = setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))```
 (Default: `c("htoA", "htoB", "htoC", "htoD", "htoE", "htoF", "htoG", "htoH"), c("htoA", "htoB", "htoC", "htoD", "htoE", "htoF", "htoG", "htoH")`)
 
@@ -158,6 +159,7 @@ Sample data to at most `n` cells (mainly for tests); set to NULL to deactivate (
 
 ### Running the script
 <a name="documentation_scrnaseq_script"/>
+
 The main workflow is currently run from within Rstudio. Project-specific parameters are adapted in the `project_parameters` code chunk. 
 
 ### Arguments
@@ -348,7 +350,7 @@ The number of principle components (PCs) used for dimensionaly reduction. After 
 The resolution of the clustering algorithm. This controls the granularity of the clustering, i.e. lower values will lead to fewer clusters and higher values will lead to more clusters. Usually between 0.2 and 2 (but can be higher).
 
 #### Marker genes and genes with differential expression
-<a name="documentation_scrnaseq_arguments_marker_degs"/>
+<a name="documentation_scrnaseq_arguments_degs"/>
 
 ##### __`marker_padj`__
 
@@ -357,6 +359,10 @@ Adjusted p-value for defining a marker gene
 ##### __`marker_log2FC`__
 
 Minimum absolute log2 fold change for defining a marker gene
+
+##### __`marker_pct`___
+
+Minimum fraction of cells expressing a marker gene
 
 ##### __`deg_contrasts`__
 
@@ -404,7 +410,7 @@ Here are some examples for a better understanding:
 * Compare cluster 1 versus rest:
   * `condition_column`: `seurat_clusters`
   * `condition_group1`: `1`
-  * `condition_group2`: ``
+  * `condition_group2`: ` `
 * Compare all G1 cells versus all S cells:
   * `condition_column`: `Phase`
   * `condition_group1`: `G1`
@@ -456,4 +462,4 @@ The workflow was developed by [Katrin Sameith](https://github.com/ktrns) and [An
 # Citation
 <a name="citation"/>
 
-If you use the scrnaseq workflow to analyse your data, please cite it by mentioning the Dresden-concept Genome Center URL 'https://genomecenter.tu-dresden.de'. 
+If you use the scrnaseq workflow to analyse your data, please cite it by mentioning the Dresden-concept Genome Center URL "https://genomecenter.tu-dresden.de". 
