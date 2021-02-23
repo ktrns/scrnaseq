@@ -38,7 +38,7 @@ The biggest changes are:
 * Fixed bugs ([#63](https://github.com/ktrns/scrnaseq/issues/63) and [#65](https://github.com/ktrns/scrnaseq/issues/65))
 * Updated pre-workflow
 
-Stay tuned, we will create our first code release! 
+Stay tuned, we will soon create our first code release! 
 
 # Workflow summary
 <a name="workflow_summary"/>
