@@ -360,13 +360,13 @@ Adjusted p-value for defining a marker gene
 
 Minimum absolute log2 fold change for defining a marker gene
 
-##### __`marker_pct`___
+##### __`marker_pct`__
 
 Minimum fraction of cells expressing a marker gene
 
 ##### __`deg_contrasts`__
 
-Contrasts for testing differential expression. Can be a table in form of n R `data.frame` or an Excel file. The table needs to have the following columns:
+Contrasts for testing differential expression. Can be a table in form of an R `data.frame` or an Excel file. The table needs to have the following columns:
 
 * `condition_column`: The categorial column in the cell metadata to test. Special columns are `orig.ident` for sample, `seurat_clusters` for cluster and `Phase` cell cycle phase.
 * `condition_group1`: The condition level(s) in group 1 (nominator). The group can contain multiple levels concatenated by the `+` character. An empty string means that all levels not in group 2 will be used.
