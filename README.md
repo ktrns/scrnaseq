@@ -187,6 +187,11 @@ Colour palette used for clusters. Ideally, this should be one of ggsci palettes 
 
 Path to the local git repository
 
+##### __`default_debugging`__
+
+Debugging mode: "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
+
+
 #### Input
 <a name="documentation_scrnaseq_arguments_input"/>
 
