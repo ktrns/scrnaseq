@@ -35,9 +35,6 @@ options(stringsAsFactors=FALSE,
 reticulate_python3_path = unname(Sys.which("python3"))
 Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
 
-# Custom - delete
-#Sys.setenv(RETICULATE_PYTHON = "C:/Program Files/Python38/python.exe")
-
 # Required libraries
 library(Seurat) # main
 library(ggplot2) # plots
@@ -213,6 +210,10 @@ param$downsample_cells_n = NULL
 
 # Path to git repository
 param$path_to_git = "."
+
+# Debugging mode: 
+# 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+param$debugging_mode = "default_debugging"
 ```
 
 ```{r preparation_and_initial_checks}
@@ -222,13 +223,20 @@ knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/"))
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
               "R/functions_plotting.R",
-              "R/functions_analysis.R",
               "R/functions_degs.R",
               "R/functions_util.R")
 git_files_to_source = paste(param$path_to_git, git_files_to_source, sep="/")
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
 if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
 invisible(purrr::map(git_files_to_source, source))
+
+# Debugging mode: 
+# 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+switch (param$debugging_mode, 
+        default_debugging=on_error_default_debugging(), 
+        terminal_debugger=on_error_start_terminal_debugger(),
+        print_traceback=on_error_just_print_traceback(),
+        on_error_default_debugging())
 
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)

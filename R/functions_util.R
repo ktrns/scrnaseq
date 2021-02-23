@@ -214,7 +214,7 @@ GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_message = function(x, options){
-  x = gsub('^##','',x)
+  x = gsub('##', '<br/>', gsub('^## Message:','',x))
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
                 '<style> .alert-info { background-color: #abd9c6; color: black; } </style>', 
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
@@ -241,7 +241,7 @@ Message = function(x, options){
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_warning = function(x, options){
-  x = gsub('^## Warning:','',x)
+  x = gsub('##', '<br/>', gsub('^## Warning:','',x))
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
                  '<style> .alert-warning { background-color: #fae39c; color: black; } </style>', 
                  '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
@@ -665,6 +665,29 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
 
   return(error_messages)
 }
+
+#' On error, R will not start a debugger but just print a traceback. For non-interactive use.
+#' @return None.
+on_error_just_print_traceback = function(x) {
+  options(rlang_trace_top_env = rlang::current_env())
+  options(error = function() {
+    sink()
+    print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")
+  })
+}
+
+#' On error, R will start a debugger on the terminal. For interactive use without X11.
+#' @return None.
+on_error_start_terminal_debugger = function(x) {
+  options(error = function() {
+    sink()
+    recover()
+  })
+}
+
+#' On error, R will run the default debugging process. Default.
+#' @return None.
+on_error_default_debugging = function(x) {}
 
 # Wrapper around citep and citet. Takes care of connection problems.
 #'
