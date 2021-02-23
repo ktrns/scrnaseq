@@ -83,6 +83,7 @@ We will next incorporate the analysis of differentially expressed genes between 
 * Software versions
 * References
 
+
 # Quick start
 <a name="quick_start"/>
 The workflow is inialised for test data in `test_datasets`. First, navigate to the respective test dataset folder(s), and download the test dataset(s) by running the `download.R` script(s). Once all test data is downloaded, you can knit the workflow to HTML. 
@@ -92,6 +93,19 @@ The repository provides several other useful test data that you can use to get t
 
 # Documentation 
 <a name="documentation"/>
+
+## Workflow: Single-cell RNA-seq analysis 
+
+### Running the script
+The main workflow is currently run from within Rstudio. 
+
+Project-specific parameters are adapted in the `project_parameters` code chunk. Most importantly, you specify all input samples in a table called `param$path_data`. For each sample, you need to define the
+* `name` (any character string describing the sample)
+* `type` (currently "10x" or "smartseq2")  
+* `path` (path to the actual data)
+* `stats` (file name for mapping statistics if available).
+
+For 10X data, the workflow expects the Cell Ranger output files contained in the `filtered_feature_bc_matrix` directory. For SmartSeq-2 data, the workflow expects a counts matrix, where the first column contains Ensembl gene IDs, the first row contains cell names, and cells contain raw counts. 
 
 ## Pre-Workflow: Demultiplexing with hashtag oligos
 <a name="documentation_hto"/>
@@ -432,6 +446,7 @@ P-value threshold for functional enrichment tests by Enrichr.
 ##### __`enrichr_dbs`__
 
 Enrichr databases for functional enrichment tests. Please see the corresponding table in the HTML output.
+
 
 # Credits
 <a name="credits"/>
