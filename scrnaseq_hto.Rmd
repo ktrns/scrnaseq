@@ -7,9 +7,10 @@ geometry: margin=2cm
 output:
    html_document:
     toc: true
+    toc_depth: 4
+    code_folding: hide
     highlight: tango
     theme: paper
-    code_folding: hide
 params:
    # Project ID
    project_id: HTO_testDataset 
@@ -38,7 +39,7 @@ params:
    #hto_regex: "^hto"
    
    # HTO normalisation: CLR (default) or LogNorm
-   norm: "CLR"
+   norm: "LogNormalize"
    
    # Prefix of mitochondrial genes
    mt_names: "^MT-"
@@ -91,8 +92,9 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       class.source='fold-hide',      # by default collapse code blocks
                       dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                                    pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                      dpi=96                         # figure resolution
+                                    pdf=list(bg="white"))     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                      dpi=96,                        # figure resolution (note: final = dpi*fig.retina; will not work with pandoc see below)
+                      fig.retina=2                   # retina multiplier for HTML output (note: final = dpi*fig.retina)
                                      
 )
 ```
@@ -101,10 +103,13 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
 # Path for figures in png and pdf format
 knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
 
+# When using pandoc, setting the dpi via opts_chunk does not work (https://github.com/yihui/knitr/issues/901)
+# As workaround, we define a function that takes care of that
+#knitr::opts_hooks$set(dpi = function(options) {options$dpi = 40;options})
+
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
               "R/functions_plotting.R",
-              "R/functions_analysis.R",
               "R/functions_util.R")
 git_files_to_source = paste(params$path_to_git, git_files_to_source, sep="/")
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
@@ -114,11 +119,11 @@ invisible(purrr::map(git_files_to_source, source))
 
 # Debugging mode: 
 # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
-switch (params$debugging_mode, 
+invisible(switch (params$debugging_mode, 
         default_debugging=on_error_default_debugging(), 
         terminal_debugger=on_error_start_terminal_debugger(),
         print_traceback=on_error_just_print_traceback(),
-        on_error_default_debugging())
+        on_error_default_debugging()))
 
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
@@ -207,6 +212,8 @@ original_assay_names = setdiff(Seurat::Assays(sc), "HTO")
 hto_samples = rownames(sc[["HTO"]])
 hto_colours = list()
 hto_colours$col_hto_global = ggsci::pal_npg()(3)
+names(hto_colours$col_hto_global) = c("Negative", "Doublet", "Singlet")
+
 hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(hto_samples) + 2)
 hto_levels = c("Negative", "Doublet", params$hto_names[1:length(hto_samples)])
 names(hto_colours$col_hto_collapsed) = hto_levels
@@ -228,22 +235,10 @@ knitr::kable(summary, align="l", caption="Dataset summary") %>%
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts
-We start the analysis by normalising raw HTO counts. HTO counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed. 
+We start the analysis by normalising raw HTO counts. If `LogNormalize` was chosen for normalisation, HTO counts for each cell are divided by the total counts for that cell, multiplied by 10,000 and then natural-log transformed. If `CLR` was chosen for normalisation, HTO counts for each cell are divided by the geometric mean of the counts for that cell and then natural-log transformed. 
 ```{r hto_normalisation}
-
 # HTO
-if (params$norm=="CLR") {
-  # normalisation: CLR
-  sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="CLR", verbose=FALSE)
-} else if (params$norm=="LogNorm") {
-  # alternative: LogNorm
-  sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method="LogNormalize", verbose=FALSE)
-}
-
-# RNA
-sc = Seurat::NormalizeData(sc, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
-sc = Seurat::FindVariableFeatures(sc, assay="RNA", selection.method="vst", verbose=FALSE)
-sc = Seurat::ScaleData(sc, assay="RNA", features=Seurat::VariableFeatures(sc, assay="RNA"), verbose=FALSE)
+sc = Seurat::NormalizeData(sc, assay="HTO", normalization.method=params$norm, verbose=FALSE)
 ```
 
 ## Classification of cells based on normalised HTO data
@@ -255,7 +250,8 @@ sc = Seurat::HTODemux(sc, assay="HTO", positive.quantile=0.95, verbose=FALSE)
 # Sort Idents levels for nicer plotting
 Seurat::Idents(sc) = factor(Seurat::Idents(sc), levels=hto_levels)
 sc$hash.ID = factor(sc$hash.ID, levels=hto_levels)
-  
+sc$HTO_classification.global = factor(sc$HTO_classification.global, levels=c("Negative", "Doublet", "Singlet"))
+
 # HTO classification results
 hash_ID_table = sc[["hash.ID"]] %>% 
   dplyr::count(hash.ID) %>% 
@@ -266,7 +262,7 @@ hash_ID_table = sc[["hash.ID"]] %>%
 p1 = ggplot(sc[["HTO_classification.global"]] %>% dplyr::count(HTO_classification.global), 
             aes(x="", y=n, fill=HTO_classification.global)) + 
   geom_bar(width=1, stat="identity") + 
-  coord_polar("y", start=0) + 
+  coord_polar("y", start=0, direction=-1) + 
   AddStyle(title="HTO global classification results", 
            fill=hto_colours$col_hto_global, 
            xlab="", ylab="")
@@ -274,7 +270,7 @@ p1 = ggplot(sc[["HTO_classification.global"]] %>% dplyr::count(HTO_classificatio
 p2 = ggplot(sc[["hash.ID"]] %>% dplyr::count(hash.ID), 
             aes(x="", y=n, fill=hash.ID)) + 
   geom_bar(width=1, stat="identity") + 
-  coord_polar("y", start=0) + 
+  coord_polar("y", start=0, direction=-1) + 
   AddStyle(title="HTO classification results", 
            fill=hto_colours$col_hto_collapsed,
            xlab="", ylab="")
@@ -285,88 +281,9 @@ p = p1 + p2 +
 p
 ```
 
-```{r hto_demux_debug, eval=FALSE, include=FALSE}
-# This chunk contains parts of the HTODemux function and is used for further debugging. Set eval and include to TRUE to run.
-library(Seurat)
-
-# make a copy first
-object = sc
-assay = "HTO"
-positive.quantile = 0.99
-init = NULL
-nstarts = 100
-kfunc = "clara"
-nsamples = 100
-seed = 42
-verbose = TRUE
-
-# Set seed
-if (!is.null(x = seed)) {
-  set.seed(seed = seed)
-}
-
-# Get raw HTO counts
-#assay <- assay %||% DefaultAssay(object = object)
-if (is.null(assay)) assay = DefaultAssay(object = object)
-
-data <- GetAssayData(object = object, assay = assay)
-counts <- GetAssayData(object = object, assay = assay, slot = "counts")[, colnames(x = object)]
-counts <- as.matrix(x = counts)
-#ncenters <- init %||% (nrow(x = data) + 1)
-if (is.null(init)) ncenters = (nrow(x = data) + 1) else ncenters = init
-
-# This will clusters cells based on their normalised HTO counts into '#hashtags+negative' clusters
-switch(EXPR = kfunc, 
-       kmeans = {
-         init.clusters <- kmeans(x = t(x = GetAssayData(object = object,assay = assay)), centers = ncenters, nstart = nstarts)
-        Idents(object = object, cells = names(x = init.clusters$cluster)) <- init.clusters$cluster}, 
-       clara = {
-        init.clusters <- cluster::clara(x = t(x = GetAssayData(object = object, assay = assay)), k = ncenters, samples = nsamples)
-        Idents(object = object, cells = names(x = init.clusters$clustering), drop = TRUE) <- init.clusters$clustering
-    }, stop("Unknown k-means function ", kfunc, ", please choose from 'kmeans' or 'clara'"))
-
-# Get average expression per cluster
-average.expression <- AverageExpression(object = object, assays = assay, verbose = FALSE)[[assay]]
-if (sum(average.expression == 0) > 0) {
-  stop("Cells with zero counts exist as a cluster.")
-}
-
-
-discrete <- GetAssayData(object = object, assay = assay)
-discrete[discrete > 0] <- 0
-
-# iterate over hashtags
-for (iter in rownames(x = data)) {
-  # counts for the hashtag
-  values <- counts[iter, colnames(object)]
-  
-  # get the cluster with the lowest expressed for this hashtag and returns the counts => this is the negative cluster?
-  values.use <- values[WhichCells(object = object, idents = levels(x = Idents(object = object))[[which.min(x = average.expression[iter, ])]])]
-  
-  # fits a negative binomial distribution for these values (why?)     
-  fit <- suppressWarnings(expr = fitdistrplus::fitdist(data = values.use, distr = "nbinom"))
-  
-  # the cutoff will be everything above the 0.99 quantile - so basically the top 0.01 percent of the data?
-  cutoff <- as.numeric(x = quantile(x = fit, probs = positive.quantile)$quantiles[1])
-  
-  discrete[iter, names(x = which(x = values > cutoff))] <- 1
-  if (verbose) {
-    message(paste0("Cutoff for ", iter, " : ", cutoff, " reads"))
-  }
-}
-
-npositive <- colSums(x = discrete)
-classification.global <- npositive
-classification.global[npositive == 0] <- "Negative"
-classification.global[npositive == 1] <- "Singlet"
-classification.global[npositive > 1] <- "Doublet"
-```
-
-
-
 # Visualisation of raw and normalised HTO data
 This section of the report visualises raw and normalised HTO data to understand whether the demultiplexing step has worked well. 
-```{r hto_plot_counts_raw}
+```{r hto_plot_counts_raw, dpi=96}
 # Distribution of HTO counts before and after normalisation
 hto_t_raw = Seurat::GetAssayData(sc, assay="HTO", slot="counts") %>% 
   as.data.frame %>% t %>% as.data.frame
@@ -374,7 +291,7 @@ hto_t_raw_pseudo = hto_t_raw + 1
 hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
   as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto_t_raw_pseudo %>% tidyr::gather(key="name"), aes(x=name, y=value, fill=name)) + 
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   AddStyle(title="HTO raw counts", 
@@ -382,7 +299,7 @@ p1 = ggplot(hto_t_raw_pseudo %>% tidyr::gather(key="name"), aes(x=name, y=value,
            legend_title="HTO", 
            xlab="", ylab="")
   
-p2 = ggplot(hto_t_norm %>% tidyr::gather(key="name"), 
+p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
             aes(x=name, y=value, fill=name)) + 
   geom_violin() + 
   AddStyle(title="HTO normalised counts", 
@@ -394,6 +311,7 @@ p = p1 + p2 & theme(legend.position="bottom")
 p = p + patchwork::plot_annotation("HTO counts before and after normalisation") + 
   patchwork::plot_layout(guides = "collect")
 p
+
 ```
 
 Pairs of raw (top) and normalised (bottom) HTO counts are visualised to confirm mutal exclusivity in singlet cells. Data points correspond to measured HTO counts per HTO, colours correspond to the assigned samples-of-origin. 
@@ -401,7 +319,7 @@ Pairs of raw (top) and normalised (bottom) HTO counts are visualised to confirm 
 ```{r hto_plot_counts_norm, fig.height=10}
 n = DfAllColumnCombinations(x=hto_t_raw_pseudo, cell_classification=sc$hash.ID)
 
-# plot
+# Plot
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
   geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
@@ -419,7 +337,7 @@ p
 
 ```{r hto_plot_norm_scatter, fig.height=10}  
 n = DfAllColumnCombinations(x=hto_t_norm, cell_classification=sc$hash.ID)
-n = n[n$value1>0 & n$value2>0,]
+n = n[n$value1 > 0 & n$value2 > 0, ]
 p = ggplot(n, aes(x=value1, y=value2, color=cell_classification)) + 
   geom_point() + 
   scale_x_continuous(trans="log2") + scale_y_continuous(trans="log2") + 
@@ -449,7 +367,7 @@ suppressMessages(p)
 
 Lastly, we compare the counts and number of features between classified cells. 
 ```{r hto_plot_features}
-# Number of features in the different cells
+# Number of counts and features in the different cells
 nfeature_metrics = grep("_HTO", 
                         grep("nFeature_", colnames(sc[[]]), v=TRUE),
                         v=TRUE,
@@ -492,31 +410,33 @@ sc
 # Preliminary visualisation of demultiplexed RNA data
 This section of the report provides first insights into your RNA dataset based on a preliminary pre-processing of the RNA data using the standard scRNA-seq workflow. 
 ```{r prelim_analysis, results='hide'}
-# normalise and scale sc
+# Normalise, scale, pca umap and clustering for sc
 sc = Seurat::NormalizeData(sc, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 sc = Seurat::FindVariableFeatures(sc, assay="RNA", selection.method="vst", verbose=FALSE)
 sc = Seurat::ScaleData(sc, assay="RNA", features=Seurat::VariableFeatures(sc, assay="RNA"), verbose=FALSE)
-
-# run pca, umap and clustering for sc and sc.all
 sc = Seurat::RunPCA(sc, assay="RNA", features=VariableFeatures(object=sc, assay="RNA"), verbose=FALSE)
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:10, verbose=FALSE, umap.method="uwot"))
 sc = Seurat::FindNeighbors(sc, dims=1:10, verbose=FALSE)
 sc = Seurat::FindClusters(sc, algorithm=1, verbose=FALSE, method="igraph")
 Idents(sc) = "hash.ID"
 
+# Normalise, scale, pca umap and clustering for sc.all
+sc.all = Seurat::NormalizeData(sc.all, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
+sc.all = Seurat::FindVariableFeatures(sc.all, assay="RNA", selection.method="vst", verbose=FALSE)
+sc.all = Seurat::ScaleData(sc.all, assay="RNA", features=Seurat::VariableFeatures(sc.all, assay="RNA"), verbose=FALSE)
 sc.all = Seurat::RunPCA(sc.all, assay="RNA", features=VariableFeatures(object=sc.all, assay="RNA"), verbose=FALSE)
 sc.all = suppressWarnings(Seurat::RunUMAP(sc.all, dims=1:10, verbose=FALSE, umap.method="uwot"))
 sc.all = Seurat::FindNeighbors(sc.all, dims=1:10, verbose=FALSE)
 sc.all = Seurat::FindClusters(sc.all, algorithm=1, verbose=FALSE, method="igraph")
 Idents(sc.all) = "hash.ID"
 
-# figure height
+# Set figure height
 sc_fig_height = round((length(hto_samples))*1.25)
 sc_qc_fig_height = round((length(hto_samples))*0.75)
 sc_all_fig_height = round((length(hto_samples)+2)*1.25)
 sc_all_qc_fig_height = round((length(hto_samples)+2)*0.75)
 
-# cluster colors
+# Set cluster colors
 cluster_names = levels(sc$seurat_clusters)
 sc_col_clusters = GenerateColours(num_colours=length(cluster_names), palette="ggsci::pal_d3", palette_options = list(palette="category20"))
 names(sc_col_clusters) = cluster_names
@@ -570,7 +490,7 @@ p = Seurat::DimPlot(sc.all, reduction="umap", group.by="seurat_clusters", split.
 p
 ```
 
-* Important: cluster colors are not neccessarily the same before and after filtering!
+* Important: Cluster colors are not neccessarily the same before and after filtering!
 
 ### After filtering (each hto)
 ```{r umap_cluster_after, fig.height=sc_fig_height}
@@ -581,7 +501,7 @@ p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", split.by="
 p
 ```
 
-* Important: cluster colors are not neccessarily the same before and after filtering!
+* Important: Cluster colors are not neccessarily the same before and after filtering!
 
 ## Distribution of cells in HTO and in clusters
 
@@ -614,7 +534,7 @@ p
 
 ```
 
-Here it also helps to inspect RNA counts and features in these clusters by hto.
+Here it also helps to inspect RNA counts and features per cluster and hto.
 
 ```{r hto_cluster_counts, fig.height=sc_all_qc_fig_height}
 ncounts_metrics = grep("_HTO", 

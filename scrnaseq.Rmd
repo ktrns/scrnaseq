@@ -31,6 +31,8 @@ options(stringsAsFactors=FALSE,
 reticulate_python3_path = unname(Sys.which("python3"))
 Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
 
+Sys.setenv(RETICULATE_PYTHON = "C:/Program Files/Python38/python.exe")
+
 # Required libraries
 library(Seurat) # main
 library(ggplot2) # plots
@@ -179,7 +181,6 @@ param$debugging_mode = "default_debugging"
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
               "R/functions_plotting.R",
-              "R/functions_analysis.R",
               "R/functions_degs.R",
               "R/functions_util.R")
 git_files_to_source = paste(param$path_to_git, git_files_to_source, sep="/")
