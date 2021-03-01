@@ -53,6 +53,7 @@ DegsUpDisplayTop = function(degs, n=5, caption=NULL) {
   top = degs %>% 
     dplyr::group_by(cluster) %>% 
     dplyr::top_n(n=n, wt=p_val_adj_score) %>% 
+    dplyr::top_n(n=n, wt=pct.1-pct.2) %>%
     dplyr::ungroup() %>% 
     dplyr::transmute(cluster=cluster,
                      gene=gene,
@@ -87,7 +88,7 @@ DegsAvgDataPerIdentity = function(sc, genes) {
           if (sl=="data") {
             id_avg = log(Matrix::rowMeans(exp(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])))
           } else if (sl=="counts") {
-            id_avg = Matrix::rowMeans(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes,])
+            id_avg = Matrix::rowMeans(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])
           }
           return(id_avg)
         }, identities)
@@ -158,7 +159,7 @@ DegsWriteToFile = function(degs, annot_ensembl, gene_to_ensembl, file, additiona
   # Add Ensembl annotation
   for (i in seq(degs_lst)) {
     degs_ensembl = gene_to_ensembl[as.character(degs_lst[[i]]$gene)]
-    degs_lst[[i]] = cbind(degs_lst[[i]], annot_ensembl[degs_ensembl,])
+    degs_lst[[i]] = cbind(degs_lst[[i]], annot_ensembl[degs_ensembl, ])
   }
   
   # Add README
