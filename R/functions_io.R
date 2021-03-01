@@ -124,7 +124,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
     
     # If the pattern did not match for names, warn; then set plate_information$SampleName to the unparsed name
-    invalid = rownames(plate_information[is.na(plate_information$SampleName),])
+    invalid = rownames(plate_information[is.na(plate_information$SampleName), ])
     if (any(is.na(plate_information$SampleName))) {
       stop(sprintf("The 'ReadCountsTable' method could not parse plate information from the following cell names: %s. Check the regular expression ('plate_information_regex')!", first_n_elements_to_string(invalid)))
     }
@@ -177,7 +177,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed)))
-    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
     
     # Now add remaining assays
     for (f in feature_types[-1]) {
@@ -190,7 +190,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
       missed = nms[!nms %in% rownames(features_ids_types)]
       if (length(missed) > 0) stop(sprintf("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed)))
-      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]),])
+      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]), ])
     }
   }
   
@@ -307,6 +307,9 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     invalid = colnames_metadata_table[colnames_metadata_table %in% c("orig.ident", "nCount_RNA", "nFeature_RNA", "nCount_SCT", "nFeature_SCT", "percent_mt", "percent_ercc", "S.Score", "G2M.Score", "Phase", "CC.Difference", "SampleName", "PlateNumber", "PlateRow", "PlateCol", "seurat_clusters")]
     if (length(invalid) > 0) stop(sprintf("Some column names in 'metadata.tsv.gz' are not allowed since they would be overwritten: %s!", 
                                         first_n_elements_to_string(invalid)))
+  } else {
+    metadata_table = data.frame(Cells=colnames(feature_data[[1]]), stringsAsFactors=FALSE)
+    rownames(metadata_table) = metadata_table[, 1]
   }
   metadata_table$orig.dataset = factor(project)
   
@@ -342,7 +345,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   if (length(missed)>0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed)))
   
-  sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
+  sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   
   # Now add remaining assays
   for (f in feature_types[-1]) {
@@ -355,7 +358,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed)))
     
-    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   }
   
   return(sc)
@@ -529,16 +532,16 @@ ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="
   
   # Save the Seurat object in the cerebroApp format
   cerebroApp::exportFromSeurat(sc,
-                               file=path,
                                assay=assay,
-                               slot="data",
+                               file=path,
                                experiment_name=project,
                                organism=species,
-                               groups=c(column_sample, column_cluster),
-                               nUMI=paste("nCount", assay, sep="_"),
-                               nGene=paste("nFeature", assay, sep="_"),
-                               cell_cycle=column_ccphase,
-                               add_all_meta_data=T)
+                               column_sample=column_sample,
+                               column_cluster=column_cluster,
+                               column_nUMI=paste("nCount", assay, sep="_"),
+                               column_nGene=paste("nFeature", assay, sep="_"),
+                               column_cell_cycle_seurat=column_ccphase,
+                               add_all_meta_data=TRUE)
   
   # Export function does not include all information - need to add manually
   # crb_obj = readRDS(path)
