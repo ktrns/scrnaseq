@@ -46,14 +46,21 @@ DegsFilter = function(degs, cut_log2FC, cut_padj, split_by_dir=TRUE) {
 
 #' Display top marker genes (=up-regulated genes).
 #' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function (requires column "cluster").
-DegsUpDisplayTop = function(degs, n=5, caption=NULL) { 
+#' @param degs Result table of the "Seurat::FindAllMarkers" function (requires column "cluster")
+#' @param n Number of top genes to show
+#' @param column_1 First column to sort genes on
+#' @param column_2 Second column to sort genes on
+#' @return Data.frame of top genes 
+DegsUpDisplayTop = function(degs, n=5, column_1="p_val_adj_score", column_2="pct.diff") { 
+  
+  # Calculate difference in percentage of cells that express the gene
+  degs = degs %>% dplyr::mutate(pct.diff=abs(pct.1-pct.2))
   
   # Get top 5 up-regulated markers
   top = degs %>% 
     dplyr::group_by(cluster) %>% 
-    dplyr::top_n(n=n, wt=p_val_adj_score) %>% 
-    dplyr::top_n(n=n, wt=pct.1-pct.2) %>%
+    dplyr::top_n(n=n, wt=get(column_1)) %>% 
+    dplyr::top_n(n=n, wt=get(column_2)) %>% 
     dplyr::ungroup() %>% 
     dplyr::transmute(cluster=cluster,
                      gene=gene,

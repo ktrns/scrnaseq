@@ -24,7 +24,7 @@ bibliography: "references.bib"
 options(stringsAsFactors=FALSE,
         "citation_format"="pandoc", 
         dplyr.summarise.inform=FALSE, 
-        knitr.table.format="html",
+        #knitr.table.format="html",
         kableExtra_view_html=FALSE,
         future.globals.maxSize=2000000000, mc.cores=4, 
         future.fork.enable=TRUE, future.plan="multicore",
@@ -89,6 +89,11 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
                              stats=c(NA, NA))
+
+#param$path_data = data.frame(name="pbmc_10x",
+#                             type="10x",
+#                             path="test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/",
+#                             stats=NA)
 
 # Output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -494,7 +499,7 @@ The following first table shows metadata (columns) of the first 5 cells (rows). 
 sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
 
 # Print cell metadata
-knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
+knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows", format="html") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 
@@ -1301,10 +1306,10 @@ The following table shows the number of cells per sample per cluster:
 * n: Number of cells per sample per cluster   
 * perc: Percentage of cells per sample per cluster compared to all other cells of that cluster   
 
-In case the dataset contains 2 or more samples, we also calculate whether or not the number of cells of a sample in a cluster is significantly higher than expected:      
+In case the dataset contains 2 or more samples, we also calculate whether or not the number of cells of a sample in a cluster is significantly higher or lower than expected:      
 
 * oddsRatio: Odds ratio calculated for cluster c1 and sample s1 as (# cells s1 in c1 / # cells not s1 in c1) / (# cells s1 not in c1 / # cells not s1 not in c1)    
-* p: P-value calculated with a Fisher test to test whether "n" is higher than expected  
+* p: P-value calculated with a Fisher test to test whether "n" is higher or lower than expected  
 
 ```{r cells_per_cluster_table}
 # Print table
@@ -1482,7 +1487,7 @@ You provided `r length(known_markers_list)` list(s) of known marker genes. In th
 * Average feature plots for all gene lists containing at least 10 genes   
 * Individual feature plots for all genes if there are no more than 100 genes in total  
 
-## Dot plot(s)
+## Dot plot(s) 
 A dot plot visualises how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that expresses the gene, while the color encodes the scaled average expression across all cells within the cluster. Per gene, we group cells based on cluster identity, calculate average expression per cluster, subtract the mean of average expression values and divide by the standard deviation. The resulting scores describe how high or low a gene is expressed in a cluster compared to all other clusters. 
 ```{r knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot}
 if ((known_markers_n > 0) & any(idx_dotplot)) {
@@ -1768,26 +1773,27 @@ if (markers_found) {
 }
 ```
 
-## Dotplots per cluster per sample 
+## Expression per cluster per sample {.tabset}
 If the dataset contains multiple samples, we can visualise the expression of a gene that is up-regulated in a cluster separately for each sample. For each cluster, we extract up-regulated genes, and visualise expression of these genes in all cells in that cluster, split by their sample of origin. 
 ```{r degs_plot_dotplotpercl_height}
 fig_height_degs_per_cl = max(5, 
                              max(2, 0.3 * (sc$orig.ident %>% unique() %>% length())) * length(levels(sc$seurat_clusters)) * 2)
 ```
 
+### Scaled dotplots
 First, we plot scaled expression as explained above (see section Known marker genes). This plot allows us to judge whether the expression of a gene is increased in one sample as compared to the other samples.
 ```{r degs_plot_dotplotpercl_scaled, fig.height=fig_height_degs_per_cl}
-n_genes_max_dotplot = 50
 p_list = list()
-for (cl in levels(sc$seurat_clusters)) {            
-  markers_filt_up_cl_top = markers_filt$up %>% 
+markers_filt_up_top = DegsUpDisplayTop(degs=markers_filt$up, n=50)
+for (cl in levels(sc$seurat_clusters)) {  
+  markers_filt_up_cl_top = markers_filt_up_top %>% 
     dplyr::filter(cluster==cl) %>% 
-    dplyr::top_n(n=n_genes_max_dotplot, wt=p_val_adj_score) %>% 
     dplyr::pull(gene)
+
   if (length(markers_filt_up_cl_top) > 0) {
     p_list[[cl]] = suppressMessages(Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident") +
       scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") + 
-      AddStyle(title=paste0("Up to ", n_genes_max_dotplot, " markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
+      AddStyle(title=paste0("Up to 50 markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
       theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1)))
   }
@@ -1796,6 +1802,7 @@ p = patchwork::wrap_plots(p_list, ncol=1) + patchwork::plot_annotation("Dotplot 
 p
 ```
 
+### Non-scaled dotplots
 Second, we plot normalised expression with no further scaling. This plot helps to get an impression of the total expression of a gene. 
 ```{r degs_plot_dotplotpercl_unscaled, fig.height=fig_height_degs_per_cl}
 n_genes_max_dotplot = 50

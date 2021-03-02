@@ -44,8 +44,7 @@ cc_scoring = function(sc, genes_s, genes_g2m, name=""){
     sc[["Phase"]] = factor(sc[["Phase", drop=TRUE]], levels=c("G1", "G2M", "S"))
     
   } else {
-    sc[["S.Score"]] = NA
-    sc[["G2M.Score"]] = NA
+    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = NA
     sc[["Phase"]] = factor(NA, levels=c("G1", "G2M", "S"))
     if(name!="") name=paste0(name, " ")
     warning(paste0("There are not enough G2/M and S phase markers in the dataset ", name, "to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle effects is skipped."))
