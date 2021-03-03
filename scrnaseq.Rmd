@@ -81,10 +81,13 @@ This code chunk contains all parameters that are set specifically for the projec
 ```{r project_parameters}
 param = list()
 
+####################
+# Input parameters #
+####################
 # Project ID
 param$project_id = "pbmc"
 
-# Input data path
+# Path to input data
 param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
@@ -95,39 +98,57 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
 #                             path="test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/",
 #                             stats=NA)
 
-# Output directory
+# Downsample data to at most n cells per sample (mainly for tests)
+#   NULL to deactivate
+param$downsample_cells_n = NULL
+
+# Path to output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
 
 # Marker genes based on literature, translated to Ensembl IDs
-# xlsx file, one list per column, first row as header and Ensembl IDs below
-# Set to NULL if no known marker genes should be plotted
+#   xlsx file, one list per column, first row as header and Ensembl IDs below
+#   NULL if no known marker genes should be plotted
 param$file_known_markers = "test_datasets/10x_pbmc_1k_healthyDonor_v3Chemistry/known_markers.xlsx"
 
 # Annotation via biomaRt
 param$mart_dataset = "hsapiens_gene_ensembl"
 param$annot_version = 98
 param$annot_main = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
-param$file_annot = NULL
 param$mart_attributes = c(param$annot_main, 
                           c("chromosome_name", "start_position", "end_position", 
                             "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
 param$biomart_mirror = NULL
 
-# Prefix of mitochondrial genes 
+# Alternatively, we can read a previously compiled annotation table from file
+param$file_annot = NULL
+
+# Prefix for mitochondrial genes 
 param$mt = "^MT-"
 
-# Filters
+#####################
+# Filter parameters #
+#####################
+# Filter for cells
 param$cell_filter = list(nFeature_RNA=c(200, NA), percent_mt=c(NA, 20))
+
+# Filter for features
 param$feature_filter = list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
 
-# Samples to drop 
+# Samples to drop TEST THIS
 # Cells from these samples will be dropped after initial QC
-# Example: param$samples_to_drop = c("pbmc_smartseq2.NC", "pbmc_smartseq2.RNA"), 
-#   where "smartseq2" is the name of the dataset (see path_data), and "NC" and "RNA" are the names of the samples
+# Example: param$samples_to_drop = c("pbmc_smartseq2_NC", "pbmc_smartseq2_RNA"), 
+#   where "pbmc_smartseq2" is the name of the dataset, and "NC" and "RNA" are the names of the subsamples
 param$samples_to_drop = c() 
 
 # Drop samples with too few cells
 param$samples_min_cells = 10
+
+############################
+# Normalisation parameters #
+############################
+# Which normalisation should be used for analysis?
+#   "RNA" or "SCT"
+param$norm = "RNA"
 
 # Whether or not to remove cell cycle effects
 param$cc_remove = FALSE
@@ -143,23 +164,21 @@ param$cc_rescore_after_merge = TRUE
 # Additional (unwanted) variables that will be regressed out for visualisation and clustering
 param$vars_to_regress = c()
 
-# Additional (unwanted) variables to account for in statistical tests
-param$latent_vars = c()
-
-# When there are multiple datasets, how to integrate them:
+# When there are multiple datasets, how to combine them:
 #   - method:
-#     - single: Automatically default when there is only one dataset after filtering. No integration is needed.
-#     - merge: Just merge them since no integration is needed (e.g. samples were multiplexed on the same chip)
-#     - standard: Anchors are computed for all pairs of datasets. This will give all datasets the same weight during dataset integration but can be computationally intensive.
-#     - reference: One dataset is used as reference and anchors are computed for all other datasets. Less accurate but computationally faster. 
-#     - reciprocal: Anchors are computed in PCA space instead of the data. Even less accurate but for very big datasets.
-#
-#   - reference_dataset: When using method "reference", which dataset is the reference? Can be numeric or name of the dataset.
+#     - "single": Default when there is only one dataset after filtering, no integration is needed
+#     - "merge": Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip
+#     - "standard": Integration: Anchors are computed for all pairs of datasets
+#                     This will give all datasets the same weight during dataset integration but can be computationally intensive
+#     - "reference": Integration: One dataset is used as reference and anchors are computed for all other datasets
+#                      Less accurate but computationally faster 
+#                      Not implemented yet
+#     - "reciprocal": Integration: Anchors are computed in PCA space instead of the data
+#                       Even less accurate but for very big datasets
+#   - reference_dataset: When using method="reference", which dataset is the reference? 
+#                          Can be numeric or name of the dataset
 #   - dimensions: Number of dimensions to consider for integration
 param$integrate_samples = list(method="standard", reference_dataset=1, dimensions=30)
-
-# Which normalisation should be used for analysis: RNA or SCT?
-param$norm = "RNA"
 
 # The number of PCs to use; adjust this parameter based on the Elbowplot 
 param$pc_n = 10
@@ -167,29 +186,38 @@ param$pc_n = 10
 # Resolution of clusters; low values will lead to fewer clusters of cells 
 param$cluster_resolution=0.5
 
+#######################################################
+# Marker genes and genes with differential expression #
+#######################################################
 # Thresholds to define marker genes
 param$marker_padj = 0.05
 param$marker_log2FC = log2(2)
 param$marker_pct = 0.25
 
-# DEG contrasts
+# Additional (unwanted) variables to account for in statistical tests
+param$latent_vars = c()
+
+# Contrasts to find differentially expressed genes (R data.frame or Excel file)
+# Required columns:
+# condition_column: Categorial column in the cell metadata; specify "orig.ident" for sample and "seurat_clusters" for cluster
+# condition_group1: Condition levels in group 1, multiple levels concatenated by the plus character
+#                     Empty string = all levels not in group2 (cannot be used if group2 is empty)
+# condition_group2: Condition levels in group 2, multiple levels concatenated by the plus character
+#                     Empty string = all levels not in group1 (cannot be used if group1 is empty)
 #
-# The parameter takes a table in form of a data.frame or an Excel file.
-# These columns are required:
-# condition_column: categorial column in the cell metadata; specify "orig.ident" for sample and "seurat_clusters" for cluster
-# condition_group1: condition levels in group 1; can also be multiple levels concatenated by the plus character; empty string = all levels not in group2 (cannot be used if group2 is empty)
-# condition_group2: condition levels in group 2; separate multiple levels concatenated by the plus character; empty string = all levels not in group1 (cannot be used if group1 is empty)
-#
-# These columns are optional:
-# subset_column: categorial column in the cell metadata to subset before testing; specify "orig.ident" for sample and "seurat_clusters" for cluster (default: NA/no subset)
-# subset_group: subset levels; for the individual analysis of multiple levels separate by semicolons; for the joint analysis of multiple levels concatenate by the plus character (default: NA)
-# assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: RNA)
-# slot: when Seurat assay object, which slot to use (default: data)
-# padj: maximum adjusted p-value (default: 0.05)
-# log2FC: minimum absolute log2 fold change (default: 0)
-# min_pct: minimum percentage of cells expressing a gene to test (default: 0.1)
-# test: type of test; wilcox, bimod, roc, t, negbinom, poisson, LR, MAST, DESeq2; (default: wilcox)
-# latent_vars: Additional variables to account for. Multiple variables need to be concatenated by semicolons. Will overwrite the default by param$latent_vars (default: none).
+# Optional columns:
+# subset_column: Categorial column in the cell metadata to subset before testing (default: NA)
+#                  Specify "orig.ident" for sample and "seurat_clusters" for cluster 
+# subset_group: Further subset levels (default: NA)
+#                 For the individual analysis of multiple levels separate by semicolons
+#                 For the joint analysis of multiple levels concatenate by the plus character 
+# assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: "RNA")
+# slot: In case assay is a Seurat assay object, which slot to use (default: "data")
+# padj: Maximum adjusted p-value (default: 0.05)
+# log2FC: Minimum absolute log2 fold change (default: 0)
+# min_pct: Minimum percentage of cells expressing a gene to test (default: 0.1)
+# test: Type of test; "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
+# latent_vars: Additional variables to account for; multiple variables need to be concatenated by semicolons; will overwrite the default by param$latent_vars (default: none).
 param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
                                  condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
                                  condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
@@ -202,7 +230,10 @@ param$enrichr_padj = 0.05
 # Enrichr databases of interest
 param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
 
-# Main colour(s) to use for plots
+######################
+# General parameters #
+######################
+# Main colour to use for plots
 param$col = "palevioletred"
 
 # Colour palette and colours used for samples
@@ -210,9 +241,6 @@ param$col_palette_samples = "ggsci::pal_jama"
 
 # Colour palette and colours used for cluster
 param$col_palette_clusters = "ggsci::pal_startrek"
-
-# Sample data to at most n cells per dataset/sample (mainly for tests); set to NULL to deactivate
-param$downsample_cells_n = NULL
 
 # Path to git repository
 param$path_to_git = "."
@@ -482,11 +510,9 @@ names(param$col_samples) = sample_names
 # Downsample cells if requested
 if (!is.null(param$downsample_cells_n)) {
   sc = purrr::map(sc, function(s) {
-    cells = colnames(s)
-    return(subset(s, cells=sample(cells, min(param$downsample_cells_n, length(cells)))))
+    cells = ScSampleCells(sc=s, n=param$downsample_cells_n)
+    return(subset(s, cells=cells))
   })
-  
-  message("The dataset has been downsampled to ", param$downsample_cells_n, " cells.")
 }
 
 sc
