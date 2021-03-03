@@ -38,7 +38,7 @@ scrnaseq_session_info = function(path_to_git=".") {
 #' @param sc A Seurat sc object.
 #' @param n Number of cells to subsample.
 #' @param seed Seed for sampling. Default is 1.
-#' @param group Metadata colum group to consider for sampling with group_proportional.
+#' @param group Metadata column group to consider for sampling with group_proportional.
 #' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
 #' @return Sampled cell names.
 ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
@@ -49,7 +49,7 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   
   # Sample cells
   cell_names = sc[[]] %>% tibble::rownames_to_column() %>% dplyr::select(dplyr::all_of(c("rowname", group)))
-  colnames(cell_names) = c("rowname", ifelse(is.null(group), NULL, "group"))
+  colnames(cell_names) = ifelse(is.null(group), "rowname", c("rowname", "group"))
   
   if (!is.null(group) && !group_proportional) {
     num_groups = length(unique(cell_names$group))
