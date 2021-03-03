@@ -184,35 +184,11 @@ The main workflow is currently run from within Rstudio. Project-specific paramet
 ### Arguments
 <a name="documentation_scrnaseq_arguments"/>
 
-#### General
-<a name="documentation_scrnaseq_arguments_general"/>
+#### Input
+<a name="documentation_scrnaseq_arguments_input"/>
 
 ##### __`project_id`__
 ID or name of the project
-
-##### __`col`__
-
-Main colour used for continuous data
-
-##### __`col_palette_samples`__
-
-Colour palette used for samples. Ideally, this should be one of ggsci palettes (https://cran.r-project.org/web/packages/ggsci/vignettes/ggsci.html), but it can also be another palette, as long as it is a function that provides a colour for a sample number. Make sure that the palette provides enough colours. 
-
-##### __`col_palette_clusters`__
-
-Colour palette used for clusters. Ideally, this should be one of ggsci palettes (https://cran.r-project.org/web/packages/ggsci/vignettes/ggsci.html), but it can also be another palette, as long as it is a function that provides a colour for a cluster number. Make sure that the palette provides enough colours.
-
-##### __`path_to_git`__
-
-Path to the local git repository
-
-##### __`default_debugging`__
-
-Debugging mode: "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
-
-
-#### Input
-<a name="documentation_scrnaseq_arguments_input"/>
 
 ##### __`path_data`__
 
@@ -263,10 +239,6 @@ When using Ensembl ids as gene ids, the Ensembl version to use. This should matc
 
 When using Ensembl ids as gene ids, the argument is an R named list that specifies which Ensembl attributes will be used as gene id, as gene symbol and as entrez accession, respectively.
 
-##### __`file_annot`__
-
-Instead of fetching the gene annotation from Ensembl servers, read it from an external file. Note that by default the gene annotation will be fetched only once and is then saved in a separate file. Use this argument only if there is no access to Ensembl at all.
-
 ##### __`mart_attributes`__
 
 Gene annotation attributes to include when fetching gene annotation from Ensembl
@@ -275,12 +247,16 @@ Gene annotation attributes to include when fetching gene annotation from Ensembl
 
 `biomaRt` mirror to query Ensembl (`www`, `useast`, `uswest` or `asia`; if `NULL`, the mirror will be automatically selected)
 
-#### Filtering
-<a name="documentation_scrnaseq_arguments_filtering"/>
+##### __`file_annot`__
+
+Instead of fetching the gene annotation from Ensembl servers, read it from an external file. Note that by default the gene annotation will be fetched only once and is then saved in a separate file. Use this argument only if there is no access to Ensembl at all.
 
 ##### __`mt`__
 
 Prefix of mitochondrial genes, usually `^MT-` for human, `^Mt-` for mouse and `^mt-` for zebrafish. The caret indicates the prefix.
+
+#### Filtering
+<a name="documentation_scrnaseq_arguments_filtering"/>
 
 ##### __`cell_filter`__
 
@@ -478,6 +454,29 @@ P-value threshold for functional enrichment tests by Enrichr
 ##### __`enrichr_dbs`__
 
 Enrichr databases for functional enrichment tests. Please see the corresponding table in the HTML output.
+
+#### General
+<a name="documentation_scrnaseq_arguments_general"/>
+
+##### __`col`__
+
+Main colour used for continuous data
+
+##### __`col_palette_samples`__
+
+Colour palette used for samples. Ideally, this should be one of ggsci palettes (https://cran.r-project.org/web/packages/ggsci/vignettes/ggsci.html), but it can also be another palette, as long as it is a function that provides a colour for a sample number. Make sure that the palette provides enough colours. 
+
+##### __`col_palette_clusters`__
+
+Colour palette used for clusters. Ideally, this should be one of ggsci palettes (https://cran.r-project.org/web/packages/ggsci/vignettes/ggsci.html), but it can also be another palette, as long as it is a function that provides a colour for a cluster number. Make sure that the palette provides enough colours.
+
+##### __`path_to_git`__
+
+Path to the local git repository
+
+##### __`default_debugging`__
+
+Debugging mode: "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
 
 
 # Credits
