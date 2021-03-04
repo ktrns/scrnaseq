@@ -27,16 +27,18 @@
 # News
 <a name="news"/>
 
-(2021-02-23)  
-We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67) and [#68](https://github.com/ktrns/scrnaseq/pull/68)).
+(2021-03-04)  
+We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67), [#68](https://github.com/ktrns/scrnaseq/pull/68), and [#76](https://github.com/ktrns/scrnaseq/pull/76).
 
 The biggest changes are:
 
 * Introduced possibility to identify differentially expressed genes between any cell sets of interest, followed by functional enrichment analysis ([#45](https://github.com/ktrns/scrnaseq/issues/45))
 * Updated README and improved documentation ([#60](https://github.com/ktrns/scrnaseq/issues/60))
 * Figures are exported to png and pdf ([#62](https://github.com/ktrns/scrnaseq/issues/62))
-* Fixed bugs ([#63](https://github.com/ktrns/scrnaseq/issues/63) and [#65](https://github.com/ktrns/scrnaseq/issues/65))
+* Fixed bugs ([#63](https://github.com/ktrns/scrnaseq/issues/63), [#65](https://github.com/ktrns/scrnaseq/issues/65), and [#69](https://github.com/ktrns/scrnaseq/issues/69))
 * Updated pre-workflow
+* Sorted parameter chunk ([#72](https://github.com/ktrns/scrnaseq/issues/72))
+* Updated color-scheme of dotplots ([#64](https://github.com/ktrns/scrnaseq/issues/64))
 
 Stay tuned, we will soon create our first code release! 
 
