@@ -28,7 +28,7 @@
 <a name="news"/>
 
 (2021-03-04)  
-We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67), [#68](https://github.com/ktrns/scrnaseq/pull/68), and [#76](https://github.com/ktrns/scrnaseq/pull/76).
+We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67), [#68](https://github.com/ktrns/scrnaseq/pull/68), and [#76](https://github.com/ktrns/scrnaseq/pull/76)).
 
 The biggest changes are:
 
