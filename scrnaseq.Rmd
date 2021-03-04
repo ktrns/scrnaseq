@@ -22,10 +22,10 @@ bibliography: "references.bib"
 
 # R Options
 options(stringsAsFactors=FALSE,
-        "citation_format"="pandoc", 
+        citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
-        #knitr.table.format="html",
-        kableExtra_view_html=FALSE,
+        knitr.table.format="html",
+        kableExtra_view_html=TRUE,
         future.globals.maxSize=2000000000, mc.cores=4, 
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
@@ -134,7 +134,7 @@ param$cell_filter = list(nFeature_RNA=c(200, NA), percent_mt=c(NA, 20))
 # Filter for features
 param$feature_filter = list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
 
-# Samples to drop TEST THIS
+# Samples to drop
 # Cells from these samples will be dropped after initial QC
 # Example: param$samples_to_drop = c("pbmc_smartseq2_NC", "pbmc_smartseq2_RNA"), 
 #   where "pbmc_smartseq2" is the name of the dataset, and "NC" and "RNA" are the names of the subsamples
@@ -211,6 +211,7 @@ param$latent_vars = c()
 # subset_group: Further subset levels (default: NA)
 #                 For the individual analysis of multiple levels separate by semicolons
 #                 For the joint analysis of multiple levels concatenate by the plus character 
+#                 For the individual analysis of all levels empty string ""
 # assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: "RNA")
 # slot: In case assay is a Seurat assay object, which slot to use (default: "data")
 # padj: Maximum adjusted p-value (default: 0.05)
@@ -518,14 +519,14 @@ if (!is.null(param$downsample_cells_n)) {
 sc
 ```
 
-The following first table shows metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), or the above mentioned number of unique genes detected ("nFeature_RNA"). The second table shows metadata (columns) of the first 5 genes (rows), for example the number of cells with at least 1 count for the gene ("num_cells_expr"), and the number of cells with at least as many counts as set in the parameter filter section ("num_cells_expr_threshold"). 
+The following first table shows metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), or the above mentioned number of unique genes detected ("nFeature_RNA"). The second table shows metadata (columns) of the first 5 genes (rows). 
 
 ```{r metadata}
 # Combine cell metadata of the Seurat objects into one big metadata
 sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
 
 # Print cell metadata
-knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows", format="html") %>%
+knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 
@@ -724,20 +725,25 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
   })
 
   # Samples to drop
-  if (length(param$samples_to_drop) > 0 && n %in% param$samples_to_drop) {
+  if (n %in% param$samples_to_drop) {
     filter_result[["samples_to_drop"]] = colnames(sc[[n]])
+  } else {
+    filter_result[["samples_to_drop"]] = as.character(c())
   }
   
   # Minimum number of cells for a sample to keep
-  if (!is.null(param$samples_min_cells) && param$samples_min_cells > 0 && ncol(sc[[n]]) < param$samples_min_cells) {
+  if (ncol(sc[[n]]) < param$samples_min_cells) {
     filter_result[["samples_min_cells"]] = colnames(sc[[n]])
+  } else {
+    filter_result[["samples_min_cells"]] = as.character(c())
   }
+  
   return(filter_result)
 })
 
 # Summarise
 sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
-  return(as.data.frame(purrr::map(s,length))) 
+  return(as.data.frame(purrr::map(s, length))) 
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
 knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
@@ -1409,9 +1415,9 @@ Do cells in individual clusters have particularly high counts, detected genes or
 
 ## Number of counts 
 ```{r clusterQC_nCount_featurePlot}
-p1 = Seurat::FeaturePlot(sc, features="nCount_RNA", label=TRUE) + 
+p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nCount_RNA", label=TRUE) + 
   AddStyle(title="Feature plot") + 
-  scale_colour_gradient(low="lightgrey", high=param$col, trans="log10")
+  scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -1426,9 +1432,9 @@ p
 
 ## Number of features
 ```{r clusterQC_nFeature_featurePlot}
-p1 = Seurat::FeaturePlot(sc, features="nFeature_RNA", label=TRUE) + 
+p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nFeature_RNA", label=TRUE) + 
   AddStyle(title="Feature plot") + 
-  scale_colour_gradient(low="lightgrey", high=param$col, trans="log10")
+  scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -2003,10 +2009,10 @@ if (markers_found) {
   for(n in names(marker_genesets_top_enriched)){
     cat('##### ', n, ' \n')
     
-    print(knitr::kable(marker_genesets_top_enriched[[n]][, c("Database", "Term", "Direction", "Adjusted.P.value", "Odds.Ratio")], 
-                     align="l", caption="Top ten enriched terms per geneset") %>% 
+    cat(knitr::kable(marker_genesets_top_enriched[[n]][, c("Database", "Term", "Direction", "Adjusted.P.value", "Odds.Ratio")], 
+                     align="l", caption="Top ten enriched terms per geneset", format="html") %>% 
     kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
-    kableExtra::scroll_box(width="100%", height="700px"))
+    kableExtra::scroll_box(width="100%"))
 
     cat(' \n \n')
   }
@@ -2188,7 +2194,7 @@ Subset on column: \'{{subset_column}}\''
 
 if (length(degs)==0) message("No DEG contrasts specified.")
 
-for(i in seq(degs)) {
+for (i in seq(degs)) {
   # Get subsets
   degs_subsets = degs[[i]]
   first_contrast = degs_subsets[[1]]
@@ -2229,7 +2235,7 @@ for(i in seq(degs)) {
   }
   
   # Print summary table
-  print(
+  cat(
       knitr::kable(degs_subsets_results %>% 
                    dplyr::group_by(subset_group) %>% 
                    dplyr::summarise(Cells1=dplyr::first(cells1), 
@@ -2237,7 +2243,7 @@ for(i in seq(degs)) {
                                     DEGs=length(gene),
                                     DEGs_up=sum(avg_log2FC > 0),
                                     DEGs_down=sum(avg_log2FC < 0)),
-                   align="l", caption="DEG summary", col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated")) %>%
+                   align="l", caption="DEG summary", col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated"), format="html") %>%
         kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
     )
   cat('\n \n')
