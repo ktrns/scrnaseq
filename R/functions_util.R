@@ -1,30 +1,3 @@
-# 'Calculate enrichment of cells per sample per cluster.
-#' 
-#' @param sc Seurat object.
-#' @return A table with counts, odd ratios and p-values.
-cells_fisher = function(sc) {
-  cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
-  cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% unique() %>% sort()
-  out = matrix(0+NA, nrow=0, ncol=length(cell_clusters)) %>% as.data.frame()
-  for(s in cell_samples) {
-    ft.list = lapply(cell_clusters, function(cl) { 
-      a = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
-      b = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
-      c = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
-      d = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
-      tbl.2by2 = matrix(c(a, b, c, d), ncol=2, nrow=2, byrow=TRUE)
-      ft = fisher.test(tbl.2by2, alternative="greater")
-      return(c(oddsRatio=round(as.numeric(ft$estimate), 2),
-               p=formatC(as.numeric(ft$p.value), format="e", digits=1)))
-    })
-    ft.matrix = purrr::reduce(ft.list, .f=cbind)
-    rownames(ft.matrix) = paste0(s, ".", rownames(ft.matrix))
-    out = rbind(out, ft.matrix)
-  }
-  colnames(out) = paste0("Cl_", cell_clusters)
-  return(out)
-}
-
 #' Given a vector, report at most n elements as concatenated string.
 #' 
 #' @param x A vector.
@@ -65,7 +38,7 @@ scrnaseq_session_info = function(path_to_git=".") {
 #' @param sc A Seurat sc object.
 #' @param n Number of cells to subsample.
 #' @param seed Seed for sampling. Default is 1.
-#' @param group Metadata colum group to consider for sampling with group_proportional.
+#' @param group Metadata column group to consider for sampling with group_proportional.
 #' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
 #' @return Sampled cell names.
 ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
@@ -76,7 +49,7 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   
   # Sample cells
   cell_names = sc[[]] %>% tibble::rownames_to_column() %>% dplyr::select(dplyr::all_of(c("rowname", group)))
-  colnames(cell_names) = c("rowname", ifelse(is.null(group), NULL, "group"))
+  colnames(cell_names) = ifelse(is.null(group), "rowname", c("rowname", "group"))
   
   if (!is.null(group) && !group_proportional) {
     num_groups = length(unique(cell_names$group))
@@ -674,6 +647,7 @@ on_error_just_print_traceback = function(x) {
     sink()
     print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")
   })
+  return(invisible(NULL))
 }
 
 #' On error, R will start a debugger on the terminal. For interactive use without X11.
@@ -683,11 +657,14 @@ on_error_start_terminal_debugger = function(x) {
     sink()
     recover()
   })
+  return(invisible(NULL))
 }
 
 #' On error, R will run the default debugging process. Default.
 #' @return None.
-on_error_default_debugging = function(x) {}
+on_error_default_debugging = function(x) {
+  return(invisible(NULL))
+}
 
 # Wrapper around citep and citet. Takes care of connection problems.
 #'
