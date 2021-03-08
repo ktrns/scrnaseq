@@ -70,6 +70,10 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dpi=96                         # figure resolution
                                      
 )
+
+# Initialize Citations
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation
+try({invisible(knitcitations::citet("https://cran.r-project.org/web/packages/knitr/index.html"))})
 ```
 
 # Dataset description
@@ -92,11 +96,6 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
                              stats=c(NA, NA))
-
-#param$path_data = data.frame(name="pbmc_10x",
-#                             type="10x",
-#                             path="test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/",
-#                             stats=NA)
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
@@ -253,7 +252,7 @@ param$debugging_mode = "default_debugging"
 
 ```{r preparation_and_initial_checks}
 # Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/"))
+knitr::opts_chunk$set(fig.path=paste0(param$path_out, "/figures/"))
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
@@ -303,6 +302,9 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
 ```
 
 ```{r initial_checks_failed, eval=length(error_messages) > 0, include=length(error_messages) > 0}
+# Write references
+knitcitations::write.bibtex(file="references.bib")
+
 # Now format collected error messages as error boxes, print and exit
 # Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
 error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
@@ -2104,7 +2106,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   results_table = contrast$results
   
   # Drop existing results
-  if ("enrichr" %in% names(contrast)) d[["enrichr"]] = NULL
+  if ("enrichr" %in% names(contrast)) contrast[["enrichr"]] = NULL
   
   # Split into up- and downregulated DEGs, then translate to Entrez gene, runEnrichr
   degs_up = dplyr::filter(results_table, avg_log2FC > 0) %>% dplyr::pull(gene) %>% unique()
@@ -2116,7 +2118,6 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   degs_down = sapply(degs_down, function(n) seurat_rowname_to_entrez[[n]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
   degs_down = degs_down[!is.na(degs_down)]
   enrichr_results_down = EnrichrTest(genes=degs_down, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-
   
   # Flatten both enrichr results into tables
   enrichr_results_up = purrr::map_dfr(names(enrichr_results_up), function(n) {
@@ -2136,7 +2137,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   })
   
   # Rbind and add factor levels
-  enrichr_results = dplyr::bind_rows(enrichr_results_up, enrichr_results_down)
+  enrichr_results = rbind(enrichr_results_up, enrichr_results_down)
   return(c(contrast, list(enrichr=enrichr_results)))
 })
 
