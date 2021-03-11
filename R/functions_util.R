@@ -262,7 +262,7 @@ Error = function(x, options){
   knitr::asis_output(format_error(x, options))
 }
 
-# Report parameters in a table.
+#' Report parameters in a table.
 #' @param params The parameter list.
 #' @return A table with parameters for printing.
 scrnaseq_params_info = function(params) { 
@@ -459,22 +459,13 @@ check_parameters = function(param) {
   if (!"integrate_samples" %in% names(param) || !is.list(param$integrate_samples)) {
     error_messages = c(error_messages, "The parameter 'integrate_samples' is missing or not a list!")
   } else {
-    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "standard", "reference", "reciprocal")) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge), 'standard' (integrate), 'reference' (integrate based on reference), 'reciprocal' (fast integrate in PCA space)!")
+    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "integrate")) {
+      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
     }
     
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("standard", "reference", "reciprocal") && !"dimensions" %in% names(param$integrate_samples)) {
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("integrate") && !"dimensions" %in% names(param$integrate_samples)) {
       error_messages = c(error_messages, "The sub parameter 'dimensions' of parameter 'integrate_samples' is missing. Please specify the number of dimensions to include for integration!")
     }
-    
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("reference") && !"reference" %in% names(param$integrate_samples)) {
-      error_messages = c(error_messages, "The sub parameter 'reference' of parameter 'integrate_samples' is missing. Please specify the reference sample to use for integration!")
-    }
-
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("single") && nrow(param$path_data) > 1) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' cannot be 'single' when there are multiple datasets! Please set to another method. If after filtering only one dataset remains, the script will automatically set the 'method' parameter to 'single'.")
-    }
-    
   }
 
   # Check normalisation_default
@@ -560,7 +551,7 @@ check_python = function() {
   return(error_messages)
 }
 
-# Checks if enrichR is live.
+#' Checks if enrichR is live.
 #'
 #' @param databases The enrichR databases to use.
 #' @return Returns a list with error messages.
@@ -586,7 +577,16 @@ check_enrichr = function(databases) {
   return(c())
 }
 
-# Checks if all required packages are installed.
+#' Checks if packages are installed.
+#'
+#' @param packages A character vector with package names.
+#' @return Logical vector with TRUE for installed and FALSE for not installed
+packages_installed = function(packages) {
+  return(packages %in% installed.packages()[ , "Package"])
+}
+
+
+#' Checks if all required packages are installed.
 #'
 #' @return Returns a list with error messages.
 check_installed_packages = function() {
@@ -598,8 +598,7 @@ check_installed_packages = function() {
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
                         "knitcitations")
   
-  is_installed = required_packages %in% installed.packages()[,"Package"]
-  
+  is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {
     return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
@@ -607,7 +606,7 @@ check_installed_packages = function() {
   }
 }
 
-# Checks if Ensembl annotation is available.
+#' Checks if Ensembl annotation is available.
 #'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.
@@ -666,7 +665,7 @@ on_error_default_debugging = function(x) {
   return(invisible(NULL))
 }
 
-# Wrapper around citep and citet. Takes care of connection problems.
+#' Wrapper around citep and citet. Takes care of connection problems.
 #'
 #' @param reference Argument for citep or citet.
 #' @param type Use 'citet' or 'citep'.

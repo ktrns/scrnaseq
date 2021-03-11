@@ -47,7 +47,7 @@ library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
 # Tables: kableExtra, DT
 # Plots: ggsci, ggpubr
 # IO: openxlsx, readr, R.utils
@@ -167,18 +167,25 @@ param$vars_to_regress = c()
 # When there are multiple datasets, how to combine them:
 #   - method:
 #     - "single": Default when there is only one dataset after filtering, no integration is needed
-#     - "merge": Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip
-#     - "standard": Integration: Anchors are computed for all pairs of datasets
-#                     This will give all datasets the same weight during dataset integration but can be computationally intensive
-#     - "reference": Integration: One dataset is used as reference and anchors are computed for all other datasets
-#                      Less accurate but computationally faster 
-#                      Not implemented yet
-#     - "reciprocal": Integration: Anchors are computed in PCA space instead of the data
-#                       Even less accurate but for very big datasets
-#   - reference_dataset: When using method="reference", which dataset is the reference? 
-#                          Can be numeric or name of the dataset
+#     - "merge": Merge (in other words, concatenate) data when no integration is needed, 
+#                       e.g. when samples were multiplexed on the same chip.
+#     - "integrate": Anchors are computed for all pairs of datasets. This will give all datasets the same weight
+#                       during dataset integration but can be computationally intensive
+#
+# Additional options for the "integrate" method:
+#
 #   - dimensions: Number of dimensions to consider for integration
-param$integrate_samples = list(method="standard", reference_dataset=1, dimensions=30)
+#   - reference: Use one or more datasets as reference and compute anchors for all other datasets. Separate multiple datasets by comma
+#                           This is computationally faster but less accurate.
+#   - use_reciprocal_pca: Compute anchors in PCA space. Even more computationally faster but again less accurate 
+#                       Recommended for big datasets.
+#   - k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample))
+#   - k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
+#   - k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
+param$integrate_samples = list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
+
+# TO DISCUSS from Seurat vignette:
+# The results show that rpca-based integration is more conservative, and in this case, do not perfectly align a subset of cells (which are naive and memory T cells) across experiments. You can increase the strength of alignment by increasing the k.anchor parameter, which is set to 5 by default. Increasing this parameter to 20 will assist in aligning these populations.
 
 # The number of PCs to use; adjust this parameter based on the Elbowplot 
 param$pc_n = 10
@@ -689,21 +696,31 @@ ggplot(genes_highestExpr_counts, aes(x=name, y=value, col=gene, group=gene)) +
 ## Filtering
 Cells and genes are filtered based on the following thresholds: 
 ```{r filter_print_cutoffs}
-cell_filter_list = param$cell_filter %>% unlist(recursive=FALSE)
-cell_filter_tbl = cell_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
-rownames(cell_filter_tbl) = names(cell_filter_list)
-colnames(cell_filter_tbl) = c("Min", "Max")
+cell_filter_lst = param$cell_filter %>% unlist(recursive=FALSE)
+is_numeric_filter = purrr::map_lgl(cell_filter_lst, function(f) return(is.numeric(f) & length(f)==2))
 
-feature_filter_list = param$feature_filter %>% unlist(recursive=FALSE)
-feature_filter_tbl = feature_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
-rownames(feature_filter_tbl) = names(feature_filter_list)
-colnames(feature_filter_tbl) = "n"
+# numeric cell filters
+if (length(cell_filter_lst[is_numeric_filter]) > 0) {
+  purrr::invoke(rbind, cell_filter_lst[is_numeric_filter]) %>%
+    knitr::kable(align="l", caption="Numeric filters applied to cells", col.names=c("Min", "Max")) %>% 
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+}
 
-knitr::kable(cell_filter_tbl, align="l", caption="Filters applied to cells") %>% 
+# categorial cell filters
+if (length(cell_filter_lst[!is_numeric_filter]) > 0) {
+purrr::invoke(rbind, cell_filter_lst[!is_numeric_filter] %>% purrr::map(paste, collapse=",")) %>%
+  knitr::kable(align="l", caption="Categorial filters applied to cells", col.names=c("Values")) %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+}
   
-knitr::kable(feature_filter_tbl, align="l", caption="Filters applied to genes") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+# gene filters
+feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
+if (length(feature_filter_lst) > 0) {
+  feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
+  purrr::invoke(rbind, feature_filter_lst) %>% 
+    knitr::kable(align="l", caption="Filters applied to genes", col.names=c("Value")) %>%
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+}
 ```
 
 The number of excluded cells and features is as follows: 
@@ -814,7 +831,7 @@ sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize"
 ```{r part2_cc_scores}
 # Determine cell cycle effect per sample 
 sc = purrr::map(list_names(sc), function(n) {
-  sc[[n]] = cc_scoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
+  sc[[n]] = CCScoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
   if (all(is.na(sc[[n]][["S.Score"]])) & all(is.na(sc[[n]][["G2M.Score"]]))) param$cc_remove=FALSE
   return(sc[[n]])
 })
@@ -861,12 +878,14 @@ if (param$norm == "RNA") {
   # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. 
   #   Consequently, some genes might be missing from the SCT assay. 
   #   See: https://github.com/ChristophH/sctransform/issues/27
+  # Note: The performance of SCTransform can be improved by using 'glmGamPoi' instead of 'poisson' as method for initial parameter estimation.
   sc = purrr::map(list_names(sc), function(n) { 
     SCTransform(sc[[n]], 
                 vars.to.regress=param$vars_to_regress, 
                 min_cells=param$feature_filter[[n]][["min_cells"]], 
                 verbose=FALSE, 
-                return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) 
+                return.only.var.genes=!(param$integrate_samples[["method"]]=="single"),
+                method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson")) 
   })
 }
 ```
@@ -902,7 +921,7 @@ p
 # Default assay is set automatically
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
-  message("Your dataset contains 1 sample only. No merging/intregating required.")
+  message("Your dataset contains 1 sample only. No merging/integrating required.")
 }
 ```
 
@@ -989,7 +1008,8 @@ if (param$integrate_samples[["method"]]=="merge") {
                                       vars.to.regress=param$vars_to_regress, 
                                       min_cells=min_cells_overall, 
                                       verbose=FALSE, 
-                                      return.only.var.genes=FALSE))
+                                      return.only.var.genes=FALSE,
+                                      method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson")))
   }
   
   # Add feature metadata
@@ -1009,86 +1029,46 @@ if (param$integrate_samples[["method"]]=="merge") {
 }
 ```
 
-```{r multi_dataset_integration_standard, eval=(param$integrate_samples[["method"]]=="standard"), include=(param$integrate_samples[["method"]]=="standard"), warning=FALSE}
-# Standard method for integrating multiple samples. 
-#   Best performance but computationally intensive.
-if (param$integrate_samples[["method"]]=="standard") {
-  # Note "Assay names should only have numbers and letters: Warnung: Keys should be one or more alphanumeric characters followed by an underscore, setting key from rna_integrated_ to rnaintegrated_" (seurat/R/object.R)
+```{r multi_dataset_integration_integrate, eval=(param$integrate_samples[["method"]]=="integrate"), include=(param$integrate_samples[["method"]]=="integrate"), warning=FALSE}
+# Standard method for integrating multiple samples. Best performance but computationally intensive.
+if (param$integrate_samples[["method"]]=="integrate") {
+  if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) param$integrate_samples[["use_reciprocal_pca"]] = FALSE
+
+  # Run integration
+  sc = RunIntegration(sc, ndims=param$integrate_samples[["dimensions"]], 
+                      verbose=FALSE, 
+                      reference=param$integrate_samples[["reference"]], 
+                      use_reciprocal_pca=param$integrate_samples[["use_reciprocal_pca"]], 
+                      k_filter=param$integrate_samples[["k.filter"]], 
+                      k_weight=param$integrate_samples[["k.weight"]], 
+                      k_anchor=param$integrate_samples[["k.anchor"]])
   
-  # The integration step will temporarily occupy a lot of memory. 
-  #   However, R has problems with freeing unused memory.
-  #   By wrapping the steps into a function, hopefully this works a bit better.
-  run_standard_integration = function(sc_objs, ndims=30, vars_to_regress=c(), feature_filter=c(), verbose=FALSE, assay="RNA") {
-    # How many neighbors to use when filtering anchors; also adjust weight
-    k.filter = min(200, min(sapply(sc_objs, ncol)))
-    k.weight = min(100, k.filter)
-
-    
-    # Find integration anchors for assay RNA
-    if (assay == "RNA") {
-      integrate_RNA_anchors = Seurat::FindIntegrationAnchors(object.list=sc_objs, 
-                                                             dims=1:ndims, 
-                                                             anchor.features=3000, 
-                                                             k.filter=k.filter,
-                                                             verbose=verbose)
-      sc_objs = Seurat::IntegrateData(integrate_RNA_anchors, 
-                                      new.assay.name="RNAintegrated",
-                                      dims=1:ndims,
-                                      k.weight=k.weight,
-                                      verbose=verbose)
-      # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
-      sc_objs = Seurat::ScaleData(sc_objs, 
-                                  features=rownames(sc_objs[["RNAintegrated"]]), 
-                                  vars.to.regress=vars_to_regress, 
-                                  assay="RNAintegrated",
-                                  verbose=verbose)
-      DefaultAssay(sc_objs) = "RNA"
-      sc_objs = Seurat::ScaleData(sc_objs, 
-                                  features=rownames(sc_objs[["RNA"]]), 
-                                  vars.to.regress=vars_to_regress, 
-                                  assay="RNA",
-                                  verbose=verbose)
-      rm(integrate_RNA_anchors)
-
-    } else if (assay == "SCT") {
-      # Find integration anchors for assay SCT
-      integrate_SCT_features = SelectIntegrationFeatures(object.list=sc_objs, 
-                                                         nfeatures=3000,
-                                                         verbose=verbose)
-      sc_objs = PrepSCTIntegration(object.list=sc_objs, 
-                                   anchor.features=integrate_SCT_features, 
-                                   assay=rep("SCT",length(sc_objs)),
-                                   verbose=verbose)
-      integrate_SCT_anchors = FindIntegrationAnchors(object.list=sc_objs,
-                                                     dims=1:ndims, 
-                                                     normalization.method="SCT", 
-                                                     anchor.features=integrate_SCT_features, 
-                                                     k.filter=k.filter,
-                                                     verbose=verbose)
-      sc_objs = Seurat::IntegrateData(integrate_SCT_anchors, 
-                                      new.assay.name="SCTintegrated",
-                                      normalization.method="SCT",
-                                      dims=1:ndims, 
-                                      k.weight=k.weight,
-                                      verbose=verbose)
-      # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
-      DefaultAssay(sc_objs) = "SCT"
-      min_cells_overall = max(purrr::map_int(feature_filter, function(f) as.integer(f[["min_cells"]])))
-      sc_objs = SCTransform(sc_objs, 
-                            vars.to.regress=vars_to_regress, 
-                            min_cells=min_cells_overall, 
-                            verbose=FALSE, 
-                            return.only.var.genes=FALSE)
-      rm(integrate_SCT_features, integrate_SCT_anchors)
-    }
-    
-    # Call garbage collector to free memory (hope it helps)
-    gc(verbose=verbose)
-    return(sc_objs)
+  # This chunk does the scaling.
+  if (param$norm == "RNA") {
+    # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
+    DefaultAssay(sc) = "RNAintegrated"
+    sc = Seurat::ScaleData(sc, 
+                                features=rownames(sc[["RNAintegrated"]]), 
+                                vars.to.regress=param$vars_to_regress, 
+                                assay="RNAintegrated",
+                                verbose=FALSE)
+      
+    DefaultAssay(sc) = "RNA"
+    sc = Seurat::ScaleData(sc, 
+                                features=rownames(sc[["RNA"]]), 
+                                vars.to.regress=param$vars_to_regress, 
+                                assay="RNA",
+                                verbose=FALSE)
+  } else if (param$norm == "SCT") {
+    # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
+    DefaultAssay(sc) = "SCT"
+    min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) as.integer(f[["min_cells"]])))
+    sc = SCTransform(sc, vars.to.regress=param$vars_to_regress, 
+                     min_cells=min_cells_overall,
+                     verbose=FALSE,
+                     return.only.var.genes=FALSE,
+                     method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson"))
   }
-  
-  # call function
-  sc = run_standard_integration(sc, ndims=param$integrate_samples[["dimensions"]], vars_to_regress=param$vars_to_regress, feature_filter=param$feature_filter, assay=param$norm)
   
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
@@ -1110,19 +1090,6 @@ if (param$integrate_samples[["method"]]=="standard") {
 }
 ```
 
-```{r multi_dataset_integration_reference, eval=(param$integrate_samples[["method"]]=="reference"), include=(param$integrate_samples[["method"]]=="reference")}
-# Method uses one dataset as reference and all other datasets are integrated into this dataset. Faster but lower performance.
-if (param$integrate_samples[["method"]]=="reference") {
-   stop("Not yet implemented")
-}
-```
-
-```{r multi_dataset_integration_reciprocal, eval=(param$integrate_samples[["method"]]=="reciprocal"), include=(param$integrate_samples[["method"]]=="reciprocal")}
-# Method computes anchors in PCA space instead of the data. Even less accurate but for very big datasets.
-if (param$integrate_samples[["method"]]=="reciprocal") {
-   stop("Not yet implemented")
-}
-```
 
 ## Relative log expression {.tabset}
 ```{r plot_RLE_prep}
@@ -1192,7 +1159,7 @@ We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noi
 To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
 ```{r pca}
 # Run PCA for default normalisation
-sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE)
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
 
 p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
 for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
@@ -1203,26 +1170,30 @@ p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) +
   AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 
-p = Seurat::DimHeatmap(sc, dims=1:1, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+p = Seurat::DimHeatmap(sc, dims=1:2, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
 p
 ```
 
 ```{r pca_heatmaps, fig.height=20}
-p = Seurat::DimHeatmap(sc, dims=1:20, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+p = Seurat::DimHeatmap(sc, dims=1:min(20, ncol(sc)), cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
 p
 ```
 
 ## Dimensionality of the dataset
 We next need to decide how many PCs we want to use for our analyses. The following "Elbow plot" is designed to help us make an informed decision.  PCs are ranked based on the percentage of variance they explain. 
 
-For the current dataset, `r param$pc_n` PCs were chosen. 
 ```{r dimensionality}
 # More approximate technique used to reduce computation time
-p = Seurat::ElbowPlot(sc, ndims=20) + 
+p = Seurat::ElbowPlot(sc, ndims=min(20, ncol(sc))) + 
   geom_vline(xintercept=param$pc_n + .5, col="firebrick", lty=2) + 
   AddStyle(title="Elbow plot") 
 p
+
+# Cannot have more PCs than number of cells
+param$pc_n = min(param$pc_n, ncol(sc))
 ```
+
+For the current dataset, `r param$pc_n` PCs were chosen.
 
 # Clustering
 Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm. 
@@ -1312,7 +1283,7 @@ rownames(tbl_perc) = gsub(rownames(tbl_perc), pattern="_n$", replacement="_perc"
 tbl = rbind(tbl, tbl_perc)
 
 # Add enrichment
-if (length(cell_samples) > 1) tbl = rbind(tbl, cells_fisher(sc))
+if (length(cell_samples) > 1) tbl = rbind(tbl, CellsFisher(sc))
 
 # Sort
 tbl = tbl[order(rownames(tbl)), ]
@@ -1932,7 +1903,7 @@ markers_enriched=list()
 ```
 
 ```{r markers_functional_enrichment, results="hide", eval=markers_found}
-if (markers_found) {
+♥if (markers_found) {
   # Convert Seurat names of upregulated marker per cluster to Entrez; use named lists for translation
   marker_genesets_up = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$up %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
@@ -2295,7 +2266,7 @@ write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.
 
 ## Export to the Cerebro Browser
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`
-```{r cerebro_integration, message=FALSE, warning=FALSE}
+```{r cerebro_integration, message=FALSE, warning=FALSE, eval=F}
 # Top expressed genes
 sc = cerebroApp::getMostExpressedGenes(sc, 
                                        assay=Seurat::DefaultAssay(sc),
@@ -2366,7 +2337,7 @@ knitr::kable(out, align="l") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
+This report was created with generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions, message=FALSE}
 out = scrnaseq_session_info(param$path_to_git)
 
@@ -2374,7 +2345,12 @@ knitr::kable(out, align="l") %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 ```
 
+
 # References
 ```{r bib, message=FALSE}
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
+invisible(knitcitations::citep(citation("knitr")))
+
+# Writes knitcitations references to references.bib file.
 knitcitations::write.bibtex(file="references.bib")
 ```
