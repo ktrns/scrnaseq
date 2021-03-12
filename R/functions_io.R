@@ -99,13 +99,14 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   metadata_file = file.path(dirname(path), "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
     metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
     
     # Check that it contains all cell names
     barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                                     first_n_elements_to_string(missed)))
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
@@ -115,7 +116,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
   metadata_table$orig.dataset = factor(project)
   
@@ -294,13 +295,14 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   metadata_file = file.path(path, "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
     metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
     
     # Check that it contains all cell names
     barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                        first_n_elements_to_string(missed)))
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
@@ -309,7 +311,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
                                         first_n_elements_to_string(invalid)))
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]), stringsAsFactors=FALSE)
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
   metadata_table$orig.dataset = factor(project)
   

@@ -36,9 +36,9 @@ params:
    # HTO regular expression (alternative to HTO names)
    #   Identify HTOs via a regular expression. Names cannot be provided here.
    #   If specified will overrule hto_names
-   #hto_regex: "^hto"
+   hto_regex: NULL
    
-   # HTO normalisation: CLR (default) or LogNorm
+   # HTO normalisation: CLR (default) or LogNormalize
    norm: "LogNormalize"
    
    # Prefix of mitochondrial genes
@@ -100,8 +100,9 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
 ```
 
 ```{r preparation_and_initial_checks}
-# Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
+# Path for figures in png and pdf format XXXX need to be absolute!
+knitr::opts_knit$set(base.dir=paste(params$path_out, "figures/", sep="/"))
+#knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
 
 # When using pandoc, setting the dpi via opts_chunk does not work (https://github.com/yihui/knitr/issues/901)
 # As workaround, we define a function that takes care of that
@@ -435,7 +436,7 @@ Idents(sc.all) = "hash.ID"
 sc_fig_height = round((length(hto_samples))*1.25)
 sc_qc_fig_height = round((length(levels(sc$seurat_clusters)))*0.75)
 sc_all_fig_height = round((length(hto_samples)+2)*1.25)
-sc_all_qc_fig_height = round((length(level(sc.all$seurat_clusters)))*0.75)
+sc_all_qc_fig_height = round((length(levels(sc.all$seurat_clusters)))*0.75)
 
 # Set cluster colors
 cluster_names = levels(sc$seurat_clusters)
@@ -625,7 +626,7 @@ knitr::kable(out, align="l") %>%
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions}
-out = scrnaseq_session_info()
+out = scrnaseq_session_info(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")

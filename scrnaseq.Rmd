@@ -34,7 +34,7 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
-Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
+Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
@@ -534,12 +534,12 @@ sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>%
 
 # Print cell metadata
 knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 
 # Print gene metadata
 knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 ```
 
@@ -660,7 +660,7 @@ p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Features
 if (length(sc)==1) {
   p = p & theme(legend.position="bottom")
 } else {
-  p = p + patchwork::plot_layout(guides = "collect") & theme(legend.position="bottom")
+  p = p + patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
 }
 p
 ```
@@ -703,14 +703,14 @@ is_numeric_filter = purrr::map_lgl(cell_filter_lst, function(f) return(is.numeri
 if (length(cell_filter_lst[is_numeric_filter]) > 0) {
   purrr::invoke(rbind, cell_filter_lst[is_numeric_filter]) %>%
     knitr::kable(align="l", caption="Numeric filters applied to cells", col.names=c("Min", "Max")) %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 }
 
 # categorial cell filters
 if (length(cell_filter_lst[!is_numeric_filter]) > 0) {
 purrr::invoke(rbind, cell_filter_lst[!is_numeric_filter] %>% purrr::map(paste, collapse=",")) %>%
   knitr::kable(align="l", caption="Categorial filters applied to cells", col.names=c("Values")) %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 }
   
 # gene filters
@@ -719,7 +719,7 @@ if (length(feature_filter_lst) > 0) {
   feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
   purrr::invoke(rbind, feature_filter_lst) %>% 
     knitr::kable(align="l", caption="Filters applied to genes", col.names=c("Value")) %>%
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 }
 ```
 
@@ -764,7 +764,7 @@ sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
 knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) 
 
 # Now filter, drop the respective colours and adjust integration method
 sc = purrr::map(list_names(sc), function(n) {
@@ -791,7 +791,7 @@ sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>%
   t() %>% as.data.frame() 
 rownames(sc_features_to_exclude_summary) = c("Genes")
 knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of excluded genes") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 
 # Now filter
 sc = purrr::map(list_names(sc), function(n) {
@@ -825,7 +825,7 @@ While raw data is typically used for statistical tests such as finding marker ge
 # Normalise data the original way
 #   This is required to score cell cycle
 #   https://github.com/satijalab/seurat/issues/1679
-sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
+sc = purrr::map(sc, Seurat::NormalizeData, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 ```
 
 ```{r part2_cc_scores}
@@ -855,7 +855,7 @@ if (param$cc_remove) {
 ```{r part3_normalisation, results="hide", warning=FALSE}
 if (param$norm == "RNA") { 
   # Find variable features from normalised data (unaffected by scaling)
-  sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
+  sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method="vst", nfeatures=3000, verbose=FALSE)
   
   # Scale 
   # Note: For a single dataset where no integration/merging is needed, all features can already be scaled here. 
@@ -928,8 +928,10 @@ if (param$integrate_samples[["method"]]=="single") {
 ```{r multi_dataset_integration_preparation, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
 if (param$integrate_samples[["method"]]!="single") {
   
-  # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay and add again afterwards
+  # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay except for SCT and add again afterwards
+  # Note: not sure whether this is still needed - discuss
   assay_names = unique(purrr::flatten_chr(purrr::map(list_names(sc), function(n) { Seurat::Assays(sc[[n]]) } )))
+  assay_names = setdiff(assay_names, "SCT")
   
   # Loop through all assays and accumulate meta data
   sc_feature_metadata = purrr::map(values_to_names(assay_names), function(a) {
@@ -988,14 +990,14 @@ if (param$integrate_samples[["method"]]=="merge") {
 
   # Re-score cell cycle effects after merge
   if (param$cc_rescore_after_merge) {
-    sc = cc_scoring(sc=sc, genes_s=genes_s[,2], genes_g2m=genes_g2m[,2])
+    sc = CCScoring(sc=sc, genes_s=genes_s[,2], genes_g2m=genes_g2m[,2])
     if (all(is.na(sc[["S.Score"]])) & all(is.na(sc[["G2M.Score"]]))) param$cc_remove=FALSE
   }
   
   # (Re-)Run normalisation, variable features and scaling
   if (param$norm == "RNA") {
     # Find variable features in RNA assay
-    sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
+    sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000, verbose=FALSE)
    
     # Scale RNA assay
     # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
@@ -1036,14 +1038,14 @@ if (param$integrate_samples[["method"]]=="integrate") {
 
   # Run integration
   sc = RunIntegration(sc, ndims=param$integrate_samples[["dimensions"]], 
-                      verbose=FALSE, 
+                      verbose=TRUE, 
                       reference=param$integrate_samples[["reference"]], 
                       use_reciprocal_pca=param$integrate_samples[["use_reciprocal_pca"]], 
                       k_filter=param$integrate_samples[["k.filter"]], 
                       k_weight=param$integrate_samples[["k.weight"]], 
                       k_anchor=param$integrate_samples[["k.anchor"]])
   
-  # This chunk does the scaling.
+  # This part does the scaling.
   if (param$norm == "RNA") {
     # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
     DefaultAssay(sc) = "RNAintegrated"
@@ -1163,7 +1165,7 @@ sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FA
 
 p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
 for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
-p =  patchwork::wrap_plots(p_list, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
+p =  patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
 p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) + 
@@ -1317,7 +1319,7 @@ In case the dataset contains 2 or more samples, we also calculate whether or not
 ```{r cells_per_cluster_table}
 # Print table
 knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
   kableExtra::scroll_box(width="100%")
 ```
 
@@ -1503,7 +1505,7 @@ if ((known_markers_n > 0) & any(idx_dotplot)) {
       scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
       AddStyle(title=paste("Known marker genes:", names(known_markers_dotplot)[i]), 
                ylab="Cluster") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)))
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)))
   }
   p = patchwork::wrap_plots(p_list, ncol=1)
   print(p)
@@ -1628,7 +1630,7 @@ if (markers_found) {
 
   # Show table
   knitr::kable(markers_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px") 
 }
 ```
@@ -1691,7 +1693,7 @@ if (markers_found) {
                                                               xlab="Cluster")
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Violin plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") & theme(legend.position="bottom")
+    patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
   suppressMessages(p)
 }
 ```
@@ -1707,7 +1709,7 @@ if (markers_found) {
                                                               xlab="Cluster") 
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Violin plot of normalised gene expression data, top 1 marker gene per cluster") +
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1726,7 +1728,7 @@ if (markers_found) {
   }
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Ridge plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1745,7 +1747,7 @@ if (markers_found) {
   }
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Ridge plot of normalised and log-transformed gene expression data, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1762,7 +1764,7 @@ if (markers_found) {
       p = suppressMessages(Seurat::DotPlot(sc, features=genes) + 
         scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
         AddStyle(title=paste0("Top markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
-        theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+        theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
         guides(size=guide_legend(order=1)))
       return(p)
     } else { 
@@ -1771,7 +1773,7 @@ if (markers_found) {
     }
   })
   
-  p = patchwork::wrap_plots(p_list, ncol=2)
+  p = patchwork::wrap_plots(p_list[!purrr::map_lgl(p_list, is.null)], ncol=2)
   print(p)
 }
 ```
@@ -1797,7 +1799,7 @@ for (cl in levels(sc$seurat_clusters)) {
     p_list[[cl]] = suppressMessages(Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident") +
       scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") + 
       AddStyle(title=paste0("Up to 50 markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1)))
   }
 }
@@ -1818,7 +1820,7 @@ for (cl in levels(sc$seurat_clusters)) {
   if (length(markers_filt_up_cl_top) > 0) {
     p_list[[cl]] = Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident", scale=FALSE, cols=c("lightgrey", param$col)) +
       AddStyle(title=paste0("Up to ", n_genes_max_dotplot, " markers (up-regulated genes) for cluster ", cl, " (not scaled)"), ylab="Cluster", legend_position="bottom") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1))
   }
 }
@@ -1903,7 +1905,7 @@ markers_enriched=list()
 ```
 
 ```{r markers_functional_enrichment, results="hide", eval=markers_found}
-♥if (markers_found) {
+if (markers_found) {
   # Convert Seurat names of upregulated marker per cluster to Entrez; use named lists for translation
   marker_genesets_up = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$up %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
@@ -1982,7 +1984,7 @@ if (markers_found) {
     
     cat(knitr::kable(marker_genesets_top_enriched[[n]][, c("Database", "Term", "Direction", "Adjusted.P.value", "Odds.Ratio")], 
                      align="l", caption="Top ten enriched terms per geneset", format="html") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%"))
 
     cat(' \n \n')
@@ -2018,7 +2020,7 @@ degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
     contrast[["object"]] = Seurat::GetAssay(sc[,unique(c(cells_group1_idx,cells_group2_idx))], assay=contrast[["assay"]])
     
     # This saves a lot of memory for parallelisation
-    if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class = 'matrix')
+    if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class='matrix')
   }
   
   # Variable latent vars must be passed as data.frame
@@ -2172,7 +2174,7 @@ for (i in seq(degs)) {
   
   # Create header
   cat(
-    knitr::knit_expand(text = knitr_header_string,
+    knitr::knit_expand(text=knitr_header_string,
                      condition_column=first_contrast[["condition_column"]],
                      condition_group1=first_contrast[["condition_group1"]],
                      condition_group2=first_contrast[["condition_group2"]],
@@ -2322,8 +2324,8 @@ All files generated with this report are written into the provided output folder
 # Add colors to the sc object for compatibility with downstream tools
 # List names should correspond to meta-data columns
 # This could be done for other meta-data as well 
-sc@misc$colors = list("orig.ident" = param$col_samples,
-                      "seurat_clusters" = param$col_clusters)
+sc@misc$colors = list("orig.ident"=param$col_samples,
+                      "seurat_clusters"=param$col_clusters)
 
 save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
 ```
@@ -2334,7 +2336,7 @@ The following parameters were used to run the workflow.
 out = scrnaseq_params_info(params=param)
 
 knitr::kable(out, align="l") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
 This report was created with generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
@@ -2342,7 +2344,7 @@ This report was created with generated using the [scrnaseq](https://github.com/k
 out = scrnaseq_session_info(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 ```
 
 

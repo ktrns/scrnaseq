@@ -59,7 +59,7 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
 #' - Use reciprocal PCA: Anchors are not computed based on features (e.g. genes) but in PCA space which reduces the complexity. This approach is much faster and recommended for large datasets (>50000 cells). However, it is also less accurate.
 #' 
 #' @param sc List of seurat objects with variable features
-#' @param ndims Number of dimensions used for integration (Default: min(30, minimum number of cells in a sample))
+#' @param ndims Number of dimensions used for integration (Default: min(30, minimum number of cells in a sample - 1))
 #' @param reference Use one or more datasets as reference. Separate multiple datasets by comma (Default: NULL)
 #' @param use_reciprocal_pca Use reciprocal PCA for cell anchoring (Default: FALSE)
 #' @param verbose Be verbose (Default: FALSE)
@@ -78,14 +78,14 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
   
   # Set defaults
   # Param k.filter: How many neighbors to use when filtering anchors
-  if (is.null(k_filter)) k_filter = min(200, min(purrr::map_int(sc, ncol)))
+  if (is.null(k_filter)) k_filter = min(200, purrr::map_int(sc, ncol))
   # Param k.weight: Number of neighbors to consider when weighting anchors
-  if (is.null(k_weight)) k_weight = min(100, k_filter)
+  if (is.null(k_weight)) k_weight = min(100, purrr::map_int(sc, ncol))
   # Param k.anchor: How many neighbors to use when picking anchors
-  if (is.null(k_anchor)) k_anchor = min(5, min(purrr::map_int(sc, ncol)))
+  if (is.null(k_anchor)) k_anchor = min(5, purrr::map_int(sc, ncol))
   
-  # Param ndims: Number of dimensions cannot be larger than number of cells
-  ndims = min(ndims, min(purrr::map_int(sc, ncol)))
+  # Param ndims: Number of dimensions cannot be larger than number of cells; note: Seurat gives an error that ndims must smaller than the number of cells
+  ndims = min(c(ndims, purrr::map_int(sc, ncol)-1))
   
   # Param reference: split by comma and test if all entries are indices
   if (!is.null(reference)) {
