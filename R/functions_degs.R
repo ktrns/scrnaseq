@@ -472,6 +472,13 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       }
     } 
     
+    # Get number of cells to downsample
+    if (!"downsample_cells_n" %in% names(contrast) || is.na(contrast[["downsample_cells_n"]])) {
+      contrast[["downsample_cells_n"]] = NULL
+    } else {
+      contrast[["downsample_cells_n"]] = as.integer(contrast[["downsample_cells_n"]])
+    }
+    
     # Add error messages
     contrast = c(contrast, list(error_messages = error_messages))
     
@@ -555,6 +562,14 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     if (length(contrast[["cells_group2_idx"]]) < 3) {
       error_messages = c(error_messages,  paste("Condition group 2 in one of the contrasts specified in row", contrast[["contrast_row"]], "of the deg contrasts table has less than three cells."))
     }
+    
+    # Downsample groups if requested
+    if (!is.null(contrast[["downsample_cells_n"]])) {
+      contrast[["cells_group1_idx"]] = sample(x=contrast[["cells_group1_idx"]], 
+                                              size=min(contrast[["downsample_cells_n"]], length(contrast[["cells_group1_idx"]])))
+      contrast[["cells_group2_idx"]] = sample(x=contrast[["cells_group2_idx"]], 
+                                              size=min(contrast[["downsample_cells_n"]], length(contrast[["cells_group2_idx"]])))
+    }
       
     contrast = c(contrast, list(error_messages = c(contrast[["error_messages"]], error_messages)))
     return(contrast)
@@ -612,6 +627,13 @@ EnrichrTest = function(genes, databases, padj=0.05) {
     })
   }
   
+  # Drop Old.P.value and Old.Adjusted.P.value columns
+  enrichr_results = purrr::map(enrichr_results, function(df) {
+    df[["Old.P.value"]] = NULL
+    df[["Old.Adjusted.P.value"]] = NULL
+    return(df)
+  })
+  
   return(enrichr_results)
 }
 
@@ -628,8 +650,6 @@ EnrichrWriteResults = function(enrichr_results, file) {
   readme_table = rbind(readme_table, c("In.Annotation", "Total number of genes with this functional annotation"))
   readme_table = rbind(readme_table, c("P.value", "P-value (uncorrected)"))
   readme_table = rbind(readme_table, c("Adjusted.P.value", "P-value (adjusted for multiple testing), use this one"))
-  readme_table = rbind(readme_table, c("Old.P.value", "P-value (uncorrected), old outdated test"))
-  readme_table = rbind(readme_table, c("Old.Adjusted.P.value", "P-value (adjusted for multiple testing), old outdated test"))
   readme_table = rbind(readme_table, c("Odds.Ratio", "How to interpret whether or not the gene list is just random (<1 less than by chance, =1 equals chance, >1 more than by chance)"))
   readme_table = rbind(readme_table, c("Combined.Score", "Combined enrichr score"))
   readme_table = rbind(readme_table, c("Genes", "Enrichr genes in functional annotation"))

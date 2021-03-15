@@ -4,34 +4,34 @@ arguments = commandArgs(trailingOnly = F)
 # get path to script
 script_index = grep("--file",arguments)
 script_dir = dirname(sub("--file=","",arguments[script_index]))
+script_dir = normalizePath(script_dir)
 script_name = basename(sub("--file=","",arguments[script_index]))
 
 # Which packages are needed
 library(knitr)
-suppressPackageStartupMessages(library("optparse"))
+suppressPackageStartupMessages(library("argparse"))
 
 # Prepare parser for arguments
-option_list = list( 
-    make_option(c("--project-id"), action="store", type="character", help="Project ID", default="bfx", dest="project_id"),
-    make_option(c("--path-data"), action="store", type="character", help="Path to a filtered counts directory created by the 10X cellranger pipeline", dest="path_data"),
-    make_option(c("--stats"), action="store", type="character", help="Optional: path to a metrics_summary.csv file created by the 10X cellranger pipeline (default: %default)", default=NULL, dest="stats"),
-    make_option(c("--path-out"), action="store", type="character", help="Path to an output directory (default: %default)", default="demultiplexed", dest="path_out"),
-    make_option(c("--hto-features"), action="store", type="character", help="One or more HTO features for demultiplexing samples, separated by commas (e.g. HTO1,HTO2 ...). To assign a name to a sample, add a '=' to the HTO followed by the name (e.g. HTO1=SampleA,HTO2=SampleB). When the HTO features are not present, the script will exit with an error.", dest="hto_names"),
-    make_option(c("--hto-features-regex"), action="store", type="character", help="Alternatively, specify a regular expression to identify HTO features. When the HTO features cannot be found, the script will exit without an error.", dest="hto_features_regex"),
-    make_option(c("--norm"), action="store", type="character", help="Use LogNormalize or CLR for HTO normalisation (default: %default)", default="LogNormalize", dest="norm"),
-    make_option(c("--col"),  action="store", type="character", help="R colour for quantitative plots (default: %default)", default="palevioletred", dest="col"),
-    make_option(c("--mt-names"),  action="store", type="character", help="Prefix of mitochondrial genes (default: %default)", default="^MT-", dest="mt_names"),
-    make_option(c("--downsample-cells-n"),  action="store", type="integer", help="Downsample data to at most N cells (default: %default)", default=NULL, dest="downsample_cells_n"),
-    make_option(c("--path-to-git"),  action="store", type="character", help="Path to the scrnaseq git repository (default: %default)", default=dirname(script_dir), dest="path_to_git"),
-    make_option(c("--report-name"),  action="store", type="character", help="Name of the HTML report (default: %default)", default="scrnaseq_hto.html", dest="report_name"),
-    make_option(c("--verbose"),  action="store_true", type="logical", help="Be verbose (default: %default)", default=TRUE, dest="verbose"))
-
-opt = parse_args(OptionParser(usage="Usage: %prog [options]", 
-    option_list=option_list, 
-    add_help_option=TRUE,
+parser = ArgumentParser(
+    add_help=TRUE,
     prog=script_name,
-    description="Runs the scrnaseq_hto.Rmd workflow.\n\nAdditional description still needed.", 
-    epilogue="Additional description still needed."))
+    description="Runs the scrnaseq_hto.Rmd workflow. Additional description still needed.",
+    epilog="Additional description still needed.")
+
+parser$add_argument(c("--project-id"), action="store", help="Project ID", default="bfx", dest="project_id")
+parser$add_argument(c("--path-data"), action="store", help="Path to a filtered counts directory created by the 10X cellranger pipeline", dest="path_data")
+parser$add_argument(c("--stats"), action="store", help="Optional: path to a metrics_summary.csv file created by the 10X cellranger pipeline (default: %default)", default=NULL, dest="stats")
+parser$add_argument(c("--path-out"), action="store", help="Path to an output directory (default: %default)", default="demultiplexed", dest="path_out")
+parser$add_argument(c("--hto-features"), action="store", help="One or more HTO features for demultiplexing samples, separated by commas (e.g. HTO1,HTO2 ...). To assign a name to a sample, add a '=' to the HTO followed by the name (e.g. HTO1=SampleA,HTO2=SampleB). When the HTO features are not present, the script will exit with an error.", dest="hto_names")
+parser$add_argument(c("--hto-features-regex"), action="store", help="Alternatively, specify a regular expression to identify HTO features. When the HTO features cannot be found, the script will exit without an error.", dest="hto_regex")
+parser$add_argument(c("--norm"), action="store", help="Use LogNormalize or CLR for HTO normalisation (default: %default)", default="LogNormalize", dest="norm")
+parser$add_argument(c("--col"),  action="store", help="R colour for quantitative plots (default: %default)", default="palevioletred", dest="col")
+parser$add_argument(c("--mt-names"),  action="store", help="Prefix of mitochondrial genes (default: %default)", default="^MT-", dest="mt_names")
+parser$add_argument(c("--downsample-cells-n"),  action="store", type="integer", help="Downsample data to at most N cells (default: %default)", default=NULL, dest="downsample_cells_n")
+parser$add_argument(c("--path-to-git"),  action="store", help="Path to the scrnaseq git repository (default: %default)", default=dirname(script_dir), dest="path_to_git")
+parser$add_argument(c("--report-name"),  action="store", help="Name of the HTML report (default: %default)", default="scrnaseq_hto.html", dest="report_name")
+parser$add_argument(c("--verbose"),  action="store_true", help="Be verbose (default: %default)", default=TRUE, dest="verbose")
+opt = parser$parse_args()
 
 #
 # Check params
@@ -42,23 +42,24 @@ paramsList = list()
 paramsList[["project_id"]] = as.character(opt[["project_id"]])
 
 # path_data
-if (!"path_data" %in% names(opt)) stop("Need to provide the path to a filtered counts directory created by the 10X cellranger pipeline via --path-data!")
-if (!dir.exists(opt[["path_data"]])) stop("Path to a filtered counts directory specified via --path-data does not exists or is not a directory!")
-paramsList[["path_data"]] = opt[["path_data"]]
+if (!"path_data" %in% names(opt) || is.null(opt[["path_data"]])) stop("Need to provide the path to a filtered counts directory created by the 10X cellranger pipeline via --path-data!")
+if (!file.exists(opt[["path_data"]])) stop("Path to a filtered counts directory specified via --path-data does not exists or is not a directory!")
+paramsList[["path_data"]] = normalizePath(opt[["path_data"]])
 
 # stats
-if ("stats" %in% names(opt)) {
+if ("stats" %in% names(opt) && !is.null(opt[["stats"]])) {
     if (!file.exists(opt[["stats"]])) stop("Path to a metrics_summary.csv file specified via --stats does not exists or is not a file!")
-    paramsList[["stats"]] = opt[["stats"]]
+    paramsList[["stats"]] = normalizePath(opt[["stats"]])
 } else {
     paramsList["stats"] = list(NULL)
 }
 
 # path_out
-paramsList[["path_out"]] = opt[["path_out"]]
+if (!file.exists(opt[["path_out"]])) dir.create(opt[["path_out"]])
+paramsList[["path_out"]] = normalizePath(opt[["path_out"]])
 
 # hto_names
-if ("hto_names" %in% names(opt)) {
+if ("hto_names" %in% names(opt) && !is.null(opt[["hto_names"]])) {
     hto_names_split = strsplit(trimws(unlist(strsplit(opt[["hto_names"]], ","))),"=")
     hto_names_n = sapply(hto_names_split, function(h) {return(h[1])})
     hto_names_s = sapply(hto_names_split, function(h) { if(length(h)==2) return(h[2]) else return(h[1])})
@@ -69,9 +70,9 @@ if ("hto_names" %in% names(opt)) {
 }
 
 # hto_regex
-if ("hto_features_regex" %in% names(opt)) {
+if ("hto_regex" %in% names(opt) && !is.null(opt[["hto_regex"]])) {
     if (!is.null(paramsList[["hto_names"]])) stop("Cannot use --hto-features-regex together with --hto-features!")
-    paramsList[["hto_regex"]] = trimws(opt[["hto_features_regex"]])
+    paramsList[["hto_regex"]] = trimws(opt[["hto_regex"]])
 } else {
     paramsList["hto_regex"] = list(NULL)
 }
@@ -96,7 +97,7 @@ if ("col" %in% names(opt)) {
 }
 
 # downsample_cells_n
-if ("downsample_cells_n" %in% names(opt)) {
+if ("downsample_cells_n" %in% names(opt) && !is.null(opt[["downsample_cells_n"]])) {
     paramsList[["downsample_cells_n"]] = opt[["downsample_cells_n"]]
 }
 
@@ -118,24 +119,65 @@ run_knitr = TRUE
 if (!is.null(paramsList[["hto_names"]])) {
     # At least one HTO feature name is not present in the dataset, stop with error
     if (any(!names(paramsList[["hto_names"]]) %in% features_tbl[, 1, drop=TRUE])) stop("Some HTO features are not present in the dataset!") else run_knitr = TRUE
+    
 } else if (!is.null(paramsList[["hto_regex"]])) {
     # Regular expression could not find HTO feature, just set hto_features_found = FALSE
-    if (sum(grepl(paramsList[["hto_regex"]], features_tbl[ , 1, drop=TRUE])) == 0) run_knitr = FALSE else run_knitr = TRUE
+    if (sum(grepl(paramsList[["hto_regex"]], features_tbl[ , 1, drop=TRUE])) == 0) {
+        run_knitr = FALSE
+        message("No HTOs identified by regular expression. Script will exit.")
+    }
 }
 
 #
-# Run run knitr (if needed)
+# Run run knitr
 #
 
 if (run_knitr) {
+
+    # Note: a small R script will be generated so that knitr can be run again if needed
+
+    # The name of the script
+    script_name = paste0(opt[["report_name"]].".r")
+
+    # This is the template for the script
+    script_template = '
+#!/usr/bin/env Rscript
+
+library(knitr)
+
+rmarkdown::render(
+    file.path("{{rmd_dir}}","scrnaseq_hto.Rmd"),
+    output_format="html_document",
+    output_dir="{{output_dir}}",
+    intermediates_dir="{{intermediates_dir}}",
+    output_file="{{output_file}},
+    knit_root_dir="{{knit_root_dir}}",
+    quiet={{quiet}},
+    params={{params_lst}})
+    
+'
+    # Now fill the script with content
+    script_content = knitr::knit_expand(text=script_template,
+                                        rmd_dir=paramsList[["path_to_git"]],
+                                        output_dir=paramsList[["path_out"]],
+                                        intermediates_dir=paramsList[["path_out"]],
+                                        output_file=opt[["report_name"]],
+                                        knit_root_dir=paramsList[["path_out"]],
+                                        quiet=!opt[["verbose"]],
+                                        params_lst=deparse(paramsList, control="all"))
+    
+    
+    writeLines(script_content, file.path(paramsList[["path_out"]], script_name))
+
+    # Now run actual knitr process
     rmarkdown::render(
         file.path(paramsList[["path_to_git"]],"scrnaseq_hto.Rmd"),
         output_format="html_document",
         output_dir=paramsList[["path_out"]],
         intermediates_dir=paramsList[["path_out"]],
         output_file=opt[["report_name"]],
-        knit_root_dir=getwd(),
+        knit_root_dir=paramsList[["path_out"]],
         quiet=!opt[["verbose"]],
         params=paramsList)
-}
 
+}

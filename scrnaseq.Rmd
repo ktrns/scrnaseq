@@ -34,6 +34,9 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
+
+reticulate_python3_path = "C:\\Program Files/Python38/python.exe"
+
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -100,7 +103,7 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
-param$downsample_cells_n = NULL
+param$downsample_cells_n = 100
 
 # Path to output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -225,12 +228,14 @@ param$latent_vars = c()
 # log2FC: Minimum absolute log2 fold change (default: 0)
 # min_pct: Minimum percentage of cells expressing a gene to test (default: 0.1)
 # test: Type of test; "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
+# downsample_cells_n: Downsample each group to at most n cells to speed up tests (default: NA)
 # latent_vars: Additional variables to account for; multiple variables need to be concatenated by semicolons; will overwrite the default by param$latent_vars (default: none).
 param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
                                  condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
                                  condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
                                  subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
-                                 subset_group=c(NA, "", "1;2"))
+                                 subset_group=c(NA, "", "1;2"),
+                                 downsample_cells_n=c(NA, 50, 30))
 
 # P-value threshold for functional enrichment tests
 param$enrichr_padj = 0.05
@@ -260,7 +265,7 @@ param$debugging_mode = "default_debugging"
 
 ```{r preparation_and_initial_checks}
 # Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/"))
+knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/")) # https://bookdown.org/yihui/rmarkdown-cookbook/keep-files.html
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
@@ -1611,6 +1616,8 @@ p = DegsPlotNumbers(markers_filt$all,
                       group="cluster", 
                       title=paste0("Number of DEGs, comparing each cluster to the rest\n(FC=", 2^param$marker_log2FC, ", adj. p-value=", param$marker_padj, ")")) 
 
+# Add markers to the seurat object
+Seurat::Misc(sc, "markers") = markers_filt
 
 if (markers_found) {
   print(p)
@@ -1937,6 +1944,11 @@ if (markers_found) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_down_cluster", n, ".xlsx"))
     })
+  
+  # Add to markers slot of  the seurat object
+  markers_filt = Seurat::Misc(sc, "markers") 
+  
+  Seurat::Misc(sc, "markers") = markers_filt
 }
 ```
 
@@ -2002,8 +2014,12 @@ If requested, we identify genes that are differentially expressed between two gr
 # Prepare a list with contrasts (input can be R data.frame table or Excel file)
 degs_contrasts_list = DegsSetupContrastsList(sc, param$deg_contrasts, param$latent_vars)
 
+"wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
+
+degs_contrasts_list[[1]]$test="DESeq2"
+
 # Add the actual data to the list
-degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
+degs_contrasts_list = purrr::map(degs_contrasts_list[1], function(contrast){
   # If there were already errors, just return
   if (length(contrast[["error_messages"]]) > 0) return(c(contrast, list(object=NULL, cells_group1_idx_subset=as.integer(), cells_group2_idx_subset=as.integer())))
   
@@ -2034,7 +2050,7 @@ degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
 })
 
 # Compute the tests; TODO: this chunk may be done in parallel in future
-degs_contrasts_results = purrr::map(degs_contrasts_list, function(contrast) {
+degs_contrasts_results = purrr::map(degs_contrasts_list[1], function(contrast) {
   if (length(contrast$error_messages)==0) {
     # No errors, do contrast
     test_results = DegsTestCellSets(object=contrast[["object"]],

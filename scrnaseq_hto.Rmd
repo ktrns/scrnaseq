@@ -100,9 +100,8 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
 ```
 
 ```{r preparation_and_initial_checks}
-# Path for figures in png and pdf format XXXX need to be absolute!
-knitr::opts_knit$set(base.dir=paste(params$path_out, "figures/", sep="/"))
-#knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
+# Path for figures in png and pdf format
+knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
 
 # When using pandoc, setting the dpi via opts_chunk does not work (https://github.com/yihui/knitr/issues/901)
 # As workaround, we define a function that takes care of that
@@ -217,7 +216,7 @@ hto_colours$col_hto_global = ggsci::pal_npg()(3)
 names(hto_colours$col_hto_global) = c("Negative", "Doublet", "Singlet")
 
 hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(hto_samples) + 2)
-hto_levels = c("Negative", "Doublet", params$hto_names[1:length(hto_samples)])
+hto_levels = c("Negative", "Doublet", hto_samples[1:length(hto_samples)])
 names(hto_colours$col_hto_collapsed) = hto_levels
 ```
 
