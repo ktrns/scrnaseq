@@ -54,7 +54,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
       # Otherwise print an error
       invalid = invalid[which(invalid)]
       stop(sprintf("Some columns in the counts table do not contain numeric data: %s!", 
-                                first_n_elements_to_string(names(invalid))))
+                                FirstElementsToString(names(invalid))))
     }
   }
   
@@ -90,7 +90,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
   if (length(missed) > 0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!",
-                                     first_n_elements_to_string(missed)))
+                                     FirstElementsToString(missed)))
   
   # Sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
@@ -104,14 +104,14 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     barcodes = colnames(feature_data[[1]])
     missed = barcodes[!barcodes %in% metadata_table[, 1]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                                    first_n_elements_to_string(missed)))
+                                                    FirstElementsToString(missed)))
     rownames(metadata_table) = metadata_table[, 1]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
     invalid = colnames_metadata_table[colnames_metadata_table %in% c("orig.ident", "nCount_RNA", "nFeature_RNA", "nCount_SCT", "nFeature_SCT", "percent_mt", "percent_ercc", "S.Score", "G2M.Score", "Phase", "CC.Difference", "SampleName", "PlateNumber", "PlateRow", "PlateCol", "seurat_clusters")]
     if (length(invalid)>0) stop(sprintf("Some column names in 'metadata.tsv.gz' are not allowed since they would be overwritten: %s!", 
-                                        first_n_elements_to_string(invalid)))
+                                        FirstElementsToString(invalid)))
     
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
@@ -126,7 +126,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     # If the pattern did not match for names, warn; then set plate_information$SampleName to the unparsed name
     invalid = rownames(plate_information[is.na(plate_information$SampleName), ])
     if (any(is.na(plate_information$SampleName))) {
-      stop(sprintf("The 'ReadCountsTable' method could not parse plate information from the following cell names: %s. Check the regular expression ('plate_information_regex')!", first_n_elements_to_string(invalid)))
+      stop(sprintf("The 'ReadCountsTable' method could not parse plate information from the following cell names: %s. Check the regular expression ('plate_information_regex')!", FirstElementsToString(invalid)))
     }
     
     # Then add to metadata
@@ -176,7 +176,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed)))
+                                                  a, FirstElementsToString(missed)))
     sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
     
     # Now add remaining assays
@@ -189,7 +189,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
       nms = rownames(sc[[n]][[a]])
       missed = nms[!nms %in% rownames(features_ids_types)]
       if (length(missed) > 0) stop(sprintf("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed)))
+                                                    a, FirstElementsToString(missed)))
       sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]), ])
     }
   }
@@ -261,7 +261,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     # check to avoid special chars
     invalid = grep(pattern="[-_]", x=hto_names, v=TRUE)
     if (length(invalid)>0) stop(sprintf("The 'hto_names' argument contains invalid (not allowed: -,_) names: %s!", 
-                                                     first_n_elements_to_string(invalid)))
+                                                     FirstElementsToString(invalid)))
     
     # If vector without names, just add values as names
     if (is.null(names(hto_names))) hto_names = setNames(hto_names, hto_names)
@@ -269,7 +269,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     # Test if the provided names are in the assay
     missed = names(hto_names[!names(hto_names) %in% rownames(feature_data[["Antibody Capture"]])])
     if (length(missed)>0) stop(sprintf("Some of names in the 'hto_names' argument are not present in the 'Antibody Capture' assay: %s!", 
-                                                    first_n_elements_to_string(missed)))
+                                                    FirstElementsToString(missed)))
     
     # Split assay
     is_hashtag = rownames(feature_data[["Antibody Capture"]]) %in% names(hto_names)
@@ -299,14 +299,14 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     barcodes = colnames(feature_data[[1]])
     missed = barcodes[!barcodes %in% metadata_table[, 1]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                       first_n_elements_to_string(missed)))
+                                       FirstElementsToString(missed)))
     rownames(metadata_table) = metadata_table[, 1]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
     invalid = colnames_metadata_table[colnames_metadata_table %in% c("orig.ident", "nCount_RNA", "nFeature_RNA", "nCount_SCT", "nFeature_SCT", "percent_mt", "percent_ercc", "S.Score", "G2M.Score", "Phase", "CC.Difference", "SampleName", "PlateNumber", "PlateRow", "PlateCol", "seurat_clusters")]
     if (length(invalid) > 0) stop(sprintf("Some column names in 'metadata.tsv.gz' are not allowed since they would be overwritten: %s!", 
-                                        first_n_elements_to_string(invalid)))
+                                        FirstElementsToString(invalid)))
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]), stringsAsFactors=FALSE)
     rownames(metadata_table) = metadata_table[, 1]
@@ -317,7 +317,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
   if (length(missed) > 0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!", 
-                                                  first_n_elements_to_string(missed)))
+                                                  FirstElementsToString(missed)))
   
   # Sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
@@ -343,7 +343,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   nms = rownames(sc[[n]][[a]])
   missed = nms[!nms %in% rownames(features_ids_types)]
   if (length(missed)>0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed)))
+                                                  a, FirstElementsToString(missed)))
   
   sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   
@@ -356,7 +356,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed)))
+                                                    a, FirstElementsToString(missed)))
     
     sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   }
@@ -392,7 +392,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   if (is.null(assays)) assays = Seurat::Assays(sc)
   missed = assays[!assays %in% names(assay_name_to_feature_type)]
   if (length(missed) > 0) stop(sprintf("The 'assay_name_to_feature_type' argument misses some assays: %s!", 
-                                                  first_n_elements_to_string(missed)))
+                                                  FirstElementsToString(missed)))
   
   assays = assays[order(match(assays, names(assay_name_to_feature_type)))]
   feature_data = do.call(rbind, lapply(assays, function(a) { Seurat::GetAssayData(sc, assay=a, slot=slot) }))
@@ -419,7 +419,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   if (!is.null(include_cell_metadata_cols) & length(include_cell_metadata_cols) > 0) {
     missed = include_cell_metadata_cols[!include_cell_metadata_cols %in% colnames(sc[[]])]
     if (length(missed) > 0) stop(sprintf("The 'include_cell_metadata_cols' argument contains columns which are not in the metadata ob the Seurat object: %s!", 
-                                                    first_n_elements_to_string(missed)))
+                                                    FirstElementsToString(missed)))
     
     metadata_table = sc[[include_cell_metadata_cols]]
     if (!is.null(metadata_prefix)) {

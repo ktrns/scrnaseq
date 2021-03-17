@@ -1,10 +1,10 @@
-#' Given a vector, report at most n elements as concatenated string.
+#' Given a vector, report at most n elements as concatenated string
 #' 
-#' @param x A vector.
-#' @param n Number of elements to report at most.
-#' @param sep Separator for string concatenation.
-#' @return A string with at most n elements to concatenated.
-first_n_elements_to_string = function(x, n=5, sep=",") {
+#' @param x A vector
+#' @param n Number of elements to report at most
+#' @param sep Separator for string concatenation
+#' @return A string with at most n elements concatenated
+FirstElementsToString = function(x, n=5, sep=",") {
   s = paste(x[1:min(n,length(x))], collapse=sep)
   if (length(x) > n) s = paste(s, "...", sep=sep)
   return(s)
@@ -12,9 +12,9 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
 
 #' Report session info in a table
 #' 
-#' @param path_to_git: Path to git repository.
-#' @return The session info as table.
-scrnaseq_session_info = function(path_to_git=".") {
+#' @param path_to_git: Path to git repository
+#' @return Table containing the session info
+SessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
@@ -33,14 +33,14 @@ scrnaseq_session_info = function(path_to_git=".") {
   return(out)
 }
 
-#' Returns a subsample of cells.
+#' Subsample cells
 #' 
-#' @param sc A Seurat sc object.
-#' @param n Number of cells to subsample.
-#' @param seed Seed for sampling. Default is 1.
-#' @param group Metadata column group to consider for sampling with group_proportional.
-#' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
-#' @return Sampled cell names.
+#' @param sc Seurat sc object
+#' @param n Number of cells to subsample
+#' @param seed Seed for sampling (default: 1)
+#' @param group Metadata column group to consider for sampling with group_proportional
+#' @param group_proportional TRUE, if the number of cells sampled from each group should be proportional, FALSE otherwise (default: TRUE; requires group to be defined)
+#' @return Names of sampled cells
 ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   set.seed(seed)
 
@@ -71,27 +71,27 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
 }
 
 
-#' Returns the names of an object.
+#' Take a named vector and return its names as a new vector
 #' 
-#' @param x A list or vector with names.
-#' @return A named vector with names as names and names as values.
-list_names = function(x) {
+#' @param x A list or vector with names
+#' @return A named vector with names of x as names and values
+ListNames = function(x) {
   return(setNames(names(x), names(x)))
 }
 
-#' Returns a vector with its values as names.
+#' Take a vector and return its values as names in a new vector
 #' 
-#' @param x A vector.
-#' @return A vector with its values as names.
-values_to_names = function(x) {
+#' @param x A vector
+#' @return A named vector with values of x as names and values
+ValuesToNames = function(x) {
   return(setNames(x,x))
 }
 
-#' Returns the indices of an object.
+#' Take a named vector and return the indices of each element in a new vector
 #' 
-#' @param x A list or vector with names.
-#' @return A named vector with names as names and indices as values.
-list_indices = function(x) {
+#' @param x A list or vector with names
+#' @return A named vector with names of x as names and indices as values
+ListIndices = function(x) {
   return(setNames(seq(x), names(x)))
 }
 

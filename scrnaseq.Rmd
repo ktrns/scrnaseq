@@ -500,7 +500,7 @@ for (i in duplicated_sample_names_idx) {
 }
 
 # Make cell names unique
-sc = purrr::map(list_indices(sc), function(i){
+sc = purrr::map(ListIndices(sc), function(i){
   cell_names = gsub("-\\d+", "", colnames(sc[[i]]))
   Seurat::RenameCells(sc[[i]], new.names=paste(cell_names, i, sep="-"))
 })
@@ -544,7 +544,7 @@ We start the analysis by removing unwanted cells from the dataset(s). Three comm
 
 ```{r qc_criteria_create}
 # If filters were specified globally (i.e. not by sample), this chunk will copy them for each sample such that downstream filtering can work by sample
-param$cell_filter = purrr::map(list_names(sc), function(s) {
+param$cell_filter = purrr::map(ListNames(sc), function(s) {
   if (s %in% names(param$cell_filter)) {
     return(param$cell_filter[[s]])
   } else {
@@ -552,7 +552,7 @@ param$cell_filter = purrr::map(list_names(sc), function(s) {
   }
 })
 
-param$feature_filter = purrr::map(list_names(sc), function(s) {
+param$feature_filter = purrr::map(ListNames(sc), function(s) {
   if (s %in% names(param$feature_filter)) {
     return(param$feature_filter[[s]])
   } else {
@@ -579,7 +579,7 @@ sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>%
 # Only RNA assay at the moment
 # counts_median uses sapply on the counts matrix, which converts the sparse matrix into a normal matrix
 #   This might have to be adapted in future (Sparse Matrix Apply Function)
-sc = purrr::map(list_names(sc), function(n) {
+sc = purrr::map(ListNames(sc), function(n) {
   # Calculate percentage of counts per gene in a cell
   counts_rna = Seurat::GetAssayData(sc[[n]], slot="counts", assay="RNA")
   total_counts = sc[[n]][["nCount_RNA", drop=TRUE]]
@@ -602,7 +602,7 @@ sc = purrr::map(list_names(sc), function(n) {
 # Plot QC metrics for cells
 cell_qc_features = c("nFeature_RNA", "nCount_RNA", "percent_mt")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "percent_ercc")
-cell_qc_features = values_to_names(cell_qc_features)
+cell_qc_features = ValuesToNames(cell_qc_features)
 
 p_list = list()
 for (i in names(cell_qc_features)) {
@@ -713,8 +713,8 @@ The number of excluded cells and features is as follows:
 # Iterate over datasets and filters
 # Record a cell if it does not pass the filter
 # Also record a cell if it belongs to a sample that should be dropped
-sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { 
-  filter_result = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
+sc_cells_to_exclude  = purrr::map(ListNames(sc), function(n) { 
+  filter_result = purrr::map(ListNames(param$cell_filter[[n]]), function(f) {
     filter = param$cell_filter[[n]][[f]]
     if (is.numeric(filter)) {
       if (is.na(filter[1])) filter[1] = -Inf # Minimum
@@ -752,7 +752,7 @@ knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
 
 # Now filter, drop the respective colours and adjust integration method
-sc = purrr::map(list_names(sc), function(n) {
+sc = purrr::map(ListNames(sc), function(n) {
   cells_to_keep = Cells(sc[[n]])
   cells_to_keep = cells_to_keep[!cells_to_keep %in% purrr::flatten_chr(sc_cells_to_exclude[[n]])]
   if (length(cells_to_keep)==0) return(NULL)
@@ -766,7 +766,7 @@ if (length(sc)==1) param$integrate_samples[["method"]] = "single"
 # Only RNA assay at the moment
 
 # Iterate over datasets and record a feature if it does not pass the filter
-sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
+sc_features_to_exclude = purrr::map(ListNames(sc), function(n) {
   if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
   else return(names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]])))
 })
@@ -779,9 +779,9 @@ knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of exclu
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Now filter
-sc = purrr::map(list_names(sc), function(n) {
+sc = purrr::map(ListNames(sc), function(n) {
   assay_names = Seurat::Assays(sc[[n]])
-  features_to_keep = purrr::map(values_to_names(assay_names), function(a) {
+  features_to_keep = purrr::map(ValuesToNames(assay_names), function(a) {
     features = rownames(sc[[n]][[a]])
     keep = features[!features %in% sc_features_to_exclude[[n]]]
     return(keep)
@@ -815,7 +815,7 @@ sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize"
 
 ```{r part2_cc_scores}
 # Determine cell cycle effect per sample 
-sc = purrr::map(list_names(sc), function(n) {
+sc = purrr::map(ListNames(sc), function(n) {
   sc[[n]] = cc_scoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
   if (all(is.na(sc[[n]][["S.Score"]])) & all(is.na(sc[[n]][["G2M.Score"]]))) param$cc_remove=FALSE
   return(sc[[n]])
@@ -863,7 +863,7 @@ if (param$norm == "RNA") {
   # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. 
   #   Consequently, some genes might be missing from the SCT assay. 
   #   See: https://github.com/ChristophH/sctransform/issues/27
-  sc = purrr::map(list_names(sc), function(n) { 
+  sc = purrr::map(ListNames(sc), function(n) { 
     SCTransform(sc[[n]], 
                 vars.to.regress=param$vars_to_regress, 
                 min_cells=param$feature_filter[[n]][["min_cells"]], 
@@ -882,7 +882,7 @@ fig_height_vf = 5 * ceiling(length(names(sc))/2)
 ```
 
 ```{r plot_variable_features, warning=FALSE, fig.height=fig_height_vf}
-p_list = purrr::map(list_names(sc), function(n) {
+p_list = purrr::map(ListNames(sc), function(n) {
   top10 = head(Seurat::VariableFeatures(sc[[n]], assay=param$norm), 10)
   p = Seurat::VariableFeaturePlot(sc[[n]], 
                                   assay=param$norm, 
@@ -912,13 +912,13 @@ if (param$integrate_samples[["method"]]=="single") {
 if (param$integrate_samples[["method"]]!="single") {
   
   # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay and add again afterwards
-  assay_names = unique(purrr::flatten_chr(purrr::map(list_names(sc), function(n) { Seurat::Assays(sc[[n]]) } )))
+  assay_names = unique(purrr::flatten_chr(purrr::map(ListNames(sc), function(n) { Seurat::Assays(sc[[n]]) } )))
   
   # Loop through all assays and accumulate meta data
-  sc_feature_metadata = purrr::map(values_to_names(assay_names), function(a) {
+  sc_feature_metadata = purrr::map(ValuesToNames(assay_names), function(a) {
     # "feature_id", "feature_name", "feature_type" are accumulated for all assays and stored just once
     # This step is skipped for assays that do not contain all three types of feature information
-    contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { 
+    contains_neccessary_columns = purrr::map_lgl(ListNames(sc), function(n) { 
       all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]][[]])) 
       })
 
@@ -935,7 +935,7 @@ if (param$integrate_samples[["method"]]!="single") {
     }
     
     # For all other meta-data, we prefix column names with the dataset
-    other_feature_data = purrr::map(list_names(sc), function(n) {
+    other_feature_data = purrr::map(ListNames(sc), function(n) {
       df = sc[[n]][[a]][[]]
       if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id", "feature_name", "feature_type"), c()))
       if (ncol(df) > 0) colnames(df) = paste(n, colnames(df), sep=".")
@@ -1477,7 +1477,7 @@ if (!is.null(param$file_known_markers)) {
       na.exclude() %>% unique() %>% sort()
     m = !y %in% rownames(sc)
     if (any(m)){
-      Warning(paste0("The following genes of marker list '", x, "' cannot be found in the data: ", first_n_elements_to_string(y[m], n=10)))
+      Warning(paste0("The following genes of marker list '", x, "' cannot be found in the data: ", FirstElementsToString(y[m], n=10)))
     }
     return(y[!m])
   })
@@ -2002,7 +2002,7 @@ if (markers_found) {
   })
   
   # Join
-  marker_genesets_top_enriched = purrr::map(values_to_names(names(marker_genesets_down_top_enriched)), function(n) {
+  marker_genesets_top_enriched = purrr::map(ValuesToNames(names(marker_genesets_down_top_enriched)), function(n) {
     return(rbind(marker_genesets_up_top_enriched[[n]], marker_genesets_down_top_enriched[[n]]) %>% 
       dplyr::arrange(-Odds.Ratio))
     })
@@ -2334,10 +2334,14 @@ All files generated with this report are written into the provided output folder
 
 * Annotation files  
   + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
-* Differentially expressed genes  
-  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
-* Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Marker genes  
+  + markers_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
+* Functional enrichment of marker genes  
+  + Functions_marker_down_cluster_1.xlsx, Functions_marker_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Differentially expressed genes (optional)
+  + degs_contrast_row_1_results.xlsx, degs_contrast_row_2_results.xlsx, ...: Excel files per test
+* Functional enrichment of differentially expressed genes (optional)
+  + degs_contrast_row_1_functions.xlsx, degs_contrast_row_2_functions.xlsx, ...: Excel files per test
 * Loupe Cell Browser files  
   + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
     Import to Loupe through "Import Projection"   
@@ -2369,7 +2373,7 @@ knitr::kable(out, align="l") %>%
 
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions, message=FALSE}
-out = scrnaseq_session_info(param$path_to_git)
+out = SessionInfo(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
