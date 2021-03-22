@@ -292,7 +292,8 @@ hto_t_raw_pseudo = hto_t_raw + 1
 hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
   as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x=name, y=value, fill=name)) + 
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), 
+            aes(x=name, y=value, fill=name, group=name)) + 
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   AddStyle(title="HTO raw counts", 
@@ -301,7 +302,7 @@ p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x
            xlab="", ylab="")
   
 p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
-            aes(x=name, y=value, fill=name)) + 
+            aes(x=name, y=value, fill=name, group=name)) + 
   geom_violin() + 
   AddStyle(title="HTO normalised counts", 
            fill=hto_colours$col_hto_collapsed, 
@@ -543,7 +544,7 @@ ncounts_metrics = grep("_HTO",
                         v=TRUE,
                         invert=TRUE)
 
-p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", ncounts_metrics[1])]], aes_string(x="hash.ID", y=ncounts_metrics[1], fill="hash.ID")) +
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", ncounts_metrics[1])]], aes_string(x="hash.ID", y=ncounts_metrics[1], fill="hash.ID", group="hash.ID")) +
   geom_violin() +
   xlim(levels(sc.all$hash.ID)) +
   scale_y_continuous("Counts (RNA)") +
@@ -565,7 +566,7 @@ nfeature_metrics = grep("_HTO",
                         invert=TRUE)
 
 
-p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", nfeature_metrics[1])]], aes_string(x="hash.ID", y=nfeature_metrics[1], fill="hash.ID")) +
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", nfeature_metrics[1])]], aes_string(x="hash.ID", y=nfeature_metrics[1], fill="hash.ID", group="hash.ID")) +
   geom_violin() +
   xlim(levels(sc.all$hash.ID)) +
   facet_wrap(~seurat_clusters, ncol=3, scales="free_y") +
@@ -625,7 +626,7 @@ knitr::kable(out, align="l") %>%
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions}
-out = scrnaseq_session_info(param$path_to_git)
+out = scrnaseq_session_info(params$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")

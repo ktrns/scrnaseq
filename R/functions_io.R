@@ -254,7 +254,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   # special case: if hashtags are specified and if there is a Antibody Capture data, then split and add as separate assay
   # if a regular expression is defined for HTO, overwrite hto_names 
   if ("Antibody Capture" %in% names(feature_data) && !is.null(hto_regex) && nchar(hto_regex)>0) {
-    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE)
+    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE, ignore.case=TRUE)
     if (length(hto_names)==0) stop(sprintf("Could not find HTO names with the 'hto_regex' argument '%s'!", hto_regex))
   }
   

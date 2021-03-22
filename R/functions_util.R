@@ -10,6 +10,16 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
   return(s)
 }
 
+#' Get git repository version
+#' 
+#' @param path_to_git: Path to git repository.
+#' @return The git repository version.
+git_repository_version = function(path_to_git) {
+  repo = tryCatch({system(paste0("git --git-dir=", path_to_git, "/.git rev-parse HEAD"), intern=TRUE)},
+                  warning = function(war) {return("Unknown")})
+  return(repo)
+}
+
 #' Report session info in a table
 #' 
 #' @param path_to_git: Path to git repository.
@@ -18,8 +28,7 @@ scrnaseq_session_info = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
-  repo = tryCatch({system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)},
-    warning = function(war) {return("Unknown")})
+  repo = git_repository_version(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
   info_session = sessionInfo()
@@ -70,6 +79,39 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   return(cell_names_sample)
 }
 
+#' Adds one more lists to the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param lists A named list with one or more lists (named or unnamed vectors only).
+#' @param lists_slot In which slot of the Seurat misc slot should the list(s) be stored.
+#' @param add_to_list When a list with this name already exists, add to the list instead of overwriting the list. Default is FALSE.
+#' @param make_unique Make lists unique (after they were stored in the misc slot). Default is FALSE.
+#' @return A Seurat sc object with updated list(s).
+ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, make_unique=FALSE) {
+  stored_lists = Seurat::Misc(sc, slot=lists_slot)
+  if (is.null(stored_lists)) stored_lists = list()
+  
+  # Check that the lists have names, otherwise set to 'list_1', 'list_2' etc
+  lists_names = purrr::map_chr(seq(lists), function(i) {
+    n = names(lists[i])
+    if (is.null(n) || nchar(n) == 0) return(paste0("list_",as.character(i))) else return(names(lists[i]))
+  })
+  names(lists) = lists_names
+  
+  for(n in names(lists)) {
+    if (n %in% names(stored_lists) & add_to_list == TRUE) {
+      stored_lists[[n]] = c(stored_lists[[n]], unlist(lists[[n]]))
+    } else {
+      stored_lists[[n]] = unlist(lists[[n]])
+    }
+    
+    if (make_unique) stored_lists[[n]] = unique(stored_lists[[n]])
+  }
+  
+  # Add to Seurat object
+  suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
+  return(sc)
+}
 
 #' Returns the names of an object.
 #' 
@@ -641,7 +683,7 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
 #' On error, R will not start a debugger but just print a traceback. For non-interactive use.
 #' @return None.
 on_error_just_print_traceback = function(x) {
-  options(rlang_trace_top_env = rlang::current_env())
+  options(rlang_trace_top_env = rlang::caller_env())
   options(error = function() {
     sink()
     print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")

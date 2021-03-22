@@ -661,3 +661,12 @@ EnrichrWriteResults = function(enrichr_results, file) {
   
   return(file)
 }
+
+
+#' Flattens the list of Enrichr results into one data.frame.
+# '
+#' @param enrichr_results: A list with enrichr results.
+#' @return A data.frame with the columns reported by Enrichr as well as the db
+FlattenEnrichr = function(enrichr_results) {
+  return(purrr::invoke(dplyr::bind_rows, purrr::map(names(enrichr_results), function(n) return(data.frame(Database=n, enrichr_results[[n]])))))
+}

@@ -1,11 +1,13 @@
 #!/usr/bin/env Rscript
 
-arguments = commandArgs(trailingOnly = F)
-# get path to script
-script_index = grep("--file",arguments)
-script_dir = dirname(sub("--file=","",arguments[script_index]))
+# Get arguments from commandline
+arguments = commandArgs(trailingOnly=FALSE)
+
+# Path to script
+script_index = grep("--file", arguments)
+script_dir = dirname(sub("--file=", "", arguments[script_index]))
 script_dir = normalizePath(script_dir)
-script_name = basename(sub("--file=","",arguments[script_index]))
+script_name = basename(sub("--file=", "", arguments[script_index]))
 
 # Which packages are needed
 library(knitr)
@@ -15,8 +17,8 @@ suppressPackageStartupMessages(library("argparse"))
 parser = ArgumentParser(
     add_help=TRUE,
     prog=script_name,
-    description="Runs the scrnaseq_hto.Rmd workflow. Additional description still needed.",
-    epilog="Additional description still needed.")
+    description="Demultiplexes a single cell dataset containing samples tagged by hashtags with the scrnaseq_hto workflow.",
+    epilog="Upon successfull completion, the output directory will contain a HTML report, the counts per sample and a CSV file with the cell identities for import into the Loupe Cell Browser.")
 
 parser$add_argument(c("--project-id"), action="store", help="Project ID", default="bfx", dest="project_id")
 parser$add_argument(c("--path-data"), action="store", help="Path to a filtered counts directory created by the 10X cellranger pipeline", dest="path_data")
@@ -38,15 +40,15 @@ opt = parser$parse_args()
 #
 paramsList = list()
 
-# project id
+# Param project id
 paramsList[["project_id"]] = as.character(opt[["project_id"]])
 
-# path_data
+# Param path_data
 if (!"path_data" %in% names(opt) || is.null(opt[["path_data"]])) stop("Need to provide the path to a filtered counts directory created by the 10X cellranger pipeline via --path-data!")
 if (!file.exists(opt[["path_data"]])) stop("Path to a filtered counts directory specified via --path-data does not exists or is not a directory!")
 paramsList[["path_data"]] = normalizePath(opt[["path_data"]])
 
-# stats
+# Param stats
 if ("stats" %in% names(opt) && !is.null(opt[["stats"]])) {
     if (!file.exists(opt[["stats"]])) stop("Path to a metrics_summary.csv file specified via --stats does not exists or is not a file!")
     paramsList[["stats"]] = normalizePath(opt[["stats"]])
@@ -54,11 +56,11 @@ if ("stats" %in% names(opt) && !is.null(opt[["stats"]])) {
     paramsList["stats"] = list(NULL)
 }
 
-# path_out
+# Param path_out
 if (!file.exists(opt[["path_out"]])) dir.create(opt[["path_out"]])
 paramsList[["path_out"]] = normalizePath(opt[["path_out"]])
 
-# hto_names
+# Param hto-features
 if ("hto_names" %in% names(opt) && !is.null(opt[["hto_names"]])) {
     hto_names_split = strsplit(trimws(unlist(strsplit(opt[["hto_names"]], ","))),"=")
     hto_names_n = sapply(hto_names_split, function(h) {return(h[1])})
@@ -69,7 +71,7 @@ if ("hto_names" %in% names(opt) && !is.null(opt[["hto_names"]])) {
     paramsList["hto_names"] = list(NULL)
 }
 
-# hto_regex
+# Param hto-features-regex
 if ("hto_regex" %in% names(opt) && !is.null(opt[["hto_regex"]])) {
     if (!is.null(paramsList[["hto_names"]])) stop("Cannot use --hto-features-regex together with --hto-features!")
     paramsList[["hto_regex"]] = trimws(opt[["hto_regex"]])
@@ -79,34 +81,34 @@ if ("hto_regex" %in% names(opt) && !is.null(opt[["hto_regex"]])) {
 
 if (is.null(paramsList[["hto_regex"]]) & is.null(paramsList[["hto_names"]])) stop("Need to specify HTO features for sample demultiplexing either via --hto-features or via --hto-features-regex!")
 
-# norm
+# Param norm
 if ("norm" %in% names(opt)) {
     if (!opt[["norm"]] %in% c("CLR","LogNormalize")) stop("Only 'CLR' or 'LogNormalize' allowed for --norm!")
     paramsList[["norm"]] = opt[["norm"]]
 }
 
-# mt_names
+# Param mt_names
 if ("mt_names" %in% names(opt)) {
     paramsList[["mt_names"]] = opt[["mt_names"]]
 }
 
-# col
+# Param col
 if ("col" %in% names(opt)) {
     if (!opt[["col"]] %in% colours()) stop("Only R colours allowed for --col!")
     paramsList[["col"]] = opt[["col"]]
 }
 
-# downsample_cells_n
+# Param downsample_cells_n
 if ("downsample_cells_n" %in% names(opt) && !is.null(opt[["downsample_cells_n"]])) {
     paramsList[["downsample_cells_n"]] = opt[["downsample_cells_n"]]
 }
 
-# path_to_git
+# Param path_to_git
 if ("path_to_git" %in% names(opt)) {
     paramsList[["path_to_git"]] = opt[["path_to_git"]]
 }
 
-# debugging_mode: 'default_debugging' for RStudio, 'terminal_debugger' for debugging on a terminal without X11, 'print_traceback' for non-interactive sessions
+# Param debugging_mode: 'default_debugging' for RStudio, 'terminal_debugger' for debugging on a terminal without X11, 'print_traceback' for non-interactive sessions
 paramsList[["debugging_mode"]] = 'print_traceback'
 
 #
@@ -137,7 +139,7 @@ if (run_knitr) {
     # Note: a small R script will be generated so that knitr can be run again if needed
 
     # The name of the script
-    script_name = paste0(opt[["report_name"]].".r")
+    script_name = paste0(opt[["report_name"]], ".rerun.r")
 
     # This is the template for the script
     script_template = '
@@ -150,7 +152,7 @@ rmarkdown::render(
     output_format="html_document",
     output_dir="{{output_dir}}",
     intermediates_dir="{{intermediates_dir}}",
-    output_file="{{output_file}},
+    output_file="{{output_file}}",
     knit_root_dir="{{knit_root_dir}}",
     quiet={{quiet}},
     params={{params_lst}})

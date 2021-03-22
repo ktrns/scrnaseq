@@ -33,15 +33,21 @@ CellsFisher = function(sc) {
 #' @param name Name of the dataset, only used to write a sensible warning if necessary (Default "")
 #' @return Updated Seurat object
 CCScoring = function(sc, genes_s, genes_g2m, name=""){
+  # Subset to CC genes that are in the object
   genes_s_exists = genes_s %in% rownames(sc)
   genes_g2m_exists = genes_g2m %in% rownames(sc)
   if (sum(genes_s_exists) >= 10 & sum(genes_s_exists) >= 10){
+    
+    # Calculate CC scores
     sc = Seurat::CellCycleScoring(sc, 
                                   s.features=genes_s[genes_s_exists],
                                   g2m.features=genes_g2m[genes_g2m_exists], 
                                   set.ident=FALSE, verbose=FALSE)
     sc[["CC.Difference"]] = sc[["S.Score", drop=TRUE]] - sc[["G2M.Score", drop=TRUE]]
     sc[["Phase"]] = factor(sc[["Phase", drop=TRUE]], levels=c("G1", "G2M", "S"))
+    
+    # Add to 'gene_lists' slot in the misc slot of the Seurat object
+    sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s[genes_s_exists], CC_G2M_phase=genes_g2m[genes_g2m_exists]), lists_slot="gene_lists")
     
   } else {
     sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = NA
