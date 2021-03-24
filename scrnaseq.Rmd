@@ -1035,7 +1035,7 @@ if (param$integrate_samples[["method"]]=="merge") {
   }
   
   # Add sample colours again to misc slot
-  sc = ScAddLists(sc, lists=list(samples=param$col_samples), lists_slot="colour_lists")
+  sc = ScAddLists(sc, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
 
   message("Data values for all samples have been merged. This means that data values have been concatenated, not integrated.")
   print(sc)
@@ -1102,7 +1102,7 @@ if (param$integrate_samples[["method"]]=="integrate") {
   }
   
   # Add sample colours again to misc slot
-  sc = ScAddLists(sc, lists=list(samples=param$col_samples), lists_slot="colour_lists")
+  sc = ScAddLists(sc, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
   
   # Set default assay (will be the integrated version)
   DefaultAssay(sc) = paste0(param$norm, "integrated")  
@@ -1936,7 +1936,10 @@ markers_enriched=list()
 
 ```{r markers_functional_enrichment, results="hide", eval=markers_found}
 if (markers_found) {
+  # Upregulated markers
+  
   # Convert Seurat names of upregulated marker per cluster to Entrez; use named lists for translation
+  # Is that still neccessary?
   marker_genesets_up = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$up %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
     tmp = sapply(tmp, function(n) seurat_rowname_to_entrez[[n]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
@@ -1945,14 +1948,23 @@ if (markers_found) {
   
   # Tests done by Enrichr
   marker_genesets_up_enriched = purrr::map(marker_genesets_up, EnrichrTest, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-  
+  marker_genesets_up_enriched = purrr::map(list_names(marker_genesets_up_enriched), function(n) {
+    return(purrr::map(marker_genesets_up_enriched[[n]], function(d){
+      return(cbind(d, Cluster=rep(n, nrow(d)), Direction=rep("up", nrow(d))))
+    }))
+  })
+
   # Write to files
   marker_genesets_up_enriched_files = purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_up_cluster", n, ".xlsx"))
-    })
+  })
+  
+  
+  # Downregulated markers
   
   # Convert Seurat names of downregulated marker per cluster to Entrez; use named lists for translation
+  # Is that still neccessary?
   marker_genesets_down = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$down %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
     tmp = sapply(tmp, function(x) seurat_rowname_to_entrez[[x]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
@@ -1961,15 +1973,28 @@ if (markers_found) {
   
   #  Tests done by Enrichr
   marker_genesets_down_enriched = purrr::map(marker_genesets_down, EnrichrTest, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-
+  marker_genesets_down_enriched = purrr::map(list_names(marker_genesets_down_enriched), function(n) {
+    return(purrr::map(marker_genesets_down_enriched[[n]], function(d){
+      return(cbind(d, Cluster=rep(n, nrow(d)), Direction=rep("down", nrow(d))))
+    }))
+  })
+  
   # Write to files
   marker_genesets_down_enriched_files = purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_down_cluster", n, ".xlsx"))
-    })
+  })
   
-  # Add to markers slot of  the seurat object
-  # TODO: Seurat::Misc(sc, "markers") = c(Seurat::Misc(sc, "markers"), enrichr=)
+  # Combine, flatten into data.frame and add to sc misc slot
+  marker_genesets_enriched = c(marker_genesets_up_enriched, marker_genesets_down_enriched)
+  marker_genesets_enriched = unname(marker_genesets_enriched)
+  marker_genesets_enriched = purrr::map(marker_genesets_enriched, FlattenEnrichr) %>% dplyr::bind_rows()
+  marker_genesets_enriched$Cluster = factor(marker_genesets_enriched$Cluster, levels=levels(sc$seurat_clusters))
+  marker_genesets_enriched$Direction = factor(marker_genesets_enriched$Direction, levels=c("up", "down"))
+  
+  misc_content = Misc(sc, "markers")
+  misc_content[["enrichr"]] = marker_genesets_enriched
+  suppressWarnings({Misc(sc, "markers") = misc_content})
 }
 ```
 
@@ -1980,42 +2005,15 @@ The following table contains the top enriched terms per cluster.
 if (markers_found) {
   cat('#### {.tabset} \n \n')
   
-  # Get top ten up over all databases
-  marker_genesets_up_top_enriched = purrr::map(marker_genesets_up_enriched, function(enrichr_results) {
-    purrr::map_dfr(names(enrichr_results), function(n) {
-      enrichr_result_df = cbind(enrichr_results[[n]], list(
-        Database = factor(rep(n, nrow(enrichr_results[[n]])), levels=names(enrichr_results)),
-        Direction = factor(rep("up", nrow(enrichr_results[[n]])), levels=c("up", "down"))
-      ))
-      return(enrichr_result_df)
-    }) %>% head()
-  })
-  
-  # Get down ten up over all databases
-  marker_genesets_down_top_enriched = purrr::map(marker_genesets_down_enriched, function(enrichr_results) {
-    purrr::map_dfr(names(enrichr_results), function(n) {
-      enrichr_result_df = enrichr_results[[n]]
-      if (nrow(enrichr_result_df) > 0 ) {
-        enrichr_result_df$Database = n
-        enrichr_result_df$Direction = "down"
-      } else {
-        enrichr_result_df = data.frame(enrichr_result_df, Database=as.character(), Direction=as.character())
-      }
-      return(enrichr_result_df)
-    }) %>% head()
-  })
-  
-  # Join
-  marker_genesets_top_enriched = purrr::map(values_to_names(names(marker_genesets_down_top_enriched)), function(n) {
-    return(rbind(marker_genesets_up_top_enriched[[n]], marker_genesets_down_top_enriched[[n]]) %>% 
-      dplyr::arrange(-Odds.Ratio))
-    })
+  # Get top ten up and down over all databases per cluster
+  marker_genesets_top_enriched = marker_genesets_enriched %>% dplyr::group_by(Cluster, Direction) %>%
+    dplyr::top_n(n=10, wt=Combined.Score)
   
   # Print as tabs
-  for(n in names(marker_genesets_top_enriched)){
+  for(n in levels(marker_genesets_top_enriched$Cluster)){
     cat('##### ', n, ' \n')
     
-    cat(knitr::kable(marker_genesets_top_enriched[[n]][, c("Database", "Term", "Direction", "Adjusted.P.value", "Odds.Ratio")], 
+    cat(knitr::kable(marker_genesets_top_enriched %>% dplyr::ungroup() %>% dplyr::filter(Cluster==n) %>% dplyr::select(Database, Term, Direction, Adjusted.P.value, Odds.Ratio, Combined.Score), 
                      align="l", caption="Top ten enriched terms per geneset", format="html") %>% 
     kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%"))
@@ -2180,6 +2178,8 @@ degs_enrichr_files = purrr::map_chr(degs, function(degs_subsets) {
   return(file)
 })
 
+# Add to sc object
+Misc(sc, "degs") = degs
 ```
 
 ```{r deg_summary, results="asis", fig.show="asis"}
@@ -2251,44 +2251,63 @@ for (i in seq(degs)) {
 
 # Output
 
-## Results
+## Files
 
-```{r sc_export}
+All files generated with this report are written into the provided output folder `r param$path_out`: 
 
-raw counts plus metadata such that one can do a second analysis where one keeps only cells in cluster 1 (this could be done via the filter options)
-counts/data/z-scores for a representative set of cells (e.g. 500) as table together with metadata so that the user can plot their own heatmaps as csv/excel
-cerebroApp/cellxgene/ucsc cell browser
-full metadata table as as csv/excel
-table with seurat name plus ensembl annotation
+* Annotation files  
+  + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
+* Differentially expressed genes  
+  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
+* Functional enrichment of differentially expressed genes per cell cluster  
+  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Loupe Cell Browser files  
+  + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
+    Import to Loupe through "Import Projection"   
+  + Seurat2Loupe_metadata.csv: Seurat categorial meta data including clusters and cell cycle phases   
+    Import to Loupe through "Import Categories"   
+  + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
+    Import to Loupe through "Import Lists"   
+* Cerebro files:
+  + cerebro.crb: Can be loaded into the Cerebro Browser  
+  
+
+```{r sc_export, eval=F}
+
+#raw counts plus metadata such that one can do a second analysis where one keeps only cells in cluster 1 (this could be done via the filter options)
+#counts/data/z-scores for a representative set of cells (e.g. 500) as table together with metadata so that the user can plot their own heatmaps as #csv/excel
+#cerebroApp/cellxgene/ucsc cell browser
+#full metadata table as as csv/excel
+#table with seurat name plus ensembl annotation
 
 #
 # 1. Seurat object
 #
 
 # Add experiment details
-seurat@misc$experiment <- list(
-  experiment_name = param$project_id,
-  organism = 'hg',
-  date_of_analysis = Sys.Date()
-)
+#seurat@misc$experiment <- list(
+#  experiment_name = param$project_id,
+#  organism = 'hg',
+#  date_of_analysis = Sys.Date()
+#)
 
 # Add parameter
-Seurat::Misc(sc, "parameters") = param
+#Seurat::Misc(sc, "parameters") = param
 
 # Add technical
-Seurat::Misc(sc, "technical") = list(scrnaseq=git_repository_version(param$path_to_git), R=capture.output(devtools::session_info())
+#Seurat::Misc(sc, "technical") = list(scrnaseq=git_repository_version(param$path_to_git), R=capture.output(devtools::session_info())
   
                                      
 
-path_to_git
+#path_to_git
 
-seurat@misc$technical_info$cerebroApp_version <- utils::packageVersion('cerebroApp')
-seurat@misc$technical_info$Seurat <- utils::packageVersion('Seurat')
-seurat@misc$technical_info <- list(
-  'R' = capture.output(devtools::session_info())
-)
+#seurat@misc$technical_info$cerebroApp_version <- utils::packageVersion('cerebroApp')
+#seurat@misc$technical_info$Seurat <- utils::packageVersion('Seurat')
+#seurat@misc$technical_info <- list(
+#  'R' = capture.output(devtools::session_info())
+#)
 
-saveRDS(sc)
+#saveRDS(sc)
 
 #
 # 2. Counts plus metadata
@@ -2300,23 +2319,20 @@ saveRDS(sc)
 
 ```
 
-## Export
-
-
 ## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
-```{r loupe_integration}
+```{r loupe_export}
 # Export UMAP coordinates
 loupe_umap = as.data.frame(sc@reductions$umap@cell.embeddings)
 loupe_umap = cbind(Barcode=rownames(loupe_umap), loupe_umap)
 colnames(loupe_umap) = c("Barcode", "UMAP-1", "UMAP-2")
-write.table(loupe_umap, file=paste0(param$path_out, "/Seurat2Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(loupe_umap, file=paste0(param$path_out, "/Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export categorical metadata
 loupe_meta = as.data.frame(sc@meta.data)
 idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
 loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
-write.table(x=loupe_meta, file=paste0(param$path_out, "/Seurat2Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(x=loupe_meta, file=paste0(param$path_out, "/Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export gene sets
 loupe_genesets = data.frame(List=sapply(markers_filt$up[,"cluster"], function(s) paste0("DEG_up_cluster_", s)), 
@@ -2341,10 +2357,31 @@ for (i in names(genesets_to_export)) {
                                                    seurat_rowname_to_ensembl[tmp_genes], tmp_genes)))
 }
 
-write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(loupe_genesets, file=paste0(param$path_out, "/Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
-## Export to the Cerebro Browser
+* list files here
+* shortly explain how to
+
+## Export to cellxgene browser
+We export the assay data, cell metadata, clustering and visualisation in a format that can be read by the cellxgene browser `r Cite("https://github.com/chanzuckerberg/cellxgene", "citep")`.
+
+```{r cellxgene_export, include=FALSE}
+# Convert Seurat single cell object to python anndata object which will be accessible via reticulate here
+adata = sceasy::convertFormat(sc, from="seurat", to="anndata", outFile=NULL)
+
+# Set up correct colours (see https://chanzuckerberg.github.io/cellxgene/posts/prepare) to that colours match
+adata$uns = dict(list(seurat_clusters_colors = unname(Misc(sc, "colour_lists")$seurat_clusters),
+                           orig.ident_colors = unname(Misc(sc, "colour_lists")$orig.ident)))
+
+adata$write(paste0(param$path_out, "/sc.h5ad"))
+```
+
+* list files here
+* shortly explain howto
+
+
+## Export to the Cerebro browser
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`
 ```{r cerebro_integration, message=FALSE, warning=FALSE, eval=F}
 # Top expressed genes
@@ -2378,35 +2415,8 @@ res = ExportToCerebro(sc=sc,
                       enriched_pathways=enriched)
 ```
 
-## Output files
-
-All files generated with this report are written into the provided output folder `r param$path_out`: 
-
-* Annotation files  
-  + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
-* Differentially expressed genes  
-  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
-* Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
-* Loupe Cell Browser files  
-  + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
-    Import to Loupe through "Import Projection"   
-  + Seurat2Loupe_metadata.csv: Seurat categorial meta data including clusters and cell cycle phases   
-    Import to Loupe through "Import Categories"   
-  + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
-    Import to Loupe through "Import Lists"   
-* Cerebro files:
-  + cerebro.crb: Can be loaded into the Cerebro Browser  
-  
-```{r save}
-# Add colors to the sc object for compatibility with downstream tools
-# List names should correspond to meta-data columns
-# This could be done for other meta-data as well 
-sc@misc$colors = list("orig.ident"=param$col_samples,
-                      "seurat_clusters"=param$col_clusters)
-
-save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
-```
+* list files here
+* shortly explain howto
 
 # Parameters and software versions
 The following parameters were used to run the workflow.  
