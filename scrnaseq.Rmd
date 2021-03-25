@@ -2255,6 +2255,60 @@ for (i in seq(degs)) {
 
 All files generated with this report are written into the provided output folder `r param$path_out`: 
 
+
+```{r sc_save, eval=F}
+
+#
+# 1. Seurat object
+#
+
+# Add experiment details
+Seurat::Misc(sc, "experiment") = list(
+  experiment_name = param$project_id,
+  date_of_analysis = Sys.Date()
+)
+
+# Add parameter
+Seurat::Misc(sc, "parameters") = param
+
+# Add technical output
+session_info = sessioninfo::session_info()
+Seurat::Misc(sc, "technical") = list(scrnaseq_git=git_repository_version(param$path_to_git),
+                                     R=session_info$platform$version,
+                                     packages=as.data.frame(session_info$packages)[, c("package", "ondiskversion", "loadedversion", "date")])
+saveRDS(sc, paste0(param$path_out, "/sc.rds"))
+
+#
+# 2. Counts/metadata/annotation
+#
+
+# Counts as sparse matrix plus metadata
+fl = ExportSeuratAssayData(sc, 
+                      dir=file.path(param$path_out, "assay"), 
+                      assays="RNA", 
+                      slot="counts",
+                      include_cell_metadata_cols=colnames(sc[[]]),
+                      metadata_prefix=paste0(param$project_id, "."))
+
+# Metadata as excel file
+openxlsx::write.xlsx(x=sc[[]], file=file.path(param$path_out, "cell_metadata.xlsx"), row.names=TRUE, col.names=TRUE)
+
+
+# Annotation as excel file
+openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)]) %>%
+                       dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
+                     file=file.path(param$path_out, "gene_annotation.xlsx"), 
+                     row.names=FALSE, col.names=TRUE)
+
+
+#
+# 3. Counts for 500 cells plus metadata
+#
+
+# TODO
+
+```
+
 * Annotation files  
   + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
 * Differentially expressed genes  
@@ -2270,54 +2324,7 @@ All files generated with this report are written into the provided output folder
     Import to Loupe through "Import Lists"   
 * Cerebro files:
   + cerebro.crb: Can be loaded into the Cerebro Browser  
-  
 
-```{r sc_export, eval=F}
-
-#raw counts plus metadata such that one can do a second analysis where one keeps only cells in cluster 1 (this could be done via the filter options)
-#counts/data/z-scores for a representative set of cells (e.g. 500) as table together with metadata so that the user can plot their own heatmaps as #csv/excel
-#cerebroApp/cellxgene/ucsc cell browser
-#full metadata table as as csv/excel
-#table with seurat name plus ensembl annotation
-
-#
-# 1. Seurat object
-#
-
-# Add experiment details
-#seurat@misc$experiment <- list(
-#  experiment_name = param$project_id,
-#  organism = 'hg',
-#  date_of_analysis = Sys.Date()
-#)
-
-# Add parameter
-#Seurat::Misc(sc, "parameters") = param
-
-# Add technical
-#Seurat::Misc(sc, "technical") = list(scrnaseq=git_repository_version(param$path_to_git), R=capture.output(devtools::session_info())
-  
-                                     
-
-#path_to_git
-
-#seurat@misc$technical_info$cerebroApp_version <- utils::packageVersion('cerebroApp')
-#seurat@misc$technical_info$Seurat <- utils::packageVersion('Seurat')
-#seurat@misc$technical_info <- list(
-#  'R' = capture.output(devtools::session_info())
-#)
-
-#saveRDS(sc)
-
-#
-# 2. Counts plus metadata
-#
-
-#
-# 3. Counts for 500 cells plus metadata
-#
-
-```
 
 ## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
