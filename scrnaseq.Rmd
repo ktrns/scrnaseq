@@ -34,9 +34,6 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
-
-reticulate_python3_path = "C:\\Program Files/Python38/python.exe"
-
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -70,7 +67,8 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                      dpi=96                         # figure resolution
+                      dpi=96,                         # figure resolution
+                      fig.retina=1                   # DISCUSS: http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/#the-fig.retina-argument-is-a-resolution-multiplier
                                      
 )
 ```
@@ -95,11 +93,6 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              type=c("10x","smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
                              stats=c(NA, NA))
-
-#param$path_data = data.frame(name="pbmc_10x",
-#                             type="10x",
-#                             path="test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/",
-#                             stats=NA)
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
@@ -289,11 +282,12 @@ switch (param$debugging_mode,
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
 
-# Create output directories
+# Create output directories <==== How about we organise a bit more :-)
 if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "images", sep="/"), recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "marker", sep="/"), recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "degs", sep="/"), recursive=TRUE, showWarnings=FALSE)
+output_files = list()
 
 # Do checks
 error_messages = c()
@@ -1354,12 +1348,18 @@ DefaultAssay(sc) = param$norm
 # Cell Cycle Effect {.tabset}
 How much do gene expression profiles in the dataset reflect the cell cycle phases the single cells were in? After initial normalisation, we determined the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r Cite("10.1126/science.aad0501")`, and human gene symbols are translated to gene symbols of the species of interest using biomaRt. This section of the report visualises the above calculated cell cycle scores. 
 ```{r cellCycleEffect}
+# Set up colours for cell cycle effect and add to sc object
+col =  GenerateColours(num_colours=length(levels(sc$Phase)), palette="ggsci::pal_npg")
+names(col) = levels(sc$Phase)
+sc = ScAddLists(sc, lists=list(Phase=col), lists_slot="colour_lists")
+
 # Get a feeling for how many cells are affected
 p1 = ggplot(sc[[]], aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
   geom_point() + 
   scale_x_continuous("G1/S score") + 
   scale_y_continuous("G2/M score") + 
-  AddStyle()
+  AddStyle(col=Misc(sc, "colour_lists")[["Phase"]])
+
 p2 = ggplot(sc@meta.data %>% 
               dplyr::group_by(seurat_clusters,Phase) %>% 
               dplyr::summarise(num_reads=length(Phase)), 
@@ -1367,7 +1367,8 @@ p2 = ggplot(sc@meta.data %>%
   geom_bar(stat="identity", position="fill") + 
   scale_x_discrete("Seurat clusters") + 
   scale_y_continuous("Fraction of cells") + 
-  AddStyle()
+  AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]])
+
 p = p1 + p2 & theme(legend.position="bottom")
 p = p + patchwork::plot_annotation(title="Cell cycle phases")
 p
@@ -1377,7 +1378,7 @@ p
 ```{r cellCycleEffect_umap_phases}
 # UMAP with phases superimposed
 # Note: This is a hack to colour by phase but label by Cluster
-p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1) + 
+p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1, cols=Misc(sc, "colour_lists")[["Phase"]]) + 
   AddStyle(title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
 p = LabelClusters(p, id="seurat_clusters")
@@ -1624,7 +1625,7 @@ additional_readme = data.frame(Column=c("cluster",
                                              "Score calculated as follows: -log10(p_val_adj)*sign(avg_log2FC)",
                                              "Average expression value for cluster; <assay>: RNA or SCT; <slot>: raw counts or normalised data"))
 
-markers_results_file = DegsWriteToFile(split(markers_out, markers_out$cluster),
+output_files[["markers"]] = DegsWriteToFile(split(markers_out, markers_out$cluster),
                                        annot_ensembl=annot_ensembl,
                                        gene_to_ensembl=seurat_rowname_to_ensembl,
                                        additional_readme=additional_readme,
@@ -1716,7 +1717,7 @@ if (markers_found) {
 ```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_markers}
 if (markers_found) {
   # Violin plot of raw gene expression counts
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
+  p_list = Seurat::VlnPlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
@@ -1732,7 +1733,7 @@ if (markers_found) {
 ```{r markers_plot_violin_norm, eval=markers_found, fig.height=fig_height_markers}
 if (markers_found) {
   # Violin plot of normalised gene expression data
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, combine=FALSE, pt.size=0.2)
+  p_list = Seurat::VlnPlot(sc, features=markers_examples, combine=FALSE, pt.size=0)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
@@ -1955,7 +1956,7 @@ if (markers_found) {
   })
 
   # Write to files
-  marker_genesets_up_enriched_files = purrr::map(names(marker_genesets_up_enriched), function(n) {
+  output_files[["markers_enrichr_up"]] = purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_up_cluster", n, ".xlsx"))
   })
@@ -1980,7 +1981,7 @@ if (markers_found) {
   })
   
   # Write to files
-  marker_genesets_down_enriched_files = purrr::map(names(marker_genesets_down_enriched), function(n) {
+  output_files[["markers_enrichr_down"]] = purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_down_cluster", n, ".xlsx"))
   })
@@ -2149,7 +2150,7 @@ original_contrast_rows = purrr::map_int(degs_contrasts_results, function(contras
 degs = split(degs_contrasts_results, original_contrast_rows)
 
 # Write degs to files
-degs_result_files = purrr::map_chr(degs, function(degs_subsets) {
+output_files[["degs"]] = purrr::map_chr(degs, function(degs_subsets) {
   # The output file
   file = paste0(param$path_out, "/degs_contrast_row_", degs_subsets[[1]][["contrast_row"]], "_results.xlsx")
   
@@ -2166,7 +2167,7 @@ degs_result_files = purrr::map_chr(degs, function(degs_subsets) {
 })
 
 # Write enrichr results to files
-degs_enrichr_files = purrr::map_chr(degs, function(degs_subsets) {
+output_files[["degs_enrichr"]] = purrr::map_chr(degs, function(degs_subsets) {
   # The output file
   file = paste0(param$path_out, "/degs_contrast_row_", degs_subsets[[1]][["contrast_row"]], "_functions.xlsx")
   
@@ -2181,6 +2182,7 @@ degs_enrichr_files = purrr::map_chr(degs, function(degs_subsets) {
 # Add to sc object
 Misc(sc, "degs") = degs
 ```
+
 
 ```{r deg_summary, results="asis", fig.show="asis"}
 knitr_header_string = '
@@ -2262,6 +2264,10 @@ All files generated with this report are written into the provided output folder
 # 1. Seurat object
 #
 
+# Add additional colour lists (orig.ident, seurat_clusters and Phase were already added)
+sc = ScAddLists(sc, lists=list(two_colour_gradient1=c(low=c("lightgrey", high = param$col)), three_colour_gradient1=c(low="steelblue", mid="lightgrey", high="darkgoldenrod1"), up_down=c(down="steelblue", up="darkgoldenrod1")), lists_slot="colour_lists")
+
+
 # Add experiment details
 Seurat::Misc(sc, "experiment") = list(
   experiment_name = param$project_id,
@@ -2276,14 +2282,15 @@ session_info = sessioninfo::session_info()
 Seurat::Misc(sc, "technical") = list(scrnaseq_git=git_repository_version(param$path_to_git),
                                      R=session_info$platform$version,
                                      packages=as.data.frame(session_info$packages)[, c("package", "ondiskversion", "loadedversion", "date")])
-saveRDS(sc, paste0(param$path_out, "/sc.rds"))
+saveRDS(sc, file.path(param$path_out, "sc.rds"))
+output_files[["sc_seurat"]] = file.path(param$path_out, "sc.rds")
 
 #
 # 2. Counts/metadata/annotation
 #
 
 # Counts as sparse matrix plus metadata
-fl = ExportSeuratAssayData(sc, 
+output_files[["assay"]] = ExportSeuratAssayData(sc, 
                       dir=file.path(param$path_out, "assay"), 
                       assays="RNA", 
                       slot="counts",
@@ -2292,6 +2299,7 @@ fl = ExportSeuratAssayData(sc,
 
 # Metadata as excel file
 openxlsx::write.xlsx(x=sc[[]], file=file.path(param$path_out, "cell_metadata.xlsx"), row.names=TRUE, col.names=TRUE)
+output_files[["cell_metadata"]] = file.path(param$path_out, "cell_metadata.xlsx")
 
 
 # Annotation as excel file
@@ -2299,6 +2307,7 @@ openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat
                        dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
                      file=file.path(param$path_out, "gene_annotation.xlsx"), 
                      row.names=FALSE, col.names=TRUE)
+output_files[["gene_annotation"]] = file.path(param$path_out, "gene_annotation.xlsx")
 
 
 #
@@ -2325,6 +2334,7 @@ openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat
 * Cerebro files:
   + cerebro.crb: Can be loaded into the Cerebro Browser  
 
+STILL TO DO
 
 ## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
@@ -2381,7 +2391,9 @@ adata = sceasy::convertFormat(sc, from="seurat", to="anndata", outFile=NULL)
 adata$uns = dict(list(seurat_clusters_colors = unname(Misc(sc, "colour_lists")$seurat_clusters),
                            orig.ident_colors = unname(Misc(sc, "colour_lists")$orig.ident)))
 
-adata$write(paste0(param$path_out, "/sc.h5ad"))
+adata$write(file.path(param$path_out, "sc.h5ad"))
+output_files[["sc_anndata"]] = file.path(param$path_out, "sc.h5ad")
+
 ```
 
 * list files here

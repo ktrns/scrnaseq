@@ -205,7 +205,7 @@ GetBiomaRtMirror = function(mart_obj) {
 #' @param num_colours The number of colours to generate.
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
-#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
+#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value are used to generate more colours.
 #' @return The generated colours.
 GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
   palette = eval(parse(text=palette))
@@ -723,3 +723,4 @@ Cite = function(reference, type="citet") {
   if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
   return(formatted)
 }
+
