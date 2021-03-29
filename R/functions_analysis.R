@@ -210,3 +210,39 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
   gc(verbose=verbose)
   return(sc)
 }
+
+#' R implementation of the Seurat LogNormalize strategy but with additional options.
+#' Normalisation: Counts for each cell are divided by the total counts for that cell and multiplied by a scale factor followed by natural-log transformation.
+#' Note: It is likely slower than the C++ implementation of Seurat.
+#' 
+#' @param sc Seurat object.
+#' @param assay The assay to normalize. Default is RNA.
+#' @param slot The assay slot to use for normalization. Default is counts.
+#' @param exclude_highly_expressed Whether to exclude highly expressed genes from size factor computation. Default is FALSE.
+#' @param max_fraction Maximum fraction of counts for a gene not to be considered highly expressed. Default is 0.05.
+#' @param exclude_genes A list of genes to exclude by default. Default is empty.
+#' @param scale_factor The scale factor. Default is 10000.
+#' @return A seurat object with normalized counts in the data slot of the assay.
+LogNormalizeCustom = function(sc, assay="RNA", slot="counts", exclude_highly_expressed=FALSE, max_fraction=0.05, exclude_genes=NULL, scale_factor=10000) {
+  # Get assay data
+  counts_assay = Seurat::GetAssayData(sc, slot="counts", assay=assay)
+  
+  # For each cell: determine highly expressed genes and return the counts sum but excluding highly expressed genes and genes that should be excluded by default
+  total_counts_per_cell_excl_high = apply(counts_assay, 2, function(cell_counts) {
+    is_highly_expressed = exclude_highly_expressed & cell_counts/sum(cell_counts)>max_fraction
+    is_excluded_by_default = names(cell_counts) %in% exclude_genes
+    return(sum(cell_counts[!highly_expressed_genes & !is_excluded_by_default]))
+  })
+  
+  # Size factors for scaling the counts
+  size_factors = 1/(total_counts_per_cell_excl_high*scale_factor)
+  
+  # Multiply counts by size factors
+  # Use R matrix multiplication for speed: matrix %*% diag(v)
+  # To divide, multiply by the inverse
+  # Finally log1p
+  sc = Seurat::SetAssayData(sc, slot="data", 
+                            assay=assay, 
+                            new.data=log1p(Matrix::t(Matrix::t(counts_assay) * size_factors)))
+  return(sc)
+}

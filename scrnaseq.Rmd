@@ -68,7 +68,7 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
                       dpi=96,                         # figure resolution
-                      fig.retina=1                   # DISCUSS: http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/#the-fig.retina-argument-is-a-resolution-multiplier
+                      fig.retina=2                   # DISCUSS: http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/#the-fig.retina-argument-is-a-resolution-multiplier
                                      
 )
 ```
@@ -258,7 +258,7 @@ param$debugging_mode = "default_debugging"
 
 ```{r preparation_and_initial_checks}
 # Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/")) # https://bookdown.org/yihui/rmarkdown-cookbook/keep-files.html
+knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/"))
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
@@ -296,6 +296,8 @@ error_messages = c()
 error_messages = c(error_messages, check_installed_packages())
 # Check python
 error_messages = c(error_messages, check_python())
+# Check pandoc
+error_messages = c(error_messages, check_pandoc())
 # Check parameters
 error_messages = c(error_messages, check_parameters(param))
 # Check enrichR
@@ -306,14 +308,9 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
                                                  mirror=param$biomart_mirror, 
                                                  version=param$annot_version,
                                                  attributes=param$mart_attributes))
-```
 
-```{r initial_checks_failed, eval=length(error_messages) > 0, include=length(error_messages) > 0}
-# Now format collected error messages as error boxes, print and exit
-# Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
-error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
-knitr::knit_exit()
-knitr::asis_output(error_message_blocks)
+# Stop here if there are errors
+if (length(error_messages)) stop(paste(c("",paste("*", error_messages)), collapse="\n"))
 ```
 
 # Read data
@@ -580,7 +577,7 @@ sc = purrr::map(sc, function(s) {
   })
 
 # Combine (again) cell metadata of the Seurat objects into one big metadata, this time including mt and ercc 
-sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
+sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ return(s[[]]) }) %>% as.data.frame())
 ```
 
 ```{r qc_calculate_features}
@@ -826,8 +823,7 @@ Note that removing all signal associated to cell cycle can negatively impact dow
 While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r part1_normalisation}
 # Normalise data the original way
-#   This is required to score cell cycle
-#   https://github.com/satijalab/seurat/issues/1679
+#   This is required to score cell cycle (https://github.com/satijalab/seurat/issues/1679)
 sc = purrr::map(sc, Seurat::NormalizeData, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 ```
 
@@ -1109,12 +1105,12 @@ if (param$integrate_samples[["method"]]=="integrate") {
 
 ## Relative log expression {.tabset}
 ```{r plot_RLE_prep}
-n_cells_rle_plot = min(100, sc[["orig.ident"]] %>% table() %>% min())
+n_cells_rle_plot = 100
 
 # Sample at most 100 cells per dataset and save their identity
 cells_RLE_subset = sc[["orig.ident"]] %>% tibble::rownames_to_column() %>% 
   dplyr::group_by(orig.ident) %>% 
-  dplyr::sample_n(size=n_cells_rle_plot) %>% 
+  dplyr::sample_n(size=min(n_cells_rle_plot, length(orig.ident))) %>% 
   dplyr::select(rowname, orig.ident)
   
 cells_RLE_sample = cells_RLE_subset %>% dplyr::pull(orig.ident)
@@ -1129,12 +1125,13 @@ For each gene, we calculate its median expression across all cells, and then cal
 
 ### Raw counts
 ```{r plot_RLE_raw}
-# Get counts from assay RNA
-data_RLE_raw = GetAssayData(subset(sc, cells=cells_RLE_subset), assay="RNA", slot="counts")
-
-# Plot
-p = PlotRLE(as.matrix(log2(data_RLE_raw + 1)), id=cells_RLE_sample, col=param$col_samples) + labs(title="log2(raw counts + 1)")
+# Plot raw data
+p = PlotRLE(as.matrix(log2(GetAssayData(subset(sc, cells=cells_RLE_subset), assay="RNA", slot="counts") + 1)), 
+            id=cells_RLE_sample, 
+            col=param$col_samples) + 
+  labs(title="log2(raw counts + 1)")
 p
+rm(data_RLE_raw)
 ```
 
 ### Normalised data
@@ -1145,22 +1142,22 @@ Dependent on the context, this tab refers to different data:
 * Multiple samples that were integrated: Separate `r param$norm` normalisation prior to integration of all samples   
 
 ```{r plot_RLE_norm}
-# Get normalised data before integration
-data_RLE_norm = GetAssayData(subset(sc, cells=cells_RLE_subset), assay=param$norm, slot="data")
-
-# Plot
-p = PlotRLE(as.matrix(data_RLE_norm), id=cells_RLE_sample, col=param$col_samples) + labs(title="Normalised data")
-p 
+# Plot normalised data
+p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_RLE_subset), assay=param$norm, slot="data")), 
+            id=cells_RLE_sample, 
+            col=param$col_samples) + 
+  labs(title="Normalised data")
+p
 ```
 
 ### Integrated data
 ```{r plot_RLE_integrated}
 if (! param$integrate_samples[["method"]] %in% c("single", "merge")) {
-  # Get normalised data for integrated assays
-  data_RLE_int = GetAssayData(subset(sc, cells=cells_RLE_subset), assay=paste0(param$norm, "integrated"), slot="data")
-
-  # Plot
-  p = PlotRLE(as.matrix(data_RLE_int), id=cells_RLE_sample, col=param$col_samples) + labs(title="Normalised integrated data")
+  # Plot integrated data
+  p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_RLE_subset), assay=paste0(param$norm, "integrated"), slot="data")), 
+              id=cells_RLE_sample, 
+              col=param$col_samples) + 
+    labs(title="Integrated data")
   p
 } else {
   message("No integrated data available.")
@@ -1212,26 +1209,22 @@ param$pc_n = min(param$pc_n, ncol(sc))
 For the current dataset, `r param$pc_n` PCs were chosen.
 
 # Clustering
-Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm. 
+Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm `r Cite("10.1038/s41598-019-41695-z", "citep")`. 
 ```{r clustering}
-# Note: I changed the seed in ./lib/python3.6/site-packages/leidenalg/functions.py to 11 for reproducibility
-# The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
+# Construct phylogenetic tree relating the 'average' cell from each sample
+sc = Seurat::BuildClusterTree(sc, features=rownames(sc), verbose=FALSE)
+Seurat::Misc(sc, "trees") = list(orig.ident = Seurat::Tool(sc, "Seurat::BuildClusterTree"))
 
+# The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
 # Choose the number of PCs to use for clustering
 sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 
-# Cluster using the Leiden algorithm
-# Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-# Taken from documentation:
-#   Method for running leiden (defaults to matrix which is fast for small datasets). Enable method = "igraph" to avoid casting large data to a dense matrix.
-# Note Katrin: 
-#   This is implemented as default recently and will be updated with a new Seurat release
-#   https://github.com/satijalab/seurat/pull/3233
 sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE, method="igraph")
 
 # Construct phylogenetic tree relating the 'average' cell from each cluster
-sc = BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
+sc = Seurat::BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
+Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Tool(sc, "Seurat::BuildClusterTree")))
 
 # Set up colors for clusters and add the sc object
 cluster_names = levels(sc$seurat_clusters)
@@ -2271,6 +2264,8 @@ sc = ScAddLists(sc, lists=list(two_colour_gradient1=c(low=c("lightgrey", high = 
 # Add experiment details
 Seurat::Misc(sc, "experiment") = list(
   experiment_name = param$project_id,
+  organism = 'hg',
+  date_of_export = Sys.Date(),
   date_of_analysis = Sys.Date()
 )
 
@@ -2403,35 +2398,13 @@ output_files[["sc_anndata"]] = file.path(param$path_out, "sc.h5ad")
 ## Export to the Cerebro browser
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`
 ```{r cerebro_integration, message=FALSE, warning=FALSE, eval=F}
-# Top expressed genes
-sc = cerebroApp::getMostExpressedGenes(sc, 
-                                       assay=Seurat::DefaultAssay(sc),
-                                       column_sample="orig.ident",
-                                       column_cluster="seurat_clusters")
-
-gene_lists_for_cerebro = list()
-if (markers_found) {
-  gene_lists_for_cerebro = split(markers_filt$all$gene, markers_filt$all$cluster)
-  names(gene_lists_for_cerebro) = paste("Marker cluster", names(gene_lists_for_cerebro))
-}
-gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[, 2]
-gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[, 2]
-gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt, rownames(sc), v=TRUE)
-cerebro_species = gsub("_gene_ensembl", "", param$mart_dataset)
-cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", cerebro_species), "Mm", cerebro_species))
-
+# Export to cerebro (almost functional)
 res = ExportToCerebro(sc=sc, 
                       path=paste0(param$path_out,"/cerebro.crb"), 
-                      param=param, 
                       project=param$project_id, 
                       species=cerebro_species, 
-                      assay=DefaultAssay(sc), 
-                      column_sample="orig.ident", 
-                      column_cluster="seurat_clusters", 
-                      column_ccphase="Phase", 
-                      gene_lists=gene_lists_for_cerebro, 
-                      marker_genes=markers_filt$all, 
-                      enriched_pathways=enriched)
+                      assay=DefaultAssay(sc),
+                      delayed_array=FALSE)
 ```
 
 * list files here

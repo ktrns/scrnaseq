@@ -339,8 +339,7 @@ scrnaseq_params_info = function(params) {
 
 # Checks if the parameters are valid.
 #'
-#' @param params The parameter list.
-#' @param 
+#' @param param The parameter list.
 #' @return Returns a list with error messages.
 check_parameters = function(param) {
   error_messages = c()
@@ -588,6 +587,19 @@ check_python = function() {
   
   if (!reticulate::py_module_available("leidenalg")) {
     error_messages = c(error_messages, "The python package 'leidenalg' is missing!")
+  }
+
+  return(error_messages)
+}
+
+# Checks if pandoc is valid.
+#'
+#' @return Returns a list with error messages.
+check_pandoc = function() {
+  error_messages = c()
+  
+  if (nchar(Sys.which("pandoc")) == 0) {
+    return("Pandoc is not installed on this system or not found in the specified path!")
   }
 
   return(error_messages)
