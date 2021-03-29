@@ -668,5 +668,9 @@ EnrichrWriteResults = function(enrichr_results, file) {
 #' @param enrichr_results: A list with enrichr results.
 #' @return A data.frame with the columns reported by Enrichr as well as the db
 FlattenEnrichr = function(enrichr_results) {
-  return(purrr::invoke(dplyr::bind_rows, purrr::map(names(enrichr_results), function(n) return(data.frame(Database=n, enrichr_results[[n]])))))
+  enrichr_results_flat = purrr::map(names(enrichr_results), function(n) {
+    return(data.frame(Database=rep(n, nrow(enrichr_results[[n]])), enrichr_results[[n]]))
+  })
+  enrichr_results_flat = purrr::invoke(dplyr::bind_rows, enrichr_results_flat)
+  return(enrichr_results_flat)
 }

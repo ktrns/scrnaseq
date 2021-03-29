@@ -14,7 +14,7 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
 #' 
 #' @param path_to_git: Path to git repository.
 #' @return The git repository version.
-git_repository_version = function(path_to_git) {
+GitRepositoryVersion = function(path_to_git) {
   repo = tryCatch({system(paste0("git --git-dir=", path_to_git, "/.git rev-parse HEAD"), intern=TRUE)},
                   warning = function(war) {return("Unknown")})
   return(repo)
@@ -24,11 +24,11 @@ git_repository_version = function(path_to_git) {
 #' 
 #' @param path_to_git: Path to git repository.
 #' @return The session info as table.
-scrnaseq_session_info = function(path_to_git=".") {
+ScrnaseqSessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
-  repo = git_repository_version(path_to_git)
+  repo = GitRepositoryVersion(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
   info_session = sessionInfo()
@@ -307,7 +307,7 @@ Error = function(x, options){
 #' Report parameters in a table.
 #' @param params The parameter list.
 #' @return A table with parameters for printing.
-scrnaseq_params_info = function(params) { 
+ScrnaseqParamsInfo = function(params) { 
   
   # Initialize output table
   out = matrix(NA, nrow=0, ncol=2)

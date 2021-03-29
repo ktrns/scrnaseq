@@ -69,8 +69,10 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
                       dpi=96,                         # figure resolution
                       fig.retina=2                   # DISCUSS: http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/#the-fig.retina-argument-is-a-resolution-multiplier
-                                     
 )
+
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
+invisible(knitcitations::citep(citation("knitr")))
 ```
 
 # Dataset description
@@ -96,7 +98,7 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
-param$downsample_cells_n = 100
+param$downsample_cells_n = NULL
 
 # Path to output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -310,7 +312,7 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
                                                  attributes=param$mart_attributes))
 
 # Stop here if there are errors
-if (length(error_messages)) stop(paste(c("",paste("*", error_messages)), collapse="\n"))
+if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
 ```
 
 # Read data
@@ -507,10 +509,16 @@ sc = purrr::map(list_indices(sc), function(i){
 })
 
 # Set up colors for samples and add to the sc objects
-sample_names = purrr::flatten_chr(purrr::map(sc, function(s) { return(unique(as.character(s[[]][["orig.ident"]]))) }))
+sample_names = purrr::flatten_chr(purrr::map(sc, function(s) {
+  nms = unique(as.character(s[[]][["orig.ident"]]))
+  return(nms) 
+}))
 param$col_samples = GenerateColours(num_colours=length(sample_names), palette=param$col_palette_samples)
 names(param$col_samples) = sample_names
-sc = purrr::map(list_names(sc), function(n) return(ScAddLists(sc[[n]], lists=list(samples=param$col_samples[n]), lists_slot="colour_lists")))
+sc = purrr::map(list_names(sc), function(n) {
+  sc[[n]] = ScAddLists(sc[[n]], lists=list(samples=param$col_samples[n]), lists_slot="colour_lists")
+  return(sc[[n]])
+})
 
 
 # Downsample cells if requested
@@ -566,9 +574,16 @@ param$feature_filter = purrr::map(list_names(sc), function(s) {
 
 ```{r qc_calculate_cells}
 # Calculate percentage of counts in mitochondrial genes for each Seurat object
-sc = purrr::map(sc, Seurat::PercentageFeatureSet, pattern=param$mt, col.name="percent_mt", assay="RNA")
+sc = purrr::map(sc, function(s) {
+  mt_features = grep(pattern=param$mt, rownames(sc), value=TRUE)
+  return(Seurat::PercentageFeatureSet(s, features=mt_features, col.name="percent_mt", assay="RNA"))
+})
 
-## percent_ribo?
+# Calculate percentage of counts in ribosomal genes for each Seurat object
+sc = purrr::map(sc, function(s) {
+  ribo_features = grep(pattern="^RP[SL]", rownames(sc), value=TRUE, ignore.case=TRUE)
+  return(Seurat::PercentageFeatureSet(s, features=ribo_features, col.name="percent_ribo", assay="RNA"))
+})
 
 # Calculate percentage of counts in ERCC for each Seurat object (if assay is available)
 sc = purrr::map(sc, function(s) {
@@ -716,7 +731,6 @@ purrr::invoke(rbind, cell_filter_lst[!is_numeric_filter] %>% purrr::map(paste, c
 # gene filters
 feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
 if (length(feature_filter_lst) > 0) {
-  feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
   purrr::invoke(rbind, feature_filter_lst) %>% 
     knitr::kable(align="l", caption="Filters applied to genes", col.names=c("Value")) %>%
     kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
@@ -1710,7 +1724,7 @@ if (markers_found) {
 ```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_markers}
 if (markers_found) {
   # Violin plot of raw gene expression counts
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0)
+  p_list = Seurat::VlnPlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
@@ -1726,7 +1740,7 @@ if (markers_found) {
 ```{r markers_plot_violin_norm, eval=markers_found, fig.height=fig_height_markers}
 if (markers_found) {
   # Violin plot of normalised gene expression data
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, combine=FALSE, pt.size=0)
+  p_list = Seurat::VlnPlot(sc, features=markers_examples, combine=FALSE, pt.size=0.2)
   for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
                                                               legend_title="Cluster", 
                                                               fill=param$col_clusters, 
@@ -2274,7 +2288,7 @@ Seurat::Misc(sc, "parameters") = param
 
 # Add technical output
 session_info = sessioninfo::session_info()
-Seurat::Misc(sc, "technical") = list(scrnaseq_git=git_repository_version(param$path_to_git),
+Seurat::Misc(sc, "technical") = list(scrnaseq_git=GitRepositoryVersion(param$path_to_git),
                                      R=session_info$platform$version,
                                      packages=as.data.frame(session_info$packages)[, c("package", "ondiskversion", "loadedversion", "date")])
 saveRDS(sc, file.path(param$path_out, "sc.rds"))
@@ -2413,7 +2427,7 @@ res = ExportToCerebro(sc=sc,
 # Parameters and software versions
 The following parameters were used to run the workflow.  
 ```{r parameters_table}
-out = scrnaseq_params_info(params=param)
+out = ScrnaseqParamsInfo(params=param)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
@@ -2421,7 +2435,7 @@ knitr::kable(out, align="l") %>%
 
 This report was created with generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions, message=FALSE}
-out = scrnaseq_session_info(param$path_to_git)
+out = ScrnaseqSessionInfo(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
@@ -2430,9 +2444,6 @@ knitr::kable(out, align="l") %>%
 
 # References
 ```{r bib, message=FALSE}
-# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
-invisible(knitcitations::citep(citation("knitr")))
-
 # Writes knitcitations references to references.bib file.
-knitcitations::write.bibtex(file="references.bib")
+knitcitations::write.bibtexcd(file="references.bib")
 ```
