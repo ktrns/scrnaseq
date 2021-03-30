@@ -10,16 +10,25 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
   return(s)
 }
 
+#' Get git repository version
+#' 
+#' @param path_to_git: Path to git repository.
+#' @return The git repository version.
+GitRepositoryVersion = function(path_to_git) {
+  repo = tryCatch({system(paste0("git --git-dir=", path_to_git, "/.git rev-parse HEAD"), intern=TRUE)},
+                  warning = function(war) {return("Unknown")})
+  return(repo)
+}
+
 #' Report session info in a table
 #' 
 #' @param path_to_git: Path to git repository.
 #' @return The session info as table.
-scrnaseq_session_info = function(path_to_git=".") {
+ScrnaseqSessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
-  repo = tryCatch({system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)},
-    warning = function(war) {return("Unknown")})
+  repo = GitRepositoryVersion(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
   info_session = sessionInfo()
@@ -70,6 +79,39 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   return(cell_names_sample)
 }
 
+#' Adds one more lists to the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param lists A named list with one or more lists (named or unnamed vectors only).
+#' @param lists_slot In which slot of the Seurat misc slot should the list(s) be stored.
+#' @param add_to_list When a list with this name already exists, add to the list instead of overwriting the list. Default is FALSE.
+#' @param make_unique Make lists unique (after they were stored in the misc slot). Default is FALSE.
+#' @return A Seurat sc object with updated list(s).
+ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, make_unique=FALSE) {
+  stored_lists = Seurat::Misc(sc, slot=lists_slot)
+  if (is.null(stored_lists)) stored_lists = list()
+  
+  # Check that the lists have names, otherwise set to 'list_1', 'list_2' etc
+  lists_names = purrr::map_chr(seq(lists), function(i) {
+    n = names(lists[i])
+    if (is.null(n) || nchar(n) == 0) return(paste0("list_",as.character(i))) else return(names(lists[i]))
+  })
+  names(lists) = lists_names
+  
+  for(n in names(lists)) {
+    if (n %in% names(stored_lists) & add_to_list == TRUE) {
+      stored_lists[[n]] = c(stored_lists[[n]], unlist(lists[[n]]))
+    } else {
+      stored_lists[[n]] = unlist(lists[[n]])
+    }
+    
+    if (make_unique) stored_lists[[n]] = unique(stored_lists[[n]])
+  }
+  
+  # Add to Seurat object
+  suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
+  return(sc)
+}
 
 #' Returns the names of an object.
 #' 
@@ -163,7 +205,7 @@ GetBiomaRtMirror = function(mart_obj) {
 #' @param num_colours The number of colours to generate.
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
-#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
+#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value are used to generate more colours.
 #' @return The generated colours.
 GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
   palette = eval(parse(text=palette))
@@ -262,10 +304,10 @@ Error = function(x, options){
   knitr::asis_output(format_error(x, options))
 }
 
-# Report parameters in a table.
+#' Report parameters in a table.
 #' @param params The parameter list.
 #' @return A table with parameters for printing.
-scrnaseq_params_info = function(params) { 
+ScrnaseqParamsInfo = function(params) { 
   
   # Initialize output table
   out = matrix(NA, nrow=0, ncol=2)
@@ -297,8 +339,7 @@ scrnaseq_params_info = function(params) {
 
 # Checks if the parameters are valid.
 #'
-#' @param params The parameter list.
-#' @param 
+#' @param param The parameter list.
 #' @return Returns a list with error messages.
 check_parameters = function(param) {
   error_messages = c()
@@ -459,22 +500,13 @@ check_parameters = function(param) {
   if (!"integrate_samples" %in% names(param) || !is.list(param$integrate_samples)) {
     error_messages = c(error_messages, "The parameter 'integrate_samples' is missing or not a list!")
   } else {
-    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "standard", "reference", "reciprocal")) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge), 'standard' (integrate), 'reference' (integrate based on reference), 'reciprocal' (fast integrate in PCA space)!")
+    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "integrate")) {
+      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
     }
     
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("standard", "reference", "reciprocal") && !"dimensions" %in% names(param$integrate_samples)) {
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("integrate") && !"dimensions" %in% names(param$integrate_samples)) {
       error_messages = c(error_messages, "The sub parameter 'dimensions' of parameter 'integrate_samples' is missing. Please specify the number of dimensions to include for integration!")
     }
-    
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("reference") && !"reference" %in% names(param$integrate_samples)) {
-      error_messages = c(error_messages, "The sub parameter 'reference' of parameter 'integrate_samples' is missing. Please specify the reference sample to use for integration!")
-    }
-
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("single") && nrow(param$path_data) > 1) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' cannot be 'single' when there are multiple datasets! Please set to another method. If after filtering only one dataset remains, the script will automatically set the 'method' parameter to 'single'.")
-    }
-    
   }
 
   # Check normalisation_default
@@ -560,7 +592,20 @@ check_python = function() {
   return(error_messages)
 }
 
-# Checks if enrichR is live.
+# Checks if pandoc is valid.
+#'
+#' @return Returns a list with error messages.
+check_pandoc = function() {
+  error_messages = c()
+  
+  if (nchar(Sys.which("pandoc")) == 0) {
+    return("Pandoc is not installed on this system or not found in the specified path!")
+  }
+
+  return(error_messages)
+}
+
+#' Checks if enrichR is live.
 #'
 #' @param databases The enrichR databases to use.
 #' @return Returns a list with error messages.
@@ -586,7 +631,16 @@ check_enrichr = function(databases) {
   return(c())
 }
 
-# Checks if all required packages are installed.
+#' Checks if packages are installed.
+#'
+#' @param packages A character vector with package names.
+#' @return Logical vector with TRUE for installed and FALSE for not installed
+packages_installed = function(packages) {
+  return(packages %in% installed.packages()[ , "Package"])
+}
+
+
+#' Checks if all required packages are installed.
 #'
 #' @return Returns a list with error messages.
 check_installed_packages = function() {
@@ -598,8 +652,7 @@ check_installed_packages = function() {
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
                         "knitcitations")
   
-  is_installed = required_packages %in% installed.packages()[,"Package"]
-  
+  is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {
     return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
@@ -607,7 +660,7 @@ check_installed_packages = function() {
   }
 }
 
-# Checks if Ensembl annotation is available.
+#' Checks if Ensembl annotation is available.
 #'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.
@@ -642,7 +695,7 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
 #' On error, R will not start a debugger but just print a traceback. For non-interactive use.
 #' @return None.
 on_error_just_print_traceback = function(x) {
-  options(rlang_trace_top_env = rlang::current_env())
+  options(rlang_trace_top_env = rlang::caller_env())
   options(error = function() {
     sink()
     print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")
@@ -666,7 +719,7 @@ on_error_default_debugging = function(x) {
   return(invisible(NULL))
 }
 
-# Wrapper around citep and citet. Takes care of connection problems.
+#' Wrapper around citep and citet. Takes care of connection problems.
 #'
 #' @param reference Argument for citep or citet.
 #' @param type Use 'citet' or 'citep'.
@@ -682,3 +735,4 @@ Cite = function(reference, type="citet") {
   if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
   return(formatted)
 }
+

@@ -34,7 +34,7 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
-Sys.setenv(RETICULATE_PYTHON = reticulate_python3_path)
+Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
@@ -47,7 +47,7 @@ library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
 # Tables: kableExtra, DT
 # Plots: ggsci, ggpubr
 # IO: openxlsx, readr, R.utils
@@ -67,13 +67,12 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                      dpi=96                         # figure resolution
-                                     
+                      dpi=96,                        # figure resolution
+                      fig.retina=2                   # retina multiplier
 )
 
-# Initialize Citations
-# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation
-try({invisible(knitcitations::citet("https://cran.r-project.org/web/packages/knitr/index.html"))})
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
+invisible(knitcitations::citep(citation("knitr")))
 ```
 
 # Dataset description
@@ -157,7 +156,7 @@ param$cc_remove = FALSE
 param$cc_remove_all = FALSE
 
 # Whether or not to re-score cell cycle effects after data
-#   from different samples have been merged 
+#   from different samples have been merged/integrated
 param$cc_rescore_after_merge = TRUE
 
 # Additional (unwanted) variables that will be regressed out for visualisation and clustering
@@ -166,18 +165,25 @@ param$vars_to_regress = c()
 # When there are multiple datasets, how to combine them:
 #   - method:
 #     - "single": Default when there is only one dataset after filtering, no integration is needed
-#     - "merge": Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip
-#     - "standard": Integration: Anchors are computed for all pairs of datasets
-#                     This will give all datasets the same weight during dataset integration but can be computationally intensive
-#     - "reference": Integration: One dataset is used as reference and anchors are computed for all other datasets
-#                      Less accurate but computationally faster 
-#                      Not implemented yet
-#     - "reciprocal": Integration: Anchors are computed in PCA space instead of the data
-#                       Even less accurate but for very big datasets
-#   - reference_dataset: When using method="reference", which dataset is the reference? 
-#                          Can be numeric or name of the dataset
+#     - "merge": Merge (in other words, concatenate) data when no integration is needed, 
+#                       e.g. when samples were multiplexed on the same chip.
+#     - "integrate": Anchors are computed for all pairs of datasets. This will give all datasets the same weight
+#                       during dataset integration but can be computationally intensive
+#
+# Additional options for the "integrate" method:
+#
 #   - dimensions: Number of dimensions to consider for integration
-param$integrate_samples = list(method="standard", reference_dataset=1, dimensions=30)
+#   - reference: Use one or more datasets as reference and compute anchors for all other datasets. Separate multiple datasets by comma
+#                           This is computationally faster but less accurate.
+#   - use_reciprocal_pca: Compute anchors in PCA space. Even more computationally faster but again less accurate 
+#                       Recommended for big datasets.
+#   - k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample))
+#   - k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
+#   - k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
+param$integrate_samples = list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
+
+# TO DISCUSS from Seurat vignette:
+# The results show that rpca-based integration is more conservative, and in this case, do not perfectly align a subset of cells (which are naive and memory T cells) across experiments. You can increase the strength of alignment by increasing the k.anchor parameter, which is set to 5 by default. Increasing this parameter to 20 will assist in aligning these populations.
 
 # The number of PCs to use; adjust this parameter based on the Elbowplot 
 param$pc_n = 10
@@ -217,12 +223,14 @@ param$latent_vars = c()
 # log2FC: Minimum absolute log2 fold change (default: 0)
 # min_pct: Minimum percentage of cells expressing a gene to test (default: 0.1)
 # test: Type of test; "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
+# downsample_cells_n: Downsample each group to at most n cells to speed up tests (default: NA)
 # latent_vars: Additional variables to account for; multiple variables need to be concatenated by semicolons; will overwrite the default by param$latent_vars (default: none).
 param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
                                  condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
                                  condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
                                  subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
-                                 subset_group=c(NA, "", "1;2"))
+                                 subset_group=c(NA, "", "1;2"),
+                                 downsample_cells_n=c(NA, 50, 30))
 
 # P-value threshold for functional enrichment tests
 param$enrichr_padj = 0.05
@@ -276,11 +284,12 @@ switch (param$debugging_mode,
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
 
-# Create output directories
+# Create output directories <==== How about we organise a bit more :-)
 if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "images", sep="/"), recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "marker", sep="/"), recursive=TRUE, showWarnings=FALSE)
 #dir.create(paste(param$path_out, "degs", sep="/"), recursive=TRUE, showWarnings=FALSE)
+output_files = list()
 
 # Do checks
 error_messages = c()
@@ -289,6 +298,8 @@ error_messages = c()
 error_messages = c(error_messages, check_installed_packages())
 # Check python
 error_messages = c(error_messages, check_python())
+# Check pandoc
+error_messages = c(error_messages, check_pandoc())
 # Check parameters
 error_messages = c(error_messages, check_parameters(param))
 # Check enrichR
@@ -299,17 +310,9 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
                                                  mirror=param$biomart_mirror, 
                                                  version=param$annot_version,
                                                  attributes=param$mart_attributes))
-```
 
-```{r initial_checks_failed, eval=length(error_messages) > 0, include=length(error_messages) > 0}
-# Write references
-knitcitations::write.bibtex(file="references.bib")
-
-# Now format collected error messages as error boxes, print and exit
-# Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
-error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
-knitr::knit_exit()
-knitr::asis_output(error_message_blocks)
+# Stop here if there are errors
+if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
 ```
 
 # Read data
@@ -505,10 +508,18 @@ sc = purrr::map(list_indices(sc), function(i){
   Seurat::RenameCells(sc[[i]], new.names=paste(cell_names, i, sep="-"))
 })
 
-# Set up colors for samples
-sample_names = purrr::flatten_chr(purrr::map(sc, function(s){ unique(as.character(s[[]][["orig.ident"]])) }))
+# Set up colors for samples and add to the sc objects
+sample_names = purrr::flatten_chr(purrr::map(sc, function(s) {
+  nms = unique(as.character(s[[]][["orig.ident"]]))
+  return(nms) 
+}))
 param$col_samples = GenerateColours(num_colours=length(sample_names), palette=param$col_palette_samples)
 names(param$col_samples) = sample_names
+sc = purrr::map(list_names(sc), function(n) {
+  sc[[n]] = ScAddLists(sc[[n]], lists=list(samples=param$col_samples[n]), lists_slot="colour_lists")
+  return(sc[[n]])
+})
+
 
 # Downsample cells if requested
 if (!is.null(param$downsample_cells_n)) {
@@ -529,12 +540,12 @@ sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>%
 
 # Print cell metadata
 knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 rows") %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 
 # Print gene metadata
 knitr::kable(head(sc[[1]][["RNA"]][[]], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))  %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 ```
 
@@ -563,7 +574,16 @@ param$feature_filter = purrr::map(list_names(sc), function(s) {
 
 ```{r qc_calculate_cells}
 # Calculate percentage of counts in mitochondrial genes for each Seurat object
-sc = purrr::map(sc, Seurat::PercentageFeatureSet, pattern=param$mt, col.name="percent_mt", assay="RNA")
+sc = purrr::map(sc, function(s) {
+  mt_features = grep(pattern=param$mt, rownames(sc), value=TRUE)
+  return(Seurat::PercentageFeatureSet(s, features=mt_features, col.name="percent_mt", assay="RNA"))
+})
+
+# Calculate percentage of counts in ribosomal genes for each Seurat object
+sc = purrr::map(sc, function(s) {
+  ribo_features = grep(pattern="^RP[SL]", rownames(sc), value=TRUE, ignore.case=TRUE)
+  return(Seurat::PercentageFeatureSet(s, features=ribo_features, col.name="percent_ribo", assay="RNA"))
+})
 
 # Calculate percentage of counts in ERCC for each Seurat object (if assay is available)
 sc = purrr::map(sc, function(s) {
@@ -572,7 +592,7 @@ sc = purrr::map(sc, function(s) {
   })
 
 # Combine (again) cell metadata of the Seurat objects into one big metadata, this time including mt and ercc 
-sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
+sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ return(s[[]]) }) %>% as.data.frame())
 ```
 
 ```{r qc_calculate_features}
@@ -606,7 +626,7 @@ cell_qc_features = values_to_names(cell_qc_features)
 
 p_list = list()
 for (i in names(cell_qc_features)) {
-  p_list[[i]]= ggplot(sc_cell_metadata[, c("orig.ident", i)], aes_string(x="orig.ident", y=i, fill="orig.ident")) +
+  p_list[[i]]= ggplot(sc_cell_metadata[, c("orig.ident", i)], aes_string(x="orig.ident", y=i, fill="orig.ident", group="orig.ident")) +
     geom_violin(scale="width")
 
   # Adds points for samples with less than three cells since geom_violin does not work here
@@ -655,7 +675,7 @@ p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Features
 if (length(sc)==1) {
   p = p & theme(legend.position="bottom")
 } else {
-  p = p + patchwork::plot_layout(guides = "collect") & theme(legend.position="bottom")
+  p = p + patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
 }
 p
 ```
@@ -691,21 +711,30 @@ ggplot(genes_highestExpr_counts, aes(x=name, y=value, col=gene, group=gene)) +
 ## Filtering
 Cells and genes are filtered based on the following thresholds: 
 ```{r filter_print_cutoffs}
-cell_filter_list = param$cell_filter %>% unlist(recursive=FALSE)
-cell_filter_tbl = cell_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
-rownames(cell_filter_tbl) = names(cell_filter_list)
-colnames(cell_filter_tbl) = c("Min", "Max")
+cell_filter_lst = param$cell_filter %>% unlist(recursive=FALSE)
+is_numeric_filter = purrr::map_lgl(cell_filter_lst, function(f) return(is.numeric(f) & length(f)==2))
 
-feature_filter_list = param$feature_filter %>% unlist(recursive=FALSE)
-feature_filter_tbl = feature_filter_list %>% purrr::reduce(rbind) %>% as.data.frame()
-rownames(feature_filter_tbl) = names(feature_filter_list)
-colnames(feature_filter_tbl) = "n"
+# numeric cell filters
+if (length(cell_filter_lst[is_numeric_filter]) > 0) {
+  purrr::invoke(rbind, cell_filter_lst[is_numeric_filter]) %>%
+    knitr::kable(align="l", caption="Numeric filters applied to cells", col.names=c("Min", "Max")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+}
 
-knitr::kable(cell_filter_tbl, align="l", caption="Filters applied to cells") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+# categorial cell filters
+if (length(cell_filter_lst[!is_numeric_filter]) > 0) {
+purrr::invoke(rbind, cell_filter_lst[!is_numeric_filter] %>% purrr::map(paste, collapse=",")) %>%
+  knitr::kable(align="l", caption="Categorial filters applied to cells", col.names=c("Values")) %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+}
   
-knitr::kable(feature_filter_tbl, align="l", caption="Filters applied to genes") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+# gene filters
+feature_filter_lst = param$feature_filter %>% unlist(recursive=FALSE)
+if (length(feature_filter_lst) > 0) {
+  purrr::invoke(rbind, feature_filter_lst) %>% 
+    knitr::kable(align="l", caption="Filters applied to genes", col.names=c("Value")) %>%
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+}
 ```
 
 The number of excluded cells and features is as follows: 
@@ -749,7 +778,7 @@ sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
 knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) 
 
 # Now filter, drop the respective colours and adjust integration method
 sc = purrr::map(list_names(sc), function(n) {
@@ -776,7 +805,7 @@ sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>%
   t() %>% as.data.frame() 
 rownames(sc_features_to_exclude_summary) = c("Genes")
 knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of excluded genes") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 
 # Now filter
 sc = purrr::map(list_names(sc), function(n) {
@@ -808,16 +837,15 @@ Note that removing all signal associated to cell cycle can negatively impact dow
 While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r part1_normalisation}
 # Normalise data the original way
-#   This is required to score cell cycle
-#   https://github.com/satijalab/seurat/issues/1679
-sc = purrr::map(sc, Seurat::NormalizeData, normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
+#   This is required to score cell cycle (https://github.com/satijalab/seurat/issues/1679)
+sc = purrr::map(sc, Seurat::NormalizeData, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 ```
 
 ```{r part2_cc_scores}
 # Determine cell cycle effect per sample 
 sc = purrr::map(list_names(sc), function(n) {
-  sc[[n]] = cc_scoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
-  if (all(is.na(sc[[n]][["S.Score"]])) & all(is.na(sc[[n]][["G2M.Score"]]))) param$cc_remove=FALSE
+  sc[[n]] = CCScoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
+  if (any(is.na(sc[[n]][["S.Score"]])) | any(is.na(sc[[n]][["G2M.Score"]]))) param$cc_remove=FALSE
   return(sc[[n]])
 })
 
@@ -840,7 +868,7 @@ if (param$cc_remove) {
 ```{r part3_normalisation, results="hide", warning=FALSE}
 if (param$norm == "RNA") { 
   # Find variable features from normalised data (unaffected by scaling)
-  sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
+  sc = purrr::map(sc, Seurat::FindVariableFeatures, selection.method="vst", nfeatures=3000, verbose=FALSE)
   
   # Scale 
   # Note: For a single dataset where no integration/merging is needed, all features can already be scaled here. 
@@ -863,12 +891,14 @@ if (param$norm == "RNA") {
   # Note: It is not guaranteed that all genes are successfully normalised with SCTransform. 
   #   Consequently, some genes might be missing from the SCT assay. 
   #   See: https://github.com/ChristophH/sctransform/issues/27
+  # Note: The performance of SCTransform can be improved by using 'glmGamPoi' instead of 'poisson' as method for initial parameter estimation.
   sc = purrr::map(list_names(sc), function(n) { 
     SCTransform(sc[[n]], 
                 vars.to.regress=param$vars_to_regress, 
                 min_cells=param$feature_filter[[n]][["min_cells"]], 
                 verbose=FALSE, 
-                return.only.var.genes=!(param$integrate_samples[["method"]]=="single")) 
+                return.only.var.genes=!(param$integrate_samples[["method"]]=="single"),
+                method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson")) 
   })
 }
 ```
@@ -904,16 +934,17 @@ p
 # Default assay is set automatically
 if (param$integrate_samples[["method"]]=="single") {
   sc = sc[[1]]
-  message("Your dataset contains 1 sample only. No merging/intregating required.")
+  message("Your dataset contains 1 sample only. No merging/integrating required.")
 }
 ```
 
 ```{r multi_dataset_integration_preparation, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
 if (param$integrate_samples[["method"]]!="single") {
   
-  # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay and add again afterwards
-  assay_names = unique(purrr::flatten_chr(purrr::map(list_names(sc), function(n) { Seurat::Assays(sc[[n]]) } )))
-  
+  # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay except for SCT and add again afterwards
+  # Note: not sure whether this is still needed - discuss
+  assay_names = setdiff(unique(purrr::flatten_chr(purrr::map(list_names(sc), function(n) { Seurat::Assays(sc[[n]]) } ))), "SCT")
+
   # Loop through all assays and accumulate meta data
   sc_feature_metadata = purrr::map(values_to_names(assay_names), function(a) {
     # "feature_id", "feature_name", "feature_type" are accumulated for all assays and stored just once
@@ -955,7 +986,7 @@ if (param$integrate_samples[["method"]]!="single") {
     return(feature_data)
   })
   
-  # When merging, cell metadata are merged but factors are not kept
+  # When merging, cell meta-data are merged but factors are not kept
   sc_cell_metadata = suppressWarnings(purrr::map_dfr(sc, function(s){ s[[]] }) %>% as.data.frame())
   sc_cell_metadata_factor_levels = purrr::map(which(sapply(sc_cell_metadata, is.factor)), function(n) {
     return(levels(sc_cell_metadata[, n, drop=TRUE]))
@@ -971,14 +1002,14 @@ if (param$integrate_samples[["method"]]=="merge") {
 
   # Re-score cell cycle effects after merge
   if (param$cc_rescore_after_merge) {
-    sc = cc_scoring(sc=sc, genes_s=genes_s[,2], genes_g2m=genes_g2m[,2])
+    sc = CCScoring(sc=sc, genes_s=genes_s[,2], genes_g2m=genes_g2m[,2])
     if (all(is.na(sc[["S.Score"]])) & all(is.na(sc[["G2M.Score"]]))) param$cc_remove=FALSE
   }
   
   # (Re-)Run normalisation, variable features and scaling
   if (param$norm == "RNA") {
     # Find variable features in RNA assay
-    sc = Seurat::FindVariableFeatures(sc, selection.method = "vst", nfeatures = 3000, verbose=FALSE)
+    sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000, verbose=FALSE)
    
     # Scale RNA assay
     # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
@@ -991,7 +1022,8 @@ if (param$integrate_samples[["method"]]=="merge") {
                                       vars.to.regress=param$vars_to_regress, 
                                       min_cells=min_cells_overall, 
                                       verbose=FALSE, 
-                                      return.only.var.genes=FALSE))
+                                      return.only.var.genes=FALSE,
+                                      method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson")))
   }
   
   # Add feature metadata
@@ -1005,92 +1037,61 @@ if (param$integrate_samples[["method"]]=="merge") {
   for (f in names(sc_cell_metadata_factor_levels)) {
     sc[[f]] = factor(sc[[f, drop=TRUE]], levels=sc_cell_metadata_factor_levels[[f]])
   }
+  
+  # Add sample colours again to misc slot
+  sc = ScAddLists(sc, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
 
   message("Data values for all samples have been merged. This means that data values have been concatenated, not integrated.")
   print(sc)
 }
 ```
 
-```{r multi_dataset_integration_standard, eval=(param$integrate_samples[["method"]]=="standard"), include=(param$integrate_samples[["method"]]=="standard"), warning=FALSE}
-# Standard method for integrating multiple samples. 
-#   Best performance but computationally intensive.
-if (param$integrate_samples[["method"]]=="standard") {
-  # Note "Assay names should only have numbers and letters: Warnung: Keys should be one or more alphanumeric characters followed by an underscore, setting key from rna_integrated_ to rnaintegrated_" (seurat/R/object.R)
-  
-  # The integration step will temporarily occupy a lot of memory. 
-  #   However, R has problems with freeing unused memory.
-  #   By wrapping the steps into a function, hopefully this works a bit better.
-  run_standard_integration = function(sc_objs, ndims=30, vars_to_regress=c(), feature_filter=c(), verbose=FALSE, assay="RNA") {
-    # How many neighbors to use when filtering anchors; also adjust weight
-    k.filter = min(200, min(sapply(sc_objs, ncol)))
-    k.weight = min(100, k.filter)
+```{r multi_dataset_integration_integrate, eval=(param$integrate_samples[["method"]]=="integrate"), include=(param$integrate_samples[["method"]]=="integrate"), warning=FALSE}
+# Standard method for integrating multiple samples. Best performance but computationally intensive.
+if (param$integrate_samples[["method"]]=="integrate") {
+  if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) param$integrate_samples[["use_reciprocal_pca"]] = FALSE
 
-    
-    # Find integration anchors for assay RNA
-    if (assay == "RNA") {
-      integrate_RNA_anchors = Seurat::FindIntegrationAnchors(object.list=sc_objs, 
-                                                             dims=1:ndims, 
-                                                             anchor.features=3000, 
-                                                             k.filter=k.filter,
-                                                             verbose=verbose)
-      sc_objs = Seurat::IntegrateData(integrate_RNA_anchors, 
-                                      new.assay.name="RNAintegrated",
-                                      dims=1:ndims,
-                                      k.weight=k.weight,
-                                      verbose=verbose)
-      # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
-      sc_objs = Seurat::ScaleData(sc_objs, 
-                                  features=rownames(sc_objs[["RNAintegrated"]]), 
-                                  vars.to.regress=vars_to_regress, 
-                                  assay="RNAintegrated",
-                                  verbose=verbose)
-      DefaultAssay(sc_objs) = "RNA"
-      sc_objs = Seurat::ScaleData(sc_objs, 
-                                  features=rownames(sc_objs[["RNA"]]), 
-                                  vars.to.regress=vars_to_regress, 
-                                  assay="RNA",
-                                  verbose=verbose)
-      rm(integrate_RNA_anchors)
+  # Run integration
+  sc = RunIntegration(sc, ndims=param$integrate_samples[["dimensions"]], 
+                      verbose=FALSE, 
+                      reference=param$integrate_samples[["reference"]], 
+                      use_reciprocal_pca=param$integrate_samples[["use_reciprocal_pca"]], 
+                      k_filter=param$integrate_samples[["k.filter"]], 
+                      k_weight=param$integrate_samples[["k.weight"]], 
+                      k_anchor=param$integrate_samples[["k.anchor"]])
 
-    } else if (assay == "SCT") {
-      # Find integration anchors for assay SCT
-      integrate_SCT_features = SelectIntegrationFeatures(object.list=sc_objs, 
-                                                         nfeatures=3000,
-                                                         verbose=verbose)
-      sc_objs = PrepSCTIntegration(object.list=sc_objs, 
-                                   anchor.features=integrate_SCT_features, 
-                                   assay=rep("SCT",length(sc_objs)),
-                                   verbose=verbose)
-      integrate_SCT_anchors = FindIntegrationAnchors(object.list=sc_objs,
-                                                     dims=1:ndims, 
-                                                     normalization.method="SCT", 
-                                                     anchor.features=integrate_SCT_features, 
-                                                     k.filter=k.filter,
-                                                     verbose=verbose)
-      sc_objs = Seurat::IntegrateData(integrate_SCT_anchors, 
-                                      new.assay.name="SCTintegrated",
-                                      normalization.method="SCT",
-                                      dims=1:ndims, 
-                                      k.weight=k.weight,
-                                      verbose=verbose)
-      # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
-      DefaultAssay(sc_objs) = "SCT"
-      min_cells_overall = max(purrr::map_int(feature_filter, function(f) as.integer(f[["min_cells"]])))
-      sc_objs = SCTransform(sc_objs, 
-                            vars.to.regress=vars_to_regress, 
-                            min_cells=min_cells_overall, 
-                            verbose=FALSE, 
-                            return.only.var.genes=FALSE)
-      rm(integrate_SCT_features, integrate_SCT_anchors)
-    }
-    
-    # Call garbage collector to free memory (hope it helps)
-    gc(verbose=verbose)
-    return(sc_objs)
+  # Re-score cell cycle effects after integration
+  if (param$cc_rescore_after_merge) {
+    sc = CCScoring(sc=sc, genes_s=genes_s[,2], genes_g2m=genes_g2m[,2])
+    if (all(is.na(sc[["S.Score"]])) & all(is.na(sc[["G2M.Score"]]))) param$cc_remove=FALSE
   }
   
-  # call function
-  sc = run_standard_integration(sc, ndims=param$integrate_samples[["dimensions"]], vars_to_regress=param$vars_to_regress, feature_filter=param$feature_filter, assay=param$norm)
+  # (Re-)Run scaling
+  if (param$norm == "RNA") {
+    # According to Seurat, we need to scale data again for "RNAintegrated", and "RNA"
+    DefaultAssay(sc) = "RNAintegrated"
+    sc = Seurat::ScaleData(sc, 
+                                features=rownames(sc[["RNAintegrated"]]), 
+                                vars.to.regress=param$vars_to_regress, 
+                                assay="RNAintegrated",
+                                verbose=FALSE)
+      
+    DefaultAssay(sc) = "RNA"
+    sc = Seurat::ScaleData(sc, 
+                                features=rownames(sc[["RNA"]]), 
+                                vars.to.regress=param$vars_to_regress, 
+                                assay="RNA",
+                                verbose=FALSE)
+  } else if (param$norm == "SCT") {
+    # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
+    DefaultAssay(sc) = "SCT"
+    min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) as.integer(f[["min_cells"]])))
+    sc = SCTransform(sc, vars.to.regress=param$vars_to_regress, 
+                     min_cells=min_cells_overall,
+                     verbose=FALSE,
+                     return.only.var.genes=FALSE,
+                     method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson"))
+  }
   
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
@@ -1103,6 +1104,9 @@ if (param$integrate_samples[["method"]]=="standard") {
   for (f in names(sc_cell_metadata_factor_levels)) {
     sc[[f]] = factor(sc[[f, drop=TRUE]], levels=sc_cell_metadata_factor_levels[[f]])
   }
+  
+  # Add sample colours again to misc slot
+  sc = ScAddLists(sc, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
   
   # Set default assay (will be the integrated version)
   DefaultAssay(sc) = paste0(param$norm, "integrated")  
@@ -1112,28 +1116,15 @@ if (param$integrate_samples[["method"]]=="standard") {
 }
 ```
 
-```{r multi_dataset_integration_reference, eval=(param$integrate_samples[["method"]]=="reference"), include=(param$integrate_samples[["method"]]=="reference")}
-# Method uses one dataset as reference and all other datasets are integrated into this dataset. Faster but lower performance.
-if (param$integrate_samples[["method"]]=="reference") {
-   stop("Not yet implemented")
-}
-```
-
-```{r multi_dataset_integration_reciprocal, eval=(param$integrate_samples[["method"]]=="reciprocal"), include=(param$integrate_samples[["method"]]=="reciprocal")}
-# Method computes anchors in PCA space instead of the data. Even less accurate but for very big datasets.
-if (param$integrate_samples[["method"]]=="reciprocal") {
-   stop("Not yet implemented")
-}
-```
 
 ## Relative log expression {.tabset}
 ```{r plot_RLE_prep}
-n_cells_rle_plot = min(100, sc[["orig.ident"]] %>% table() %>% min())
+n_cells_rle_plot = 100
 
 # Sample at most 100 cells per dataset and save their identity
 cells_RLE_subset = sc[["orig.ident"]] %>% tibble::rownames_to_column() %>% 
   dplyr::group_by(orig.ident) %>% 
-  dplyr::sample_n(size=n_cells_rle_plot) %>% 
+  dplyr::sample_n(size=min(n_cells_rle_plot, length(orig.ident))) %>% 
   dplyr::select(rowname, orig.ident)
   
 cells_RLE_sample = cells_RLE_subset %>% dplyr::pull(orig.ident)
@@ -1148,12 +1139,13 @@ For each gene, we calculate its median expression across all cells, and then cal
 
 ### Raw counts
 ```{r plot_RLE_raw}
-# Get counts from assay RNA
-data_RLE_raw = GetAssayData(subset(sc, cells=cells_RLE_subset), assay="RNA", slot="counts")
-
-# Plot
-p = PlotRLE(as.matrix(log2(data_RLE_raw + 1)), id=cells_RLE_sample, col=param$col_samples) + labs(title="log2(raw counts + 1)")
+# Plot raw data
+p = PlotRLE(as.matrix(log2(GetAssayData(subset(sc, cells=cells_RLE_subset), assay="RNA", slot="counts") + 1)), 
+            id=cells_RLE_sample, 
+            col=param$col_samples) + 
+  labs(title="log2(raw counts + 1)")
 p
+rm(data_RLE_raw)
 ```
 
 ### Normalised data
@@ -1164,22 +1156,22 @@ Dependent on the context, this tab refers to different data:
 * Multiple samples that were integrated: Separate `r param$norm` normalisation prior to integration of all samples   
 
 ```{r plot_RLE_norm}
-# Get normalised data before integration
-data_RLE_norm = GetAssayData(subset(sc, cells=cells_RLE_subset), assay=param$norm, slot="data")
-
-# Plot
-p = PlotRLE(as.matrix(data_RLE_norm), id=cells_RLE_sample, col=param$col_samples) + labs(title="Normalised data")
-p 
+# Plot normalised data
+p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_RLE_subset), assay=param$norm, slot="data")), 
+            id=cells_RLE_sample, 
+            col=param$col_samples) + 
+  labs(title="Normalised data")
+p
 ```
 
 ### Integrated data
 ```{r plot_RLE_integrated}
 if (! param$integrate_samples[["method"]] %in% c("single", "merge")) {
-  # Get normalised data for integrated assays
-  data_RLE_int = GetAssayData(subset(sc, cells=cells_RLE_subset), assay=paste0(param$norm, "integrated"), slot="data")
-
-  # Plot
-  p = PlotRLE(as.matrix(data_RLE_int), id=cells_RLE_sample, col=param$col_samples) + labs(title="Normalised integrated data")
+  # Plot integrated data
+  p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_RLE_subset), assay=paste0(param$norm, "integrated"), slot="data")), 
+              id=cells_RLE_sample, 
+              col=param$col_samples) + 
+    labs(title="Integrated data")
   p
 } else {
   message("No integrated data available.")
@@ -1194,64 +1186,66 @@ We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noi
 To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
 ```{r pca}
 # Run PCA for default normalisation
-sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE)
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
 
 p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
 for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
-p =  patchwork::wrap_plots(p_list, ncol = 2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
+p =  patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 
 p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) + 
   AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 
-p = Seurat::DimHeatmap(sc, dims=1:1, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+p = Seurat::DimHeatmap(sc, dims=1:2, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
 p
 ```
 
 ```{r pca_heatmaps, fig.height=20}
-p = Seurat::DimHeatmap(sc, dims=1:20, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+p = Seurat::DimHeatmap(sc, dims=1:min(20, ncol(sc)), cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
 p
 ```
 
 ## Dimensionality of the dataset
 We next need to decide how many PCs we want to use for our analyses. The following "Elbow plot" is designed to help us make an informed decision.  PCs are ranked based on the percentage of variance they explain. 
 
-For the current dataset, `r param$pc_n` PCs were chosen. 
 ```{r dimensionality}
 # More approximate technique used to reduce computation time
-p = Seurat::ElbowPlot(sc, ndims=20) + 
+p = Seurat::ElbowPlot(sc, ndims=min(20, ncol(sc))) + 
   geom_vline(xintercept=param$pc_n + .5, col="firebrick", lty=2) + 
   AddStyle(title="Elbow plot") 
 p
+
+# Cannot have more PCs than number of cells
+param$pc_n = min(param$pc_n, ncol(sc))
 ```
 
-# Clustering
-Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm. 
-```{r clustering}
-# Note: I changed the seed in ./lib/python3.6/site-packages/leidenalg/functions.py to 11 for reproducibility
-# The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
+For the current dataset, `r param$pc_n` PCs were chosen.
 
+# Clustering
+Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm `r Cite("10.1038/s41598-019-41695-z", "citep")`. 
+```{r clustering}
+# Construct phylogenetic tree relating the 'average' cell from each sample
+sc = Seurat::BuildClusterTree(sc, features=rownames(sc), verbose=FALSE)
+Seurat::Misc(sc, "trees") = list(orig.ident = Seurat::Tool(sc, "Seurat::BuildClusterTree"))
+
+# The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
 # Choose the number of PCs to use for clustering
 sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 
-# Cluster using the Leiden algorithm
-# Paper to Leiden algorithm: https://www.nature.com/articles/s41598-019-41695-z
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
-# Taken from documentation:
-#   Method for running leiden (defaults to matrix which is fast for small datasets). Enable method = "igraph" to avoid casting large data to a dense matrix.
-# Note Katrin: 
-#   This is implemented as default recently and will be updated with a new Seurat release
-#   https://github.com/satijalab/seurat/pull/3233
 sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE, method="igraph")
 
 # Construct phylogenetic tree relating the 'average' cell from each cluster
-sc = BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
+sc = Seurat::BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
+Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Tool(sc, "Seurat::BuildClusterTree")))
 
-# Set up colors for clusters
+# Set up colors for clusters and add the sc object
 cluster_names = levels(sc$seurat_clusters)
 param$col_clusters = GenerateColours(num_colours=length(cluster_names), palette=param$col_palette_clusters)
 names(param$col_clusters) = cluster_names
+sc = ScAddLists(sc, lists=list(seurat_clusters=param$col_clusters), lists_slot="colour_lists")
+
 ```
 
 # Visualisation with UMAP {.tabset}
@@ -1314,7 +1308,7 @@ rownames(tbl_perc) = gsub(rownames(tbl_perc), pattern="_n$", replacement="_perc"
 tbl = rbind(tbl, tbl_perc)
 
 # Add enrichment
-if (length(cell_samples) > 1) tbl = rbind(tbl, cells_fisher(sc))
+if (length(cell_samples) > 1) tbl = rbind(tbl, CellsFisher(sc))
 
 # Sort
 tbl = tbl[order(rownames(tbl)), ]
@@ -1348,7 +1342,7 @@ In case the dataset contains 2 or more samples, we also calculate whether or not
 ```{r cells_per_cluster_table}
 # Print table
 knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
   kableExtra::scroll_box(width="100%")
 ```
 
@@ -1361,12 +1355,18 @@ DefaultAssay(sc) = param$norm
 # Cell Cycle Effect {.tabset}
 How much do gene expression profiles in the dataset reflect the cell cycle phases the single cells were in? After initial normalisation, we determined the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r Cite("10.1126/science.aad0501")`, and human gene symbols are translated to gene symbols of the species of interest using biomaRt. This section of the report visualises the above calculated cell cycle scores. 
 ```{r cellCycleEffect}
+# Set up colours for cell cycle effect and add to sc object
+col =  GenerateColours(num_colours=length(levels(sc$Phase)), palette="ggsci::pal_npg")
+names(col) = levels(sc$Phase)
+sc = ScAddLists(sc, lists=list(Phase=col), lists_slot="colour_lists")
+
 # Get a feeling for how many cells are affected
 p1 = ggplot(sc[[]], aes(x=S.Score, y=G2M.Score, colour=Phase)) + 
   geom_point() + 
   scale_x_continuous("G1/S score") + 
   scale_y_continuous("G2/M score") + 
-  AddStyle()
+  AddStyle(col=Misc(sc, "colour_lists")[["Phase"]])
+
 p2 = ggplot(sc@meta.data %>% 
               dplyr::group_by(seurat_clusters,Phase) %>% 
               dplyr::summarise(num_reads=length(Phase)), 
@@ -1374,7 +1374,8 @@ p2 = ggplot(sc@meta.data %>%
   geom_bar(stat="identity", position="fill") + 
   scale_x_discrete("Seurat clusters") + 
   scale_y_continuous("Fraction of cells") + 
-  AddStyle()
+  AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]])
+
 p = p1 + p2 & theme(legend.position="bottom")
 p = p + patchwork::plot_annotation(title="Cell cycle phases")
 p
@@ -1384,7 +1385,7 @@ p
 ```{r cellCycleEffect_umap_phases}
 # UMAP with phases superimposed
 # Note: This is a hack to colour by phase but label by Cluster
-p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1) + 
+p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1, cols=Misc(sc, "colour_lists")[["Phase"]]) + 
   AddStyle(title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
 p = LabelClusters(p, id="seurat_clusters")
@@ -1421,7 +1422,7 @@ p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nCount_RNA", label=TRUE)
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
 
-p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters)) + 
+p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot (log10 scale)", fill=param$col_clusters,
            xlab="Cluster", legend_position="none") + 
@@ -1438,7 +1439,7 @@ p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nFeature_RNA", label=TRU
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
 
-p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters)) + 
+p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot", fill=param$col_clusters,
            xlab="Cluster", legend_position="none") + 
@@ -1454,7 +1455,7 @@ p
 p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col), label=TRUE) + 
   AddStyle(title="Feature plot")
 
-p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters)) + 
+p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
   AddStyle(title="Violin plot", fill=param$col_clusters,
            xlab="Cluster", legend_position="none")
@@ -1486,6 +1487,9 @@ if (!is.null(param$file_known_markers)) {
   names(known_markers_list) = colnames(known_markers)
   is_empty = purrr::map_int(known_markers_list, .f=length) == 0 
   known_markers_list = known_markers_list[!is_empty]
+  
+  # Add lists to sc object
+  sc = ScAddLists(sc, lists=setNames(known_markers_list, paste0("known_marker_", names(known_markers_list))), lists_slot="gene_lists")
 }  
 
 # Set plot options
@@ -1534,7 +1538,7 @@ if ((known_markers_n > 0) & any(idx_dotplot)) {
       scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
       AddStyle(title=paste("Known marker genes:", names(known_markers_dotplot)[i]), 
                ylab="Cluster") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)))
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)))
   }
   p = patchwork::wrap_plots(p_list, ncol=1)
   print(p)
@@ -1628,7 +1632,7 @@ additional_readme = data.frame(Column=c("cluster",
                                              "Score calculated as follows: -log10(p_val_adj)*sign(avg_log2FC)",
                                              "Average expression value for cluster; <assay>: RNA or SCT; <slot>: raw counts or normalised data"))
 
-markers_results_file = DegsWriteToFile(split(markers_out, markers_out$cluster),
+output_files[["markers"]] = DegsWriteToFile(split(markers_out, markers_out$cluster),
                                        annot_ensembl=annot_ensembl,
                                        gene_to_ensembl=seurat_rowname_to_ensembl,
                                        additional_readme=additional_readme,
@@ -1640,6 +1644,11 @@ p = DegsPlotNumbers(markers_filt$all,
                       group="cluster", 
                       title=paste0("Number of DEGs, comparing each cluster to the rest\n(FC=", 2^param$marker_log2FC, ", adj. p-value=", param$marker_padj, ")")) 
 
+# Add markers to the seurat object
+Seurat::Misc(sc, "markers") = list(condition_column="seurat_clusters", test="MAST", padj=param$marker_padj, 
+                                   log2FC=param$marker_log2FC, min_pct=param$marker_pct, assay="RNA", slot="data",
+                                   latent_vars=param$latent_vars,
+                                   results=markers_filt$all)
 
 if (markers_found) {
   print(p)
@@ -1659,7 +1668,7 @@ if (markers_found) {
 
   # Show table
   knitr::kable(markers_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px") 
 }
 ```
@@ -1722,7 +1731,7 @@ if (markers_found) {
                                                               xlab="Cluster")
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Violin plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") & theme(legend.position="bottom")
+    patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
   suppressMessages(p)
 }
 ```
@@ -1738,7 +1747,7 @@ if (markers_found) {
                                                               xlab="Cluster") 
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Violin plot of normalised gene expression data, top 1 marker gene per cluster") +
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1757,7 +1766,7 @@ if (markers_found) {
   }
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Ridge plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1776,7 +1785,7 @@ if (markers_found) {
   }
   p = patchwork::wrap_plots(p_list, ncol=2) + 
     patchwork::plot_annotation(title="Ridge plot of normalised and log-transformed gene expression data, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides = "collect") &
+    patchwork::plot_layout(guides="collect") &
     theme(legend.position="bottom")
   suppressMessages(p)
 }
@@ -1793,7 +1802,7 @@ if (markers_found) {
       p = suppressMessages(Seurat::DotPlot(sc, features=genes) + 
         scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
         AddStyle(title=paste0("Top markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
-        theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+        theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
         guides(size=guide_legend(order=1)))
       return(p)
     } else { 
@@ -1802,7 +1811,7 @@ if (markers_found) {
     }
   })
   
-  p = patchwork::wrap_plots(p_list, ncol=2)
+  p = patchwork::wrap_plots(p_list[!purrr::map_lgl(p_list, is.null)], ncol=2)
   print(p)
 }
 ```
@@ -1828,7 +1837,7 @@ for (cl in levels(sc$seurat_clusters)) {
     p_list[[cl]] = suppressMessages(Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident") +
       scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") + 
       AddStyle(title=paste0("Up to 50 markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1)))
   }
 }
@@ -1849,7 +1858,7 @@ for (cl in levels(sc$seurat_clusters)) {
   if (length(markers_filt_up_cl_top) > 0) {
     p_list[[cl]] = Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident", scale=FALSE, cols=c("lightgrey", param$col)) +
       AddStyle(title=paste0("Up to ", n_genes_max_dotplot, " markers (up-regulated genes) for cluster ", cl, " (not scaled)"), ylab="Cluster", legend_position="bottom") + 
-      theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+      theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1))
   }
 }
@@ -1935,7 +1944,10 @@ markers_enriched=list()
 
 ```{r markers_functional_enrichment, results="hide", eval=markers_found}
 if (markers_found) {
+  # Upregulated markers
+  
   # Convert Seurat names of upregulated marker per cluster to Entrez; use named lists for translation
+  # Is that still neccessary?
   marker_genesets_up = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$up %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
     tmp = sapply(tmp, function(n) seurat_rowname_to_entrez[[n]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
@@ -1944,14 +1956,23 @@ if (markers_found) {
   
   # Tests done by Enrichr
   marker_genesets_up_enriched = purrr::map(marker_genesets_up, EnrichrTest, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-  
+  marker_genesets_up_enriched = purrr::map(list_names(marker_genesets_up_enriched), function(n) {
+    return(purrr::map(marker_genesets_up_enriched[[n]], function(d){
+      return(cbind(d, Cluster=rep(n, nrow(d)), Direction=rep("up", nrow(d))))
+    }))
+  })
+
   # Write to files
-  marker_genesets_up_enriched_files = purrr::map(names(marker_genesets_up_enriched), function(n) {
+  output_files[["markers_enrichr_up"]] = purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_up_cluster", n, ".xlsx"))
-    })
+  })
+  
+  
+  # Downregulated markers
   
   # Convert Seurat names of downregulated marker per cluster to Entrez; use named lists for translation
+  # Is that still neccessary?
   marker_genesets_down = sapply(levels(sc$seurat_clusters), function(x) {
     tmp = markers_filt$down %>% dplyr::filter(cluster==x) %>% dplyr::pull(gene)
     tmp = sapply(tmp, function(x) seurat_rowname_to_entrez[[x]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
@@ -1960,12 +1981,28 @@ if (markers_found) {
   
   #  Tests done by Enrichr
   marker_genesets_down_enriched = purrr::map(marker_genesets_down, EnrichrTest, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-
+  marker_genesets_down_enriched = purrr::map(list_names(marker_genesets_down_enriched), function(n) {
+    return(purrr::map(marker_genesets_down_enriched[[n]], function(d){
+      return(cbind(d, Cluster=rep(n, nrow(d)), Direction=rep("down", nrow(d))))
+    }))
+  })
+  
   # Write to files
-  marker_genesets_down_enriched_files = purrr::map(names(marker_genesets_down_enriched), function(n) {
+  output_files[["markers_enrichr_down"]] = purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
                         file=paste0(param$path_out, "/Functions_marker_down_cluster", n, ".xlsx"))
-    })
+  })
+  
+  # Combine, flatten into data.frame and add to sc misc slot
+  marker_genesets_enriched = c(marker_genesets_up_enriched, marker_genesets_down_enriched)
+  marker_genesets_enriched = unname(marker_genesets_enriched)
+  marker_genesets_enriched = purrr::map(marker_genesets_enriched, FlattenEnrichr) %>% dplyr::bind_rows()
+  marker_genesets_enriched$Cluster = factor(marker_genesets_enriched$Cluster, levels=levels(sc$seurat_clusters))
+  marker_genesets_enriched$Direction = factor(marker_genesets_enriched$Direction, levels=c("up", "down"))
+  
+  misc_content = Misc(sc, "markers")
+  misc_content[["enrichr"]] = marker_genesets_enriched
+  suppressWarnings({Misc(sc, "markers") = misc_content})
 }
 ```
 
@@ -1976,44 +2013,17 @@ The following table contains the top enriched terms per cluster.
 if (markers_found) {
   cat('#### {.tabset} \n \n')
   
-  # Get top ten up over all databases
-  marker_genesets_up_top_enriched = purrr::map(marker_genesets_up_enriched, function(enrichr_results) {
-    purrr::map_dfr(names(enrichr_results), function(n) {
-      enrichr_result_df = cbind(enrichr_results[[n]], list(
-        Database = factor(rep(n, nrow(enrichr_results[[n]])), levels=names(enrichr_results)),
-        Direction = factor(rep("up", nrow(enrichr_results[[n]])), levels=c("up", "down"))
-      ))
-      return(enrichr_result_df)
-    }) %>% head()
-  })
-  
-  # Get down ten up over all databases
-  marker_genesets_down_top_enriched = purrr::map(marker_genesets_down_enriched, function(enrichr_results) {
-    purrr::map_dfr(names(enrichr_results), function(n) {
-      enrichr_result_df = enrichr_results[[n]]
-      if (nrow(enrichr_result_df) > 0 ) {
-        enrichr_result_df$Database = n
-        enrichr_result_df$Direction = "down"
-      } else {
-        enrichr_result_df = data.frame(enrichr_result_df, Database=as.character(), Direction=as.character())
-      }
-      return(enrichr_result_df)
-    }) %>% head()
-  })
-  
-  # Join
-  marker_genesets_top_enriched = purrr::map(values_to_names(names(marker_genesets_down_top_enriched)), function(n) {
-    return(rbind(marker_genesets_up_top_enriched[[n]], marker_genesets_down_top_enriched[[n]]) %>% 
-      dplyr::arrange(-Odds.Ratio))
-    })
+  # Get top ten up and down over all databases per cluster
+  marker_genesets_top_enriched = marker_genesets_enriched %>% dplyr::group_by(Cluster, Direction) %>%
+    dplyr::top_n(n=10, wt=Combined.Score)
   
   # Print as tabs
-  for(n in names(marker_genesets_top_enriched)){
+  for(n in levels(marker_genesets_top_enriched$Cluster)){
     cat('##### ', n, ' \n')
     
-    cat(knitr::kable(marker_genesets_top_enriched[[n]][, c("Database", "Term", "Direction", "Adjusted.P.value", "Odds.Ratio")], 
+    cat(knitr::kable(marker_genesets_top_enriched %>% dplyr::ungroup() %>% dplyr::filter(Cluster==n) %>% dplyr::select(Database, Term, Direction, Adjusted.P.value, Odds.Ratio, Combined.Score), 
                      align="l", caption="Top ten enriched terms per geneset", format="html") %>% 
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%"))
 
     cat(' \n \n')
@@ -2032,7 +2042,7 @@ If requested, we identify genes that are differentially expressed between two gr
 degs_contrasts_list = DegsSetupContrastsList(sc, param$deg_contrasts, param$latent_vars)
 
 # Add the actual data to the list
-degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
+degs_contrasts_list = purrr::map(degs_contrasts_list[1], function(contrast){
   # If there were already errors, just return
   if (length(contrast[["error_messages"]]) > 0) return(c(contrast, list(object=NULL, cells_group1_idx_subset=as.integer(), cells_group2_idx_subset=as.integer())))
   
@@ -2049,7 +2059,7 @@ degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
     contrast[["object"]] = Seurat::GetAssay(sc[,unique(c(cells_group1_idx,cells_group2_idx))], assay=contrast[["assay"]])
     
     # This saves a lot of memory for parallelisation
-    if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class = 'matrix')
+    if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class='matrix')
   }
   
   # Variable latent vars must be passed as data.frame
@@ -2063,7 +2073,7 @@ degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
 })
 
 # Compute the tests; TODO: this chunk may be done in parallel in future
-degs_contrasts_results = purrr::map(degs_contrasts_list, function(contrast) {
+degs_contrasts_results = purrr::map(degs_contrasts_list[1], function(contrast) {
   if (length(contrast$error_messages)==0) {
     # No errors, do contrast
     test_results = DegsTestCellSets(object=contrast[["object"]],
@@ -2146,7 +2156,7 @@ original_contrast_rows = purrr::map_int(degs_contrasts_results, function(contras
 degs = split(degs_contrasts_results, original_contrast_rows)
 
 # Write degs to files
-degs_result_files = purrr::map_chr(degs, function(degs_subsets) {
+output_files[["degs"]] = purrr::map_chr(degs, function(degs_subsets) {
   # The output file
   file = paste0(param$path_out, "/degs_contrast_row_", degs_subsets[[1]][["contrast_row"]], "_results.xlsx")
   
@@ -2163,7 +2173,7 @@ degs_result_files = purrr::map_chr(degs, function(degs_subsets) {
 })
 
 # Write enrichr results to files
-degs_enrichr_files = purrr::map_chr(degs, function(degs_subsets) {
+output_files[["degs_enrichr"]] = purrr::map_chr(degs, function(degs_subsets) {
   # The output file
   file = paste0(param$path_out, "/degs_contrast_row_", degs_subsets[[1]][["contrast_row"]], "_functions.xlsx")
   
@@ -2175,7 +2185,10 @@ degs_enrichr_files = purrr::map_chr(degs, function(degs_subsets) {
   return(file)
 })
 
+# Add to sc object
+Misc(sc, "degs") = degs
 ```
+
 
 ```{r deg_summary, results="asis", fig.show="asis"}
 knitr_header_string = '
@@ -2202,7 +2215,7 @@ for (i in seq(degs)) {
   
   # Create header
   cat(
-    knitr::knit_expand(text = knitr_header_string,
+    knitr::knit_expand(text=knitr_header_string,
                      condition_column=first_contrast[["condition_column"]],
                      condition_group1=first_contrast[["condition_group1"]],
                      condition_group2=first_contrast[["condition_group2"]],
@@ -2221,13 +2234,13 @@ for (i in seq(degs)) {
   # Create combined results table
   degs_subsets_results = purrr::map_dfr(degs_subsets, function(contrast) {
     subset_group_value = ifelse(!is.na(contrast[["subset_group"]]), contrast[["subset_group"]], "All")
-    results_table = cbind(contrast[["results"]],
-                          list(subset_group=factor(rep(subset_group_value, nrow(contrast[["results"]])), levels=c(subset_group_value)),
-                               cells1=rep(length(contrast[["cells_group1_idx"]]), nrow(contrast[["results"]])),
-                               cells2=rep(length(contrast[["cells_group2_idx"]]), nrow(contrast[["results"]]))
-                        )
-                   )
-    return(results_table)
+    return(contrast[["results"]] %>% 
+      dplyr::summarise(subset_group=subset_group_value,
+                       Cells1=length(contrast[["cells_group1_idx"]]),
+                       Cells2=length(contrast[["cells_group2_idx"]]),
+                       DEGs=length(gene),
+                       DEGs_up=sum(avg_log2FC > 0),
+                       DEGs_down=sum(avg_log2FC < 0)))
   }) %>% tibble::as_tibble()
 
   # Print warnings/errors
@@ -2237,14 +2250,7 @@ for (i in seq(degs)) {
   
   # Print summary table
   cat(
-      knitr::kable(degs_subsets_results %>% 
-                   dplyr::group_by(subset_group) %>% 
-                   dplyr::summarise(Cells1=dplyr::first(cells1), 
-                                    Cells2=dplyr::first(cells2),
-                                    DEGs=length(gene),
-                                    DEGs_up=sum(avg_log2FC > 0),
-                                    DEGs_down=sum(avg_log2FC < 0)),
-                   align="l", caption="DEG summary", col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated"), format="html") %>%
+      knitr::kable(degs_subsets_results,align="l", caption="DEG summary", col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated"), format="html") %>%
         kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
     )
   cat('\n \n')
@@ -2253,20 +2259,105 @@ for (i in seq(degs)) {
 
 # Output
 
+## Files
+
+All files generated with this report are written into the provided output folder `r param$path_out`: 
+
+
+```{r sc_save, eval=F}
+
+#
+# 1. Seurat object
+#
+
+# Add additional colour lists (orig.ident, seurat_clusters and Phase were already added)
+sc = ScAddLists(sc, lists=list(two_colour_gradient1=c(low=c("lightgrey", high = param$col)), three_colour_gradient1=c(low="steelblue", mid="lightgrey", high="darkgoldenrod1"), up_down=c(down="steelblue", up="darkgoldenrod1")), lists_slot="colour_lists")
+
+
+# Add experiment details
+Seurat::Misc(sc, "experiment") = list(
+  experiment_name = param$project_id,
+  organism = 'hg',
+  date_of_export = Sys.Date(),
+  date_of_analysis = Sys.Date()
+)
+
+# Add parameter
+Seurat::Misc(sc, "parameters") = param
+
+# Add technical output
+session_info = sessioninfo::session_info()
+Seurat::Misc(sc, "technical") = list(scrnaseq_git=GitRepositoryVersion(param$path_to_git),
+                                     R=session_info$platform$version,
+                                     packages=as.data.frame(session_info$packages)[, c("package", "ondiskversion", "loadedversion", "date")])
+saveRDS(sc, file.path(param$path_out, "sc.rds"))
+output_files[["sc_seurat"]] = file.path(param$path_out, "sc.rds")
+
+#
+# 2. Counts/metadata/annotation
+#
+
+# Counts as sparse matrix plus metadata
+output_files[["assay"]] = ExportSeuratAssayData(sc, 
+                      dir=file.path(param$path_out, "assay"), 
+                      assays="RNA", 
+                      slot="counts",
+                      include_cell_metadata_cols=colnames(sc[[]]),
+                      metadata_prefix=paste0(param$project_id, "."))
+
+# Metadata as excel file
+openxlsx::write.xlsx(x=sc[[]], file=file.path(param$path_out, "cell_metadata.xlsx"), row.names=TRUE, col.names=TRUE)
+output_files[["cell_metadata"]] = file.path(param$path_out, "cell_metadata.xlsx")
+
+
+# Annotation as excel file
+openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)]) %>%
+                       dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
+                     file=file.path(param$path_out, "gene_annotation.xlsx"), 
+                     row.names=FALSE, col.names=TRUE)
+output_files[["gene_annotation"]] = file.path(param$path_out, "gene_annotation.xlsx")
+
+
+#
+# 3. Counts for 500 cells plus metadata
+#
+
+# TODO
+
+```
+
+* Annotation files  
+  + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
+* Differentially expressed genes  
+  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
+* Functional enrichment of differentially expressed genes per cell cluster  
+  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Loupe Cell Browser files  
+  + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
+    Import to Loupe through "Import Projection"   
+  + Seurat2Loupe_metadata.csv: Seurat categorial meta data including clusters and cell cycle phases   
+    Import to Loupe through "Import Categories"   
+  + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
+    Import to Loupe through "Import Lists"   
+* Cerebro files:
+  + cerebro.crb: Can be loaded into the Cerebro Browser  
+
+STILL TO DO
+
 ## Export to Loupe Cell Browser
 We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
-```{r loupe_integration}
+```{r loupe_export}
 # Export UMAP coordinates
 loupe_umap = as.data.frame(sc@reductions$umap@cell.embeddings)
 loupe_umap = cbind(Barcode=rownames(loupe_umap), loupe_umap)
 colnames(loupe_umap) = c("Barcode", "UMAP-1", "UMAP-2")
-write.table(loupe_umap, file=paste0(param$path_out, "/Seurat2Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(loupe_umap, file=paste0(param$path_out, "/Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export categorical metadata
 loupe_meta = as.data.frame(sc@meta.data)
 idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
 loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
-write.table(x=loupe_meta, file=paste0(param$path_out, "/Seurat2Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(x=loupe_meta, file=paste0(param$path_out, "/Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 
 # Export gene sets
 loupe_genesets = data.frame(List=sapply(markers_filt$up[,"cluster"], function(s) paste0("DEG_up_cluster_", s)), 
@@ -2291,91 +2382,67 @@ for (i in names(genesets_to_export)) {
                                                    seurat_rowname_to_ensembl[tmp_genes], tmp_genes)))
 }
 
-write.table(loupe_genesets, file=paste0(param$path_out, "/Seurat2Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+write.table(loupe_genesets, file=paste0(param$path_out, "/Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
 ```
 
-## Export to the Cerebro Browser
+* list files here
+* shortly explain how to
+
+## Export to cellxgene browser
+We export the assay data, cell metadata, clustering and visualisation in a format that can be read by the cellxgene browser `r Cite("https://github.com/chanzuckerberg/cellxgene", "citep")`.
+
+```{r cellxgene_export, include=FALSE}
+# Convert Seurat single cell object to python anndata object which will be accessible via reticulate here
+adata = sceasy::convertFormat(sc, from="seurat", to="anndata", outFile=NULL)
+
+# Set up correct colours (see https://chanzuckerberg.github.io/cellxgene/posts/prepare) to that colours match
+adata$uns = dict(list(seurat_clusters_colors = unname(Misc(sc, "colour_lists")$seurat_clusters),
+                           orig.ident_colors = unname(Misc(sc, "colour_lists")$orig.ident)))
+
+adata$write(file.path(param$path_out, "sc.h5ad"))
+output_files[["sc_anndata"]] = file.path(param$path_out, "sc.h5ad")
+
+```
+
+* list files here
+* shortly explain howto
+
+
+## Export to the Cerebro browser
 We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`
-```{r cerebro_integration, message=FALSE, warning=FALSE}
-# Top expressed genes
-sc = cerebroApp::getMostExpressedGenes(sc, 
-                                       assay=Seurat::DefaultAssay(sc),
-                                       column_sample="orig.ident",
-                                       column_cluster="seurat_clusters")
-
-gene_lists_for_cerebro = list()
-if (markers_found) {
-  gene_lists_for_cerebro = split(markers_filt$all$gene, markers_filt$all$cluster)
-  names(gene_lists_for_cerebro) = paste("Marker cluster", names(gene_lists_for_cerebro))
-}
-gene_lists_for_cerebro[["G2M_phase_genes"]] = genes_g2m[, 2]
-gene_lists_for_cerebro[["S_phase_genes"]] = genes_s[, 2]
-gene_lists_for_cerebro[["mitochondrial_genes"]] = grep(param$mt, rownames(sc), v=TRUE)
-cerebro_species = gsub("_gene_ensembl", "", param$mart_dataset)
-cerebro_species = ifelse(grepl("sapiens", cerebro_species), "Hg", ifelse(grepl("musculus", cerebro_species), "Mm", cerebro_species))
-
+```{r cerebro_integration, message=FALSE, warning=FALSE, eval=F}
+# Export to cerebro (almost functional)
 res = ExportToCerebro(sc=sc, 
                       path=paste0(param$path_out,"/cerebro.crb"), 
-                      param=param, 
                       project=param$project_id, 
                       species=cerebro_species, 
-                      assay=DefaultAssay(sc), 
-                      column_sample="orig.ident", 
-                      column_cluster="seurat_clusters", 
-                      column_ccphase="Phase", 
-                      gene_lists=gene_lists_for_cerebro, 
-                      marker_genes=markers_filt$all, 
-                      enriched_pathways=enriched)
+                      assay=DefaultAssay(sc),
+                      delayed_array=FALSE)
 ```
 
-## Output files
-
-All files generated with this report are written into the provided output folder `r param$path_out`: 
-
-* Annotation files  
-  + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
-* Differentially expressed genes  
-  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
-* Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
-* Loupe Cell Browser files  
-  + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
-    Import to Loupe through "Import Projection"   
-  + Seurat2Loupe_metadata.csv: Seurat categorial meta data including clusters and cell cycle phases   
-    Import to Loupe through "Import Categories"   
-  + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
-    Import to Loupe through "Import Lists"   
-* Cerebro files:
-  + cerebro.crb: Can be loaded into the Cerebro Browser  
-  
-```{r save}
-# Add colors to the sc object for compatibility with downstream tools
-# List names should correspond to meta-data columns
-# This could be done for other meta-data as well 
-sc@misc$colors = list("orig.ident" = param$col_samples,
-                      "seurat_clusters" = param$col_clusters)
-
-save.image(file=paste0(param$path_out, "/scrnaseq.RData"))
-```
+* list files here
+* shortly explain howto
 
 # Parameters and software versions
 The following parameters were used to run the workflow.  
 ```{r parameters_table}
-out = scrnaseq_params_info(params=param)
+out = ScrnaseqParamsInfo(params=param)
 
 knitr::kable(out, align="l") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
+This report was created with generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions, message=FALSE}
-out = scrnaseq_session_info(param$path_to_git)
+out = ScrnaseqSessionInfo(param$path_to_git)
 
 knitr::kable(out, align="l") %>% 
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 ```
+
 
 # References
 ```{r bib, message=FALSE}
+# Writes knitcitations references to references.bib file.
 knitcitations::write.bibtex(file="references.bib")
 ```

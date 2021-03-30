@@ -99,13 +99,14 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   metadata_file = file.path(dirname(path), "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
     metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
     
     # Check that it contains all cell names
     barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                                     first_n_elements_to_string(missed)))
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
@@ -115,7 +116,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
   metadata_table$orig.dataset = factor(project)
   
@@ -253,7 +254,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   # special case: if hashtags are specified and if there is a Antibody Capture data, then split and add as separate assay
   # if a regular expression is defined for HTO, overwrite hto_names 
   if ("Antibody Capture" %in% names(feature_data) && !is.null(hto_regex) && nchar(hto_regex)>0) {
-    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE)
+    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE, ignore.case=TRUE)
     if (length(hto_names)==0) stop(sprintf("Could not find HTO names with the 'hto_regex' argument '%s'!", hto_regex))
   }
   
@@ -294,13 +295,14 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   metadata_file = file.path(path, "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
     metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
     
     # Check that it contains all cell names
     barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
     if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                        first_n_elements_to_string(missed)))
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
     
     # Some column names are not allowed since they would be overwritten later
     colnames_metadata_table = colnames(metadata_table)
@@ -309,7 +311,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
                                         first_n_elements_to_string(invalid)))
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]), stringsAsFactors=FALSE)
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
   metadata_table$orig.dataset = factor(project)
   
@@ -514,135 +516,82 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
 #' 
 #' @param sc A Seurat object.
 #' @param path File path for export.
-#' @param param Named list with parameters passed to the scrnaseq script.
 #' @param organism Species. Can be 'Hg', 'Mm', ... .
 #' @param assay Assay to export ('RNA').
-#' @param column_sample Metadata column containing the sample name ('orig.ident').
-#' @param column_cluster Metadata column containing the cluster identity ('seurat_clusters').
-#' @param column_ccphase Metadata column containing the cell cycle phase ('Phase').
-#' @param gene_lists Gene lists to include (NULL).
-#' @param marker_genes Marker genes table obtained from Seurat::FindMarkers (NULL).
-#' @param enriched_pathways List with enriched pathways results.
+#' @param delayed_array Use delayed array for large datasets.
 #' @return TRUE if export was successful otherwise FALSE.
-ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
+ExportToCerebro = function(sc, path, project="scrnaseq", species, assay="RNA", delayed_array=FALSE) {
+  # Here is an example how the cerebro object is organised 
+  #examp_file= system.file('extdata', 'v1.3', 'example.crb', package = 'cerebroApp')
+  #examp = readRDS(examp_file)
   
-  # Set to NULL if the requested CC phase is not part of the actual metadata
-  if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
-  
-  
-  # Save the Seurat object in the cerebroApp format
+  # Export to cerebro format
   cerebroApp::exportFromSeurat(sc,
                                assay=assay,
+                               slot="data",
                                file=path,
-                               experiment_name=project,
-                               organism=species,
-                               column_sample=column_sample,
-                               column_cluster=column_cluster,
-                               column_nUMI=paste("nCount", assay, sep="_"),
-                               column_nGene=paste("nFeature", assay, sep="_"),
-                               column_cell_cycle_seurat=column_ccphase,
-                               add_all_meta_data=TRUE)
+                               experiment_name="My experiment",
+                               organism="Hg",
+                               groups=c("orig.ident", "seurat_clusters"),
+                               cell_cycle="Phase",
+                               nUMI="nCount_RNA",
+                               nGene="nFeature_RNA",
+                               add_all_meta_data=TRUE,
+                               use_delayed_array=delayed_array)
   
-  # Export function does not include all information - need to add manually
-  # crb_obj = readRDS(path)
-  # 
-  # # Add basic parameters (are hardcoded unfortunately)
-  # crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
-  # crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
-  # crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
-  # crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
-  # crb_obj$parameters[["number_PCs"]] = param$pc_n
-  # crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
-  # crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
-  # crb_obj$parameters[["tSNE_perplexity"]] = "NA"
-  # 
-  # # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
-  # if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
-  # 
-  # # Add technical information
-  # crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
-  # 
-  # # Add sample-related information
-  # crb_obj$samples = list()
-  # crb_obj$samples[["colors"]] = param$col_samples
-  # crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
-  # 
-  # crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-  #   dplyr::group_by(sample, cluster) %>%
-  #   dplyr::summarise(num_cells=length(cluster)) %>%
-  #   dplyr::group_by(sample) %>%
-  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #   tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=list(num_cells=0))
-  # 
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-  #     dplyr::group_by(sample, phase) %>%
-  #     dplyr::summarise(num_cells=length(phase)) %>%
-  #     dplyr::group_by(sample) %>%
-  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  # }
-  # 
-  # # Add cluster-related information
-  # crb_obj$clusters = list()
-  # crb_obj$clusters[["colors"]] = param$col_clusters
-  # crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
-  # 
-  # crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-  #   dplyr::group_by(sample, cluster) %>%
-  #   dplyr::summarise(num_cells=length(cluster)) %>%
-  #   dplyr::group_by(cluster) %>%
-  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #   tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=list(num_cells=0))
-  # 
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-  #     dplyr::group_by(cluster, phase) %>%
-  #     dplyr::summarise(num_cells=length(phase)) %>%
-  #     dplyr::group_by(cluster) %>%
-  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  # }
-  # 
-  # tree = Tool(object=sc, slot="BuildClusterTree")
-  # if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
-  # 
-  # # Fix cell cycle information
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
-  # }
-  # 
-  # # Add marker genes
-  # crb_obj$marker_genes = list()
-  # crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
-  # if(!is.null(marker_genes) & nrow(marker_genes)>0) {
-  #   crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj"))
-  # } else {
-  #   crb_obj$marker_genes[["by_cluster"]] = "no markers found"
-  # }
-  # crb_obj$marker_genes[["by_sample"]]
-  # 
-  # # Add enriched pathways
-  # crb_obj$enriched_pathways = list(enrichr=list())
-  # crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
-  # 
-  # pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
-  #   d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
-  #   if (nrow(d) == 0) return(d)
-  #   d$set = x
-  #   d$cluster = gsub("\\S+_cluster_","",d$set)
-  #   return(d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))])
-  # })
-  # pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
-  # pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
-  # pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up", pathways_by_cluster$set), "UP", "DOWN"))
-  # pathways_by_cluster$set = NULL
-  # 
-  # crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
-  # crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
-  # 
-  # # Save modified object
-  # saveRDS(crb_obj, file=path)
+  # Now read in and modify
+  cerebro = readRDS(path)
   
-  return(TRUE)
+  # experiment
+  
+  #
+  # Marker genes
+  #
+  marker_table = Seurat::Misc(sc, "markers")$results
+  
+  # in cerebro: examp$getMarkerGenes(method="cerebro_seurat", name="seurat_clusters")
+  #    seurat_clusters       gene        p_val avg_logFC pct.1 pct.2    p_val_adj on_cell_surface
+  #                 0 AC020656.1 1.095396e-82 1.7802607 0.949 0.099 1.192448e-78           FALSE
+  #                 0       VCAN 4.315651e-82 2.5346885 0.968 0.139 4.698018e-78           FALSE
+  #                 0       MNDA 2.696722e-79 2.2424081 0.962 0.142 2.935652e-75           FALSE
+  #                 0    S100A12 3.558204e-79 2.9539401 0.942 0.130 3.873460e-75           FALSE
+  #                 0       CD14 4.624049e-76 1.7989296 0.910 0.084 5.033740e-72            TRUE
+  
+  marker_table = marker_table[, c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")]
+  marker_table$on_cell_surface = NA
+  colnames(marker_table) = c("seurat_clusters", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj", "on_cell_surface")
+  cerebro$addMarkerGenes(method="MAST", name="seurat_clusters", table=marker_table)
+  
+  #
+  # Pathways for marker genes
+  #
+  marker_enrichr_table = Seurat::Misc(sc, "markers")$enrichr
+  
+  # in cerebro: seurat_clusters                         db                                                           Term Overlap      P.value Adjusted.P.value Old.P.value Old.Adjusted.P.value Odds.Ratio
+  # 0 GO_Biological_Process_2018                          neutrophil degranulation (GO:0043312)  87/479 1.097332e-62     5.599685e-59           0                    0  10.146838
+  # 0 GO_Biological_Process_2018 neutrophil activation involved in immune response (GO:0002283)  87/483 2.304602e-62     5.880192e-59           0                    0  10.062806
+  # 0 GO_Biological_Process_2018                      neutrophil mediated immunity (GO:0002446)  87/487 4.805017e-62     8.173335e-59           0                    0   9.980154
+  # 0 GO_Biological_Process_2018                              regulated exocytosis (GO:0045055)  20/148 2.281345e-12     2.910426e-09           0                    0   7.549449
+  
+  #
+  # Cluster tree(s)
+  #
+  tree = Seurat::Misc(sc, "trees")$seurat_clusters
+  cerebro$addTree(group_name="seurat_clusters", tree=tree)
+  
+  tree = Seurat::Misc(sc, "trees")$orig.ident
+  cerebro$addTree(group_name="orig.ident", tree=tree)
+  
+  #
+  # Most expressed genes
+  #
+  #examp$addMostExpressedGenes(group_name="sample", table=tbl)
+  
+  #
+  # Most expressed genes
+  #
+  #examp$addMostExpressedGenes(group_name="sample", table=tbl)
+  saveRDS(cerebro, path)
+  
+  return(path)
 }

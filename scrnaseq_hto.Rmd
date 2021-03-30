@@ -36,9 +36,9 @@ params:
    # HTO regular expression (alternative to HTO names)
    #   Identify HTOs via a regular expression. Names cannot be provided here.
    #   If specified will overrule hto_names
-   #hto_regex: "^hto"
+   hto_regex: NULL
    
-   # HTO normalisation: CLR (default) or LogNorm
+   # HTO normalisation: CLR (default) or LogNormalize
    norm: "LogNormalize"
    
    # Prefix of mitochondrial genes
@@ -92,7 +92,7 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       class.source='fold-hide',      # by default collapse code blocks
                       dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                                    pdf=list(bg="white"))     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                                    pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
                       dpi=96,                        # figure resolution (note: final = dpi*fig.retina; will not work with pandoc see below)
                       fig.retina=2                   # retina multiplier for HTML output (note: final = dpi*fig.retina)
                                      
@@ -190,6 +190,7 @@ Note that 'Antibody Capture' features can correspond to 'HTO' and 'ADT' and are 
 ```{r hto_read}
 # Load the dataset with its assays and create a Seurat object; pass hto_names (or hto_regex if set) so that HTO will be a separate assay
 sc = ReadSparseMatrix(params$path_data, project=params$project_id, row_name_column=1, hto_names=params$hto_names, hto_regex=params$hto_regex)
+sc = sc[[1]]
 
 # If requested: sample at most n cells
 if (!is.null(params$downsample_cells_n)) {
@@ -215,7 +216,7 @@ hto_colours$col_hto_global = ggsci::pal_npg()(3)
 names(hto_colours$col_hto_global) = c("Negative", "Doublet", "Singlet")
 
 hto_colours$col_hto_collapsed = ggsci::pal_npg()(length(hto_samples) + 2)
-hto_levels = c("Negative", "Doublet", params$hto_names[1:length(hto_samples)])
+hto_levels = c("Negative", "Doublet", hto_samples[1:length(hto_samples)])
 names(hto_colours$col_hto_collapsed) = hto_levels
 ```
 
@@ -291,7 +292,8 @@ hto_t_raw_pseudo = hto_t_raw + 1
 hto_t_norm = Seurat::GetAssayData(sc, assay="HTO", slot="data") %>% 
   as.data.frame %>% t %>% as.data.frame
 
-p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x=name, y=value, fill=name)) + 
+p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), 
+            aes(x=name, y=value, fill=name, group=name)) + 
   geom_violin() + 
   scale_y_continuous(trans="log2") + 
   AddStyle(title="HTO raw counts", 
@@ -300,7 +302,7 @@ p1 = ggplot(hto_t_raw_pseudo %>% tidyr::pivot_longer(tidyr::everything()), aes(x
            xlab="", ylab="")
   
 p2 = ggplot(hto_t_norm %>% tidyr::pivot_longer(tidyr::everything()), 
-            aes(x=name, y=value, fill=name)) + 
+            aes(x=name, y=value, fill=name, group=name)) + 
   geom_violin() + 
   AddStyle(title="HTO normalised counts", 
            fill=hto_colours$col_hto_collapsed, 
@@ -414,7 +416,7 @@ This section of the report provides first insights into your RNA dataset based o
 sc = Seurat::NormalizeData(sc, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 sc = Seurat::FindVariableFeatures(sc, assay="RNA", selection.method="vst", verbose=FALSE)
 sc = Seurat::ScaleData(sc, assay="RNA", features=Seurat::VariableFeatures(sc, assay="RNA"), verbose=FALSE)
-sc = Seurat::RunPCA(sc, assay="RNA", features=VariableFeatures(object=sc, assay="RNA"), verbose=FALSE)
+sc = Seurat::RunPCA(sc, assay="RNA", features=VariableFeatures(object=sc, assay="RNA"), verbose=FALSE, npcs=min(50, ncol(sc)))
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:10, verbose=FALSE, umap.method="uwot"))
 sc = Seurat::FindNeighbors(sc, dims=1:10, verbose=FALSE)
 sc = Seurat::FindClusters(sc, algorithm=1, verbose=FALSE, method="igraph")
@@ -424,7 +426,7 @@ Idents(sc) = "hash.ID"
 sc.all = Seurat::NormalizeData(sc.all, assay="RNA", normalization.method = "LogNormalize", scale.factor=10000, verbose=FALSE)
 sc.all = Seurat::FindVariableFeatures(sc.all, assay="RNA", selection.method="vst", verbose=FALSE)
 sc.all = Seurat::ScaleData(sc.all, assay="RNA", features=Seurat::VariableFeatures(sc.all, assay="RNA"), verbose=FALSE)
-sc.all = Seurat::RunPCA(sc.all, assay="RNA", features=VariableFeatures(object=sc.all, assay="RNA"), verbose=FALSE)
+sc.all = Seurat::RunPCA(sc.all, assay="RNA", features=VariableFeatures(object=sc.all, assay="RNA"), verbose=FALSE, npcs=min(50, ncol(sc.all)))
 sc.all = suppressWarnings(Seurat::RunUMAP(sc.all, dims=1:10, verbose=FALSE, umap.method="uwot"))
 sc.all = Seurat::FindNeighbors(sc.all, dims=1:10, verbose=FALSE)
 sc.all = Seurat::FindClusters(sc.all, algorithm=1, verbose=FALSE, method="igraph")
@@ -432,9 +434,9 @@ Idents(sc.all) = "hash.ID"
 
 # Set figure height
 sc_fig_height = round((length(hto_samples))*1.25)
-sc_qc_fig_height = round((length(hto_samples))*0.75)
+sc_qc_fig_height = round((length(levels(sc$seurat_clusters)))*0.75)
 sc_all_fig_height = round((length(hto_samples)+2)*1.25)
-sc_all_qc_fig_height = round((length(hto_samples)+2)*0.75)
+sc_all_qc_fig_height = round((length(levels(sc.all$seurat_clusters)))*0.75)
 
 # Set cluster colors
 cluster_names = levels(sc$seurat_clusters)
@@ -542,7 +544,7 @@ ncounts_metrics = grep("_HTO",
                         v=TRUE,
                         invert=TRUE)
 
-p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", ncounts_metrics[1])]], aes_string(x="hash.ID", y=ncounts_metrics[1], fill="hash.ID")) +
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", ncounts_metrics[1])]], aes_string(x="hash.ID", y=ncounts_metrics[1], fill="hash.ID", group="hash.ID")) +
   geom_violin() +
   xlim(levels(sc.all$hash.ID)) +
   scale_y_continuous("Counts (RNA)") +
@@ -564,7 +566,7 @@ nfeature_metrics = grep("_HTO",
                         invert=TRUE)
 
 
-p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", nfeature_metrics[1])]], aes_string(x="hash.ID", y=nfeature_metrics[1], fill="hash.ID")) +
+p = ggplot(sc.all[[c("hash.ID", "seurat_clusters", nfeature_metrics[1])]], aes_string(x="hash.ID", y=nfeature_metrics[1], fill="hash.ID", group="hash.ID")) +
   geom_violin() +
   xlim(levels(sc.all$hash.ID)) +
   facet_wrap(~seurat_clusters, ncol=3, scales="free_y") +
@@ -615,7 +617,7 @@ message(paste("Classification file for Loupe is:", demux_samples_paths))
 # Parameter table
 The following parameters were used to run the workflow.  
 ```{r parameters_table}
-out = scrnaseq_params_info(params=params)
+out = ScrnaseqParamsInfo(params=params)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
@@ -624,7 +626,7 @@ knitr::kable(out, align="l") %>%
 # Software versions
 This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions}
-out = scrnaseq_session_info()
+out = ScrnaseqSessionInfo(params$path_to_git)
 
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")

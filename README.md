@@ -395,12 +395,13 @@ These columns are optional:
   * `bimod`: Likelihood-ratio test for single cell gene expression, (McDavid et al., Bioinformatics, 2013)
   * `roc`: Identifies markers of gene expression using ROC analysis.
   * `t`: t-test
-  * `negbinom`: tests based on a negative binomial generalized linear model
-  * `poisson`: tests based on a poisson generalized linear model (only UMI datasets)
-  * `LR`: tests based on a logistic regression model
-  * `MAST`:  uses a hurdle model tailored to scRNA-seq data implemented in the the MAST package
-  * `DESeq2`: tests using the DESeq2 package
-  * For more information on the tests, please see the documentation on the `FindMarkers` function of the Seurat R package 
+  * `negbinom`: Tests based on a negative binomial generalized linear model
+  * `poisson`: Tests based on a poisson generalized linear model (only UMI datasets)
+  * `LR`: Tests based on a logistic regression model
+  * `MAST`:  Uses a hurdle model tailored to scRNA-seq data implemented in the the MAST package
+  * `DESeq2`: Tests using the DESeq2 package
+  * For more information on the tests, please see the documentation on the `FindMarkers` function of the Seurat R package
+* `downsample_cells_n`: Downsample each group to at most n cells to speed up tests
 * `latent_vars`: Additional variables to account for when testing (e.g. batches). Can be one or more cell metadata columns, can contain multiple column names concatenated by semicolons.
 
 Here are some examples for a better understanding:
