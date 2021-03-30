@@ -260,7 +260,7 @@ param$debugging_mode = "default_debugging"
 
 ```{r preparation_and_initial_checks}
 # Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(param$path_out, "figures/", sep="/"))
+knitr::opts_chunk$set(fig.path=paste0(param$path_out, "/figures/"))
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("R/functions_io.R",
@@ -2116,7 +2116,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   results_table = contrast$results
   
   # Drop existing results
-  if ("enrichr" %in% names(contrast)) d[["enrichr"]] = NULL
+  if ("enrichr" %in% names(contrast)) contrast[["enrichr"]] = NULL
   
   # Split into up- and downregulated DEGs, then translate to Entrez gene, runEnrichr
   degs_up = dplyr::filter(results_table, avg_log2FC > 0) %>% dplyr::pull(gene) %>% unique()
@@ -2128,7 +2128,6 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   degs_down = sapply(degs_down, function(n) seurat_rowname_to_entrez[[n]][1], USE.NAMES=TRUE, simplify=TRUE) %>% unlist() %>% as.character()
   degs_down = degs_down[!is.na(degs_down)]
   enrichr_results_down = EnrichrTest(genes=degs_down, databases=param$enrichr_dbs, padj=param$enrichr_padj)
-
   
   # Flatten both enrichr results into tables
   enrichr_results_up = purrr::map_dfr(names(enrichr_results_up), function(n) {
@@ -2148,7 +2147,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   })
   
   # Rbind and add factor levels
-  enrichr_results = dplyr::bind_rows(enrichr_results_up, enrichr_results_down)
+  enrichr_results = rbind(enrichr_results_up, enrichr_results_down)
   return(c(contrast, list(enrichr=enrichr_results)))
 })
 
@@ -2445,5 +2444,5 @@ knitr::kable(out, align="l") %>%
 # References
 ```{r bib, message=FALSE}
 # Writes knitcitations references to references.bib file.
-knitcitations::write.bibtexcd(file="references.bib")
+knitcitations::write.bibtex(file="references.bib")
 ```
