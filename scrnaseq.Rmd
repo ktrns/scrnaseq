@@ -67,8 +67,8 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
-                      dpi=96,                         # figure resolution
-                      fig.retina=2                   # DISCUSS: http://zevross.com/blog/2017/06/19/tips-and-tricks-for-working-with-images-and-figures-in-r-markdown-documents/#the-fig.retina-argument-is-a-resolution-multiplier
+                      dpi=96,                        # figure resolution
+                      fig.retina=2                   # retina multiplier
 )
 
 # If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
