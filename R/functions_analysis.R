@@ -39,7 +39,7 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
   if (sum(genes_s_exists) >= 10 & sum(genes_s_exists) >= 10){
     
     # Calculate CC scores
-    sc = Seurat::CellCycleScoring(sc, 
+    sc = Seurat::CellCycleScoring(sc,
                                   s.features=genes_s[genes_s_exists],
                                   g2m.features=genes_g2m[genes_g2m_exists], 
                                   set.ident=FALSE, verbose=FALSE)
@@ -50,7 +50,7 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
     sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s[genes_s_exists], CC_G2M_phase=genes_g2m[genes_g2m_exists]), lists_slot="gene_lists")
     
   } else {
-    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = NA
+    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = as.numeric(NA)
     sc[["Phase"]] = factor(NA, levels=c("G1", "G2M", "S"))
     if(name!="") name=paste0(name, " ")
     warning(paste0("There are not enough G2/M and S phase markers in the dataset ", name, "to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle effects is skipped."))

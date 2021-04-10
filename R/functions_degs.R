@@ -314,7 +314,7 @@ DegsTestCellSets = function(object, slot="data", cells_1=NULL, cells_2=NULL, is_
     arguments = c(list(object=object, cells.1=cells_1, cells.2=cells_2), additional_arguments)
   }
   
-  deg_results = suppressMessages((do.call(Seurat::FindMarkers, arguments)))
+  deg_results = suppressMessages(do.call(Seurat::FindMarkers, arguments))
   if (nrow(deg_results)==0) return(no_degs_results)
   
   # Fix base 2 for log fold change
@@ -461,9 +461,9 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get latent_vars
     if (!"latent_vars" %in% names(contrast) || is.na(contrast[["latent_vars"]])) {
-      if (length(latent_vars) > 0) contrast[["latent_vars"]] = latent_vars else contrast[["latent_vars"]] = NULL
+      contrast[["latent_vars"]] = NULL
     } else {
-      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["subset_group"]], first_level_separator=";")
+      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["latent_vars"]], first_level_separator=";")
     }
     
     if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]]) > 0) {
