@@ -1,4 +1,13 @@
-# Plotting style
+#' Out plotting style.
+#'
+#'@param title The plot title.
+#'@param col A vector of colours to use.
+#'@param fill A vector of fill colours to use.
+#'@param legend_title The legend title.
+#'@param legend_position The legend position.
+#'@param xlab The title of the x-axis.
+#'@param ylab The title of the y-axis.
+#'@return None, add as theme.
 AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
   list(
     theme_light() + theme(panel.border = element_blank()), 
@@ -15,18 +24,15 @@ AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_p
     if (!is.null(ylab)) ylab(ylab)
   )
 }
-# Transform a matrix cells (rows) x htos (cols) into a format that can be understood by 
-#   feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
+#' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
+#' 
+#' @param x: A matrix cells (rows) x htos (cols).
+#' @param cell_classification A vector of cell classifications.
 DfAllColumnCombinations = function(x, cell_classification) {
-  out = matrix(NA, nrow=0, ncol=4)
-  for (i in 1:(ncol(x)-1)) {
-    for (j in (i+1):ncol(x)) {
-      a = x %>% dplyr::select(i) %>% tidyr::pivot_longer(1)
-      b = x %>% dplyr::select(j) %>% tidyr::pivot_longer(1)
-      out = rbind(out, cbind(cell_classification, a, b))
-    }
-  }
-  colnames(out) = c("cell_classification", "name1", "value1", "name2", "value2")
+  out = combn(x, 2, simplify=FALSE)
+  out = lapply(out, function(o) {
+    return(data.frame(cell_classification=unname(cell_classification[rownames(o)]), name1=colnames(o)[1], value1=o[, 1], name2=colnames(o)[2], value2=o[, 2]))
+  }) %>% dplyr::bind_rows()
   
   # Define plot order so that the two levels of interest are always on top, then negatives, doublets, 
   #   and finally all other samples

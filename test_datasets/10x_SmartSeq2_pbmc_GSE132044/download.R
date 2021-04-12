@@ -5,23 +5,23 @@
 # make download directory
 unlink("download", recursive=TRUE)
 dir.create("download", showWarnings=FALSE)
-unlink("counts", recursive=T)
+unlink("counts", recursive=TRUE)
 dir.create("counts", showWarnings=FALSE)
 
 # download from GEO
 counts_url = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE132nnn/GSE132044/suppl/GSE132044_pbmc_hg38_count_matrix.mtx.gz"
-curl::curl_download(url=counts_url, destfile=file.path("download","matrix.mtx.gz"))
+curl::curl_download(url=counts_url, destfile=file.path("download", "matrix.mtx.gz"))
 
 genes_url = 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE132nnn/GSE132044/suppl/GSE132044_pbmc_hg38_gene.tsv.gz'
-curl::curl_download(url=genes_url, destfile=file.path("download","features.orig.tsv.gz"))
+curl::curl_download(url=genes_url, destfile=file.path("download", "features.orig.tsv.gz"))
 
 cells_url = 'https://ftp.ncbi.nlm.nih.gov/geo/series/GSE132nnn/GSE132044/suppl/GSE132044_pbmc_hg38_cell.tsv.gz'
 cells_file = basename(path=cells_url)
-curl::curl_download(url=cells_url, destfile=file.path("download","barcodes.tsv.gz"))
+curl::curl_download(url=cells_url, destfile=file.path("download", "barcodes.tsv.gz"))
 
 # the features.tsv.gz contains only one column with Ensembl ID and gene symbol concatenated by an underscore - need to be separated
 feat = read.table(file.path("download","features.orig.tsv.gz"), header=FALSE)
-feat = as.data.frame(stringr::str_split_fixed(string=feat[,1, drop=TRUE],'_', n=2), stringsAsFactors=FALSE)
+feat = as.data.frame(stringr::str_split_fixed(string=feat[, 1, drop=TRUE],'_', n=2), stringsAsFactors=FALSE)
 feat$V2 = make.unique(feat$V2)
 feat$V3 = "Gene Expression"
 fh = gzfile(file.path("download", "features.tsv.gz"), open="wb")
@@ -41,14 +41,14 @@ cell_tech_info = stringr::str_split_fixed(string=colnames(sc_data), pattern="\\.
 # smartseq2
 dir.create(file.path("counts","smartseq2"), showWarnings=FALSE)
 smartseq2_data = as.data.frame(sc_data[,cell_tech_info[,1]=="PBMC1" & cell_tech_info[,2]=="Smart-seq2"])
-colnames(smartseq2_data) = gsub(x=gsub(x=colnames(smartseq2_data), pattern="PBMC1.Smart-seq2", replacement="sample1", fixed=TRUE), pattern=".p", replacement="_", fixed=TRUE)
+colnames(smartseq2_data) = gsub(x=gsub(x=colnames(smartseq2_data), pattern="PBMC1.Smart-seq2", replacement="pbmc_smartseq2_sample1", fixed=TRUE), pattern=".p", replacement="_", fixed=TRUE)
 
 col_nms = colnames(smartseq2_data)
 smartseq2_data$GeneId = feat$V1
 smartseq2_data$GeneSymbol = feat$V2
 smartseq2_data = smartseq2_data[,c("GeneId","GeneSymbol",colnames(smartseq2_data))]
 fh = gzfile(file.path("counts","smartseq2","counts_table.tsv.gz"), open="wb")
-readr::write_delim(smartseq2_data, path=fh, delim="\t", col_names=TRUE)
+readr::write_delim(smartseq2_data, file=fh, delim="\t", col_names=TRUE)
 close(fh)
 
 # 10x (10x-Chromium-v3)
@@ -57,9 +57,9 @@ tenx_data = sc_data[,cell_tech_info[,1]=="PBMC1" & cell_tech_info[,2]=="10x-Chro
 colnames(tenx_data) = gsub(x=colnames(tenx_data), pattern="PBMC1.10x-Chromium-v3.", replacement="PBMC1_10x_", fixed=TRUE)
 
 # write matrix.mtx.gz, barcodes.tsv.gz and features.tsv.gz
-mh = file.path("counts","10x","matrix.mtx")
-Matrix::writeMM(tenx_data,file=mh)
-R.utils::gzip(mh,overwrite=T)
+mh = file.path("counts", "10x", "matrix.mtx")
+Matrix::writeMM(tenx_data, file=mh)
+R.utils::gzip(mh, overwrite=TRUE)
 
 bh = gzfile(file.path("counts", "10x", "barcodes.tsv.gz"), open="wb")
 write(colnames(tenx_data), file=bh)

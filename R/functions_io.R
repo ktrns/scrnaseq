@@ -1,5 +1,4 @@
 #' Reads one or more counts tables (e.g. provided by SmartSeq-2) and converts them into Seurat objects.
-# useful environment variables
 #' 
 #' @param path Path to a counts table. Cell metadata can be passed by a file metadata.tsv.gz which must be in the same directory and where the first column is the cell name.
 #' @param project A project name for the dataset ("SeuratProject").
@@ -22,46 +21,46 @@
 ReadCountsTable = function(counts_table, project="SeuratProject", row_name_column=1, convert_row_names=NULL, feature_type_column=NULL, columns_to_drop=NULL, drop_non_numeric_columns=TRUE, feature_type_to_assay_name=NULL, sep="\t", parse_plate_information=TRUE, plate_information_regex='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4, return_samples_as_datasets=TRUE) {
   library(magrittr)
   
-  # defaults
+  # Defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA", 
                                                                           "Antibody Capture"="ADT", 
                                                                           "CRISPR Guide Capture"="Crispr", 
                                                                           "Custom"="Custom", 
                                                                           "ERCC"="ERCC")
   
-  # read counts data
+  # Read counts data
   if (!file.exists(counts_table)) stop(sprintf("The counts file %s does not exist!",counts_table))
   feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
   
-  #  row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
+  # Variables row_name_column, feature_type_column and columns_to_drop: if (numeric) index, convert to column name (easier)
   if (!is.null(row_name_column) & is.numeric(row_name_column)) row_name_column = colnames(feature_data)[row_name_column]
   if (!is.null(feature_type_column) & is.numeric(feature_type_column)) feature_type_column = colnames(feature_data)[feature_type_column]
-  if (!is.null(columns_to_drop) & length(columns_to_drop)>0 & is.numeric(columns_to_drop)) columns_to_drop = colnames(feature_data)[columns_to_drop]
+  if (!is.null(columns_to_drop) & length(columns_to_drop) > 0 & is.numeric(columns_to_drop)) columns_to_drop = colnames(feature_data)[columns_to_drop]
   
-  # drop unwanted columns
-  if (!is.null(columns_to_drop) & length(columns_to_drop)>0) {
+  # Drop unwanted columns
+  if (!is.null(columns_to_drop) & length(columns_to_drop) > 0) {
     feature_data = feature_data[, !colnames(feature_data) %in% columns_to_drop]
   }
   
-  # check if there are other non-numeric columns
+  # Check if there are other non-numeric columns
   invalid = unlist(lapply(colnames(feature_data), function(n) {
     !(n %in% c(row_name_column, feature_type_column) | is.numeric(feature_data[, n, drop=TRUE]))
   }))
-  if (sum(invalid)>0) {
+  if (sum(invalid) > 0) {
     if (drop_non_numeric_columns) {
-      # if yes and drop_non_numeric_columns: just remove them
+      # If yes and drop_non_numeric_columns: just remove them
       feature_data = feature_data[, !invalid]
     } else {
-      # otherwise print an error
+      # Otherwise print an error
       invalid = invalid[which(invalid)]
       stop(sprintf("Some columns in the counts table do not contain numeric data: %s!", 
                                 first_n_elements_to_string(names(invalid))))
     }
   }
   
-  # create a data frame for feature id, feature name and feature type (similar to features.tsv in 10x datasets)
-  # feature_type_column: indicates the type of feature; if null, assume, there is only "Gene Expression" features; 
-  #   only check for ERCC controls which will be separate
+  # Create a data frame for feature id, feature name and feature type (similar to features.tsv in 10x datasets)
+  # Variable feature_type_column: indicates the type of feature; if null, assume, there is only "Gene Expression" features; 
+  #   Only check for ERCC controls which will be separate
   features_ids_types = data.frame(feature_id = feature_data[, row_name_column, drop=TRUE], 
                                   feature_name = feature_data[, row_name_column, drop=TRUE],
                                   stringsAsFactors=FALSE)
@@ -75,47 +74,58 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   
   # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
   seurat_row_names = setNames(features_ids_types[, "feature_id"],features_ids_types[, "feature_id"])
-  if (!is.null(convert_row_names) & length(convert_row_names)>0) {
+  if (!is.null(convert_row_names) & length(convert_row_names) > 0) {
     convert_ids = which(seurat_row_names %in% names(convert_row_names))
     seurat_row_names[convert_ids] = convert_row_names[seurat_row_names[convert_ids]]
   }
   seurat_row_names = setNames(make.unique(gsub(pattern="_", replacement="-", x=seurat_row_names, fixed=TRUE)),names(seurat_row_names))
   rownames(features_ids_types) = unname(seurat_row_names)
   
-  # split by feature type and add Seurat-compatible row names
+  # Split by feature type and add Seurat-compatible row names
   feature_data = as.data.frame(feature_data)
   rownames(feature_data) = rownames(features_ids_types)
   feature_data = split(feature_data, as.factor(features_ids_types$feature_type))
   
-  # feature type to assay name
+  # Feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
-  if (length(missed)>0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!",
+  if (length(missed) > 0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!",
                                      first_n_elements_to_string(missed)))
   
-  # sort feature types by their order in feature_type_to_assay_name
+  # Sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
   
   # Read metadata file (if available)
   metadata_file = file.path(dirname(path), "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
-    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
+    metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
+    
+    # Check that it contains all cell names
     barcodes = colnames(feature_data[[1]])
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
-    if (length(missed)>0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
+    if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
                                                     first_n_elements_to_string(missed)))
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
+    
+    # Some column names are not allowed since they would be overwritten later
+    colnames_metadata_table = colnames(metadata_table)
+    invalid = colnames_metadata_table[colnames_metadata_table %in% c("orig.ident", "nCount_RNA", "nFeature_RNA", "nCount_SCT", "nFeature_SCT", "percent_mt", "percent_ercc", "S.Score", "G2M.Score", "Phase", "CC.Difference", "SampleName", "PlateNumber", "PlateRow", "PlateCol", "seurat_clusters")]
+    if (length(invalid)>0) stop(sprintf("Some column names in 'metadata.tsv.gz' are not allowed since they would be overwritten: %s!", 
+                                        first_n_elements_to_string(invalid)))
+    
   } else {
     metadata_table = data.frame(Cells=colnames(feature_data[[1]]) ,stringsAsFactors=FALSE)
-    rownames(metadata_table) = metadata_table[, 1]
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
+  metadata_table$orig.dataset = factor(project)
   
   # If a regex for parsing the plate information from the names has been provided, parse: sample name, plate number, plate row and plate column
   if (parse_plate_information) {
     plate_information = ParsePlateInformation(colnames(feature_data[[1]]), pattern=plate_information_regex, sample_name_group=sample_name_group, plate_number_group=plate_number_group, row_name_group=row_name_group, col_name_group=col_name_group)
     
-    # if the pattern did not match for names, warn; then set plate_information$SampleName to the unparsed name
-    invalid = rownames(plate_information[is.na(plate_information$SampleName),])
+    # If the pattern did not match for names, warn; then set plate_information$SampleName to the unparsed name
+    invalid = rownames(plate_information[is.na(plate_information$SampleName), ])
     if (any(is.na(plate_information$SampleName))) {
       stop(sprintf("The 'ReadCountsTable' method could not parse plate information from the following cell names: %s. Check the regular expression ('plate_information_regex')!", first_n_elements_to_string(invalid)))
     }
@@ -143,13 +153,14 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   for (s in names(samples_to_process)) {
     
     # New name
-    n = paste(project, s, sep=".")
-    
+    #n = paste(project, s, sep=".")
+    n = s
+
     # Create Seurat object with first assay
     # Include cell and feature metadata
     c = samples_to_process[[s]] # cells to include for sample
     f = feature_types[1] # feature type
-    a = feature_type_to_assay_name[f] # assay name
+    a = unname(feature_type_to_assay_name[f]) # assay name
     d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix") # cell data
     m = metadata_table[c, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
     if (ncol(m)==0 | nrow(m)==0) m=NULL
@@ -162,25 +173,25 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
                                   names.field=NULL, 
                                   meta.data=m)
     
-    # check that the feature symbols are the same and add feature meta information
+    # Check that the feature symbols are the same and add feature meta information
     nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
-    if (length(missed)>0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
+    if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed)))
-    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]),])
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
     
-    # now add remaining assays
+    # Now add remaining assays
     for (f in feature_types[-1]) {
-      a = feature_type_to_assay_name[f]
+      a = unname(feature_type_to_assay_name[f])
       d = as(as.matrix(feature_data[[f]][,c, drop=FALSE]), "dgCMatrix")
       sc[[n]][[a]] = Seurat::CreateAssayObject(counts=d,
                                           min.cells=0,
                                           min.features=0)
       nms = rownames(sc[[n]][[a]])
       missed = nms[!nms %in% rownames(features_ids_types)]
-      if (length(missed)>0) stop(sprintf("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
+      if (length(missed) > 0) stop(sprintf("The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed)))
-      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]),])
+      sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]],features_ids_types[rownames(sc[[n]][[a]]), ])
     }
   }
   
@@ -195,13 +206,14 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
 #' @param convert_row_names Named vector for converting the row names obtained from features.tsv.gz (e.g. from Ensembl ids to gene symbols). Does not need to contain all row names. Can be NULL in which case row names are not converted.
 #' @param feature_type_column Name or index of the column which should be used for feature types (3).
 #' @param feature_type_to_assay_name How should the assays for the different feature type be named? Default is: "Gene expression" = "RNA","Antibody Capture" = "ADT","CRISPR Guide Capture" = "Crispr", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the assays are loaded.
-#' @param hto_names If Antibody Capture data, is used hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param hto_names If Antibody Capture data are used as hashtags for multiplexing, a vector with feature names to be used as hashtags. If a named vector is provided, the hashtags will be renamed accordingly.
+#' @param hto_regex If Antibody Capture data are used as hashtags for multiplexing, a regular expression to identify the hashtag (e.g. HashTag).
 #' @param return_samples_as_datasets If there are multiple samples in the dataset: return each as separate dataset ("TRUE").
 #' @return A Seurat object.
-ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL) {
+ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, convert_row_names=NULL, feature_type_column=3, feature_type_to_assay_name=NULL, hto_names=NULL, hto_regex=NULL) {
   library(magrittr)
   
-  # defaults
+  # Defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA",
                                                                           "Antibody Capture"="ADT",
                                                                           "CRISPR Guide Capture"="Crispr",
@@ -209,18 +221,18 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
                                                                           "ERCC"="ERCC")
   
   # Check that files exist and read barcodes.tsv.gz and features.tsv.gz separately
-  if (!file.exists(file.path(path, "barcodes.tsv.gz"))) futile.logger::flog.error("Could not find file 'barcodes.tsv.gz' at directory '%s'!", path)
+  if (!file.exists(file.path(path, "barcodes.tsv.gz"))) stop(sprintf("Could not find file 'barcodes.tsv.gz' at directory '%s'!", path))
   barcodes = read.delim(file.path(path, "barcodes.tsv.gz"), header=FALSE, stringsAsFactors=FALSE)[, 1]
   
-  if (!file.exists(file.path(path, "features.tsv.gz"))) futile.logger::flog.error("Could not find file 'features.tsv.gz' at directory '%s'!", path)
+  if (!file.exists(file.path(path, "features.tsv.gz"))) stop(sprintf("Could not find file 'features.tsv.gz' at directory '%s'!", path))
   features_ids_types = read.delim(file.path(path, "features.tsv.gz"), header=FALSE, stringsAsFactors=FALSE)
   colnames(features_ids_types) = c("feature_id", "feature_name", "feature_type")
   
-  if (!file.exists(file.path(path, "matrix.mtx.gz"))) futile.logger::flog.error("Could not find file 'matrix.mtx.gz' at directory '%s'!", path)
+  if (!file.exists(file.path(path, "matrix.mtx.gz"))) stop(sprintf("Could not find file 'matrix.mtx.gz' at directory '%s'!", path))
   
   # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
   seurat_row_names = setNames(features_ids_types[, row_name_column],features_ids_types[, row_name_column])
-  if (!is.null(convert_row_names) & length(convert_row_names)>0) {
+  if (!is.null(convert_row_names) & length(convert_row_names) > 0) {
     convert_ids = which(seurat_row_names %in% names(convert_row_names))
     seurat_row_names[convert_ids] = convert_row_names[seurat_row_names[convert_ids]]
   }
@@ -240,35 +252,41 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   }
 
   # special case: if hashtags are specified and if there is a Antibody Capture data, then split and add as separate assay
+  # if a regular expression is defined for HTO, overwrite hto_names 
+  if ("Antibody Capture" %in% names(feature_data) && !is.null(hto_regex) && nchar(hto_regex)>0) {
+    hto_names = grep(pattern=hto_regex, x=rownames(feature_data[["Antibody Capture"]]), v=TRUE, ignore.case=TRUE)
+    if (length(hto_names)==0) stop(sprintf("Could not find HTO names with the 'hto_regex' argument '%s'!", hto_regex))
+  }
+  
   if ("Antibody Capture" %in% names(feature_data) & length(hto_names)>0) {
     # check to avoid special chars
     invalid = grep(pattern="[-_]", x=hto_names, v=TRUE)
-    if (length(invalid)>0) futile.logger::flog.error("The 'hto_names' argument contains invalid (not allowed: -,_) names: %s!", 
-                                                     first_n_elements_to_string(invalid))
+    if (length(invalid)>0) stop(sprintf("The 'hto_names' argument contains invalid (not allowed: -,_) names: %s!", 
+                                                     first_n_elements_to_string(invalid)))
     
-    # if vector without names, just add values as names
+    # If vector without names, just add values as names
     if (is.null(names(hto_names))) hto_names = setNames(hto_names, hto_names)
     
-    # test if the provided names are in the assay
+    # Test if the provided names are in the assay
     missed = names(hto_names[!names(hto_names) %in% rownames(feature_data[["Antibody Capture"]])])
-    if (length(missed)>0) futile.logger::flog.error("Some of names in the 'hto_names' argument are not present in the 'Antibody Capture' assay: %s!", 
-                                                    first_n_elements_to_string(missed))
+    if (length(missed)>0) stop(sprintf("Some of names in the 'hto_names' argument are not present in the 'Antibody Capture' assay: %s!", 
+                                                    first_n_elements_to_string(missed)))
     
-    # split assay
+    # Split assay
     is_hashtag = rownames(feature_data[["Antibody Capture"]]) %in% names(hto_names)
     feature_data[["_HashTags_"]] = feature_data[["Antibody Capture"]][is_hashtag,, drop=FALSE]
     feature_data[["Antibody Capture"]] = feature_data[["Antibody Capture"]][!is_hashtag,, drop=FALSE]
     
     # rename if neccessary
-    rownames(feature_data[["_HashTags_"]]) = hto_names[rownames(feature_data[["_HashTags_"]])]
+    rownames(feature_data[["_HashTags_"]]) = unname(hto_names[rownames(feature_data[["_HashTags_"]])])
     nms = rownames(features_ids_types)
     nms[nms %in% names(hto_names)] = hto_names[nms[nms %in% names(hto_names)]]
-    rownames(features_ids_types) = nms
+    rownames(features_ids_types) = unname(nms)
     
-    # this will be the HashTag assay
+    # This will be the HashTag assay
     feature_type_to_assay_name = c(feature_type_to_assay_name, c("_HashTags_" = "HTO"))
     
-    # drop Antibody Capture if empty
+    # Drop Antibody Capture if empty
     if (nrow(feature_data[["Antibody Capture"]])==0) feature_data[["Antibody Capture"]] = NULL
   }
   
@@ -276,54 +294,73 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   metadata_table = NULL
   metadata_file = file.path(path, "metadata.tsv.gz")
   if (file.exists(metadata_file)) {
-    metadata_table = read.delim(metadata_file, header=TRUE, stringsAsFactors=FALSE)
-    missed = barcodes[!barcodes %in% metadata_table[, 1]]
-    if (length(missed)>0) futile.logger::flog.error("The 'metadata.tsv.gz' file misses some cell names: %s!", 
-                                                    first_n_elements_to_string(missed))
-    rownames(metadata_table) = metadata_table[, 1]
+    metadata_table = readr::read_delim(metadata_file, delim="\t", col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())
+    metadata_table = as.data.frame(metadata_table)
+    
+    # Check that it contains all cell names
+    barcodes = colnames(feature_data[[1]])
+    missed = barcodes[!barcodes %in% metadata_table[, 1, drop=TRUE]]
+    if (length(missed) > 0) stop(sprintf("The 'metadata.tsv.gz' file misses some cell names: %s!", 
+                                       first_n_elements_to_string(missed)))
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
+    
+    # Some column names are not allowed since they would be overwritten later
+    colnames_metadata_table = colnames(metadata_table)
+    invalid = colnames_metadata_table[colnames_metadata_table %in% c("orig.ident", "nCount_RNA", "nFeature_RNA", "nCount_SCT", "nFeature_SCT", "percent_mt", "percent_ercc", "S.Score", "G2M.Score", "Phase", "CC.Difference", "SampleName", "PlateNumber", "PlateRow", "PlateCol", "seurat_clusters")]
+    if (length(invalid) > 0) stop(sprintf("Some column names in 'metadata.tsv.gz' are not allowed since they would be overwritten: %s!", 
+                                        first_n_elements_to_string(invalid)))
+  } else {
+    metadata_table = data.frame(Cells=colnames(feature_data[[1]]), stringsAsFactors=FALSE)
+    rownames(metadata_table) = metadata_table[, 1, drop=TRUE]
   }
+  metadata_table$orig.dataset = factor(project)
   
-  # feature type to assay name
+  # Do feature type to assay name
   feature_types = names(feature_data)
   missed = feature_types[!feature_types %in% names(feature_type_to_assay_name)]
-  if (length(missed)>0) futile.logger::flog.error("The 'feature_type_to_assay_name' argument misses some feature types: %s!", 
-                                                  first_n_elements_to_string(missed))
+  if (length(missed) > 0) stop(sprintf("The 'feature_type_to_assay_name' argument misses some feature types: %s!", 
+                                                  first_n_elements_to_string(missed)))
   
-  # sort feature types by their order in feature_type_to_assay_name
+  # Sort feature types by their order in feature_type_to_assay_name
   feature_types = feature_types[order(match(feature_types, names(feature_type_to_assay_name)))]
   
-  # create Seurat object with first assay
-  # include cell and feature metadata
-  f = feature_types[1]
-  a = feature_type_to_assay_name[f]
-  sc = Seurat::CreateSeuratObject(counts=feature_data[[f]], 
+  # Create Seurat object with first assay
+  # Include cell and feature metadata
+  sc = list()
+  f = feature_types[1] # feature type
+  a = feature_type_to_assay_name[f] # cell data
+  n = project # project name
+  m = metadata_table[, -1, drop=FALSE] # metadata for cells, also drop first column which contains cell names
+
+  sc[[n]] = Seurat::CreateSeuratObject(counts=feature_data[[f]], 
                                   project=project, 
                                   assay=a, 
                                   min.cells=0, 
                                   min.features=0, 
                                   names.delim=NULL, 
                                   names.field=NULL, 
-                                  meta.data=metadata_table)
+                                  meta.data=m)
   
-  # check that the feature symbols are the same and add feature meta information
-  nms = rownames(sc[[a]])
+  # Check that the feature symbols are the same and add feature meta information
+  nms = rownames(sc[[n]][[a]])
   missed = nms[!nms %in% rownames(features_ids_types)]
-  if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                  a, first_n_elements_to_string(missed))
+  if (length(missed)>0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                  a, first_n_elements_to_string(missed)))
   
-  sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
+  sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   
-  # now add remaining assays
+  # Now add remaining assays
   for (f in feature_types[-1]) {
-    a = feature_type_to_assay_name[f]
-    sc[[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
+
+    a = unname(feature_type_to_assay_name[f])
+    sc[[n]][[a]] = Seurat::CreateAssayObject(counts=feature_data[[f]], min.cells=0, min.features=0)
     
-    nms = rownames(sc[[a]])
+    nms = rownames(sc[[n]][[a]])
     missed = nms[!nms %in% rownames(features_ids_types)]
-    if (length(missed)>0) futile.logger::flog.error("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
-                                                    a, first_n_elements_to_string(missed))
+    if (length(missed) > 0) stop(sprintf("The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
+                                                    a, first_n_elements_to_string(missed)))
     
-    sc[[a]] = Seurat::AddMetaData(sc[[a]], features_ids_types[rownames(sc[[a]]),])
+    sc[[n]][[a]] = Seurat::AddMetaData(sc[[n]][[a]], features_ids_types[rownames(sc[[n]][[a]]), ])
   }
   
   return(sc)
@@ -338,9 +375,10 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
 #' @param feature_type_to_assay_name How should the feature types for the different assays be named? Default is: "RNA" = "Gene expression","ADT" = "Antibody Capture" ,"HTO" = "Antibody Capture","Crispr" = "CRISPR Guide Capture", "ERCC" = "ERCC" and "Custom" = "Custom". Also sets the order in which the feature types are written.
 #' @param include_cell_metadata_cols Vector with names of cell metadata columns to be written to the metadata.tsv.gz. Can be NULL in which case no file is created.
 #' @param include_feature_metadata_cols Vector with names of feature metadata columns to be written. Can be NULL in which case only the first three columns (feature id, feature symbol and feature type) are written.
+#' @param metadata_prefix Prefix for cell metadata column names. If NULL, no prefix is prepended. The prefix should end with a separator character that separates the prefix from the original column name.
 #' @return The path to the data directory.
-ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", assay_name_to_feature_type=NULL, include_cell_metadata_cols=NULL, include_feature_metadata_cols=NULL) {
-  # defaults
+ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", assay_name_to_feature_type=NULL, include_cell_metadata_cols=NULL, include_feature_metadata_cols=NULL, metadata_prefix=NULL) {
+  # Defaults
   if (is.null(assay_name_to_feature_type)) assay_name_to_feature_type = c("RNA"="Gene Expression",
                                                                           "ADT"="Antibody Capture",
                                                                           "HTO"="Antibody Capture",
@@ -348,15 +386,15 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
                                                                           "ERCC"="ERCC",
                                                                           "Custom"="Custom")
   
-  # make the directory and write data
+  # Make the directory and write data
   d = file.path(dir)
   dir.create(d, showWarnings=FALSE)
   
-  # collect assay data and write
+  # Collect assay data and write
   if (is.null(assays)) assays = Seurat::Assays(sc)
   missed = assays[!assays %in% names(assay_name_to_feature_type)]
-  if (length(missed)>0) futile.logger::flog.error("The 'assay_name_to_feature_type' argument misses some assays: %s!", 
-                                                  first_n_elements_to_string(missed))
+  if (length(missed) > 0) stop(sprintf("The 'assay_name_to_feature_type' argument misses some assays: %s!", 
+                                                  first_n_elements_to_string(missed)))
   
   assays = assays[order(match(assays, names(assay_name_to_feature_type)))]
   feature_data = do.call(rbind, lapply(assays, function(a) { Seurat::GetAssayData(sc, assay=a, slot=slot) }))
@@ -364,13 +402,13 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   Matrix::writeMM(feature_data, file=mh)
   R.utils::gzip(mh, overwrite=TRUE)
   
-  # collect cell barcodes and write
+  # Collect cell barcodes and write
   bh = gzfile(file.path(d, "barcodes.tsv.gz"), open="wb")
   write(colnames(feature_data), file=bh)
   close(bh)
   
-  # collect feature names (plus additional feature meta data) and write
-  # if not set, include columns 1:3
+  # Collect feature names (plus additional feature meta data) and write
+  # If not set, include columns 1:3
   if (is.null(include_feature_metadata_cols)) {
     include_feature_metadata_cols = c(1:3)
   }
@@ -379,14 +417,18 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   write.table(assay_feature_meta_data_df, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\t")
   close(fh)
   
-  # collect cell metadata and write
-  if (!is.null(include_cell_metadata_cols) & length(include_cell_metadata_cols)>0) {
+  # Collect cell metadata and write
+  if (!is.null(include_cell_metadata_cols) & length(include_cell_metadata_cols) > 0) {
     missed = include_cell_metadata_cols[!include_cell_metadata_cols %in% colnames(sc[[]])]
-    if (length(missed)>0) futile.logger::flog.error("The 'include_cell_metadata_cols' argument contains columns which are not in the metadata ob the Seurat object: %s!", 
-                                                    first_n_elements_to_string(missed))
+    if (length(missed) > 0) stop(sprintf("The 'include_cell_metadata_cols' argument contains columns which are not in the metadata ob the Seurat object: %s!", 
+                                                    first_n_elements_to_string(missed)))
     
     metadata_table = sc[[include_cell_metadata_cols]]
+    if (!is.null(metadata_prefix)) {
+      colnames(metadata_table) = paste0(metadata_prefix, colnames(metadata_table))
+    }
     metadata_table_nms = colnames(metadata_table)
+
     metadata_table$CELL_ID_METADATA = rownames(metadata_table)
     metadata_table = metadata_table[, c("CELL_ID_METADATA", metadata_table_nms)]
     
@@ -408,15 +450,15 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
 #' @param col_name_group Index of the capture group which contains the plate col name. Can be NULL in which case it will not be evaluated and the plate col name will be NA. Default is 4.
 #' @return A data frame with plate information.
 ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d+)$', sample_name_group=1, plate_number_group=2, row_name_group=3, col_name_group=4) {
-  # split cell names
+  # Split cell names
   cell_names_matched_and_split = as.data.frame(stringr::str_match(string=cell_names, pattern=pattern), stringsAsFactors=FALSE)
   cell_names_matched_and_split = merge(x=data.frame(V1=cell_names), y=cell_names_matched_and_split, by=1, all.x=TRUE)
   
-  # now prepare plate information
+  # Now prepare plate information
   plate_information = data.frame(rowname=cell_names_matched_and_split$V1)
   rownames(plate_information) = plate_information$rowname
   
-  # sample name
+  # Get sample name
   if (!is.null(sample_name_group)) {
     plate_information$SampleName = cell_names_matched_and_split[, 1+sample_name_group]
   } else {
@@ -424,7 +466,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   }
   plate_information$SampleName = as.factor(plate_information$SampleName)
   
-  # plate number
+  # Get plate number
   if (!is.null(plate_number_group)) {
     plate_information$PlateNumber = cell_names_matched_and_split[, 1+plate_number_group]
   } else {
@@ -432,7 +474,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   }
   plate_information$PlateNumber = as.integer(plate_information$PlateNumber)
   
-  # row
+  # Get row
   if (!is.null(row_name_group)) {
     plate_information$PlateRow = cell_names_matched_and_split[, 1+row_name_group]
   } else {
@@ -440,7 +482,7 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   }
   plate_information$PlateRow = as.character(plate_information$PlateRow)
   
-  # col
+  # Get col
   if (!is.null(col_name_group)) {
     plate_information$PlateCol = cell_names_matched_and_split[, 1+col_name_group]
   } else {
@@ -448,14 +490,14 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
   }
   plate_information$PlateCol = as.integer(plate_information$PlateCol)
   
-  # decide on plate layout
-  if ("Q" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T)>24) {
+  # Decide on plate layout
+  if ("Q" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T) > 24) {
     # super plate?
     plate_information$PlateRow = factor(plate_information$PlateRow, 
                                         levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"), 
                                         ordered=TRUE)
     plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:max(c(-Inf,plate_information$PlateCol), na.rm=T), ordered=TRUE)
-  } else if ("I" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T)>12) {
+  } else if ("I" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T) > 12) {
     # 384 plate
     plate_information$PlateRow = factor(plate_information$PlateRow, 
                                         levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"), 
@@ -474,135 +516,82 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
 #' 
 #' @param sc A Seurat object.
 #' @param path File path for export.
-#' @param param Named list with parameters passed to the scrnaseq script.
 #' @param organism Species. Can be 'Hg', 'Mm', ... .
 #' @param assay Assay to export ('RNA').
-#' @param column_sample Metadata column containing the sample name ('orig.ident').
-#' @param column_cluster Metadata column containing the cluster identity ('seurat_clusters').
-#' @param column_ccphase Metadata column containing the cell cycle phase ('Phase').
-#' @param gene_lists Gene lists to include (NULL).
-#' @param marker_genes Marker genes table obtained from Seurat::FindMarkers (NULL).
-#' @param enriched_pathways List with enriched pathways results.
+#' @param delayed_array Use delayed array for large datasets.
 #' @return TRUE if export was successful otherwise FALSE.
-ExportToCerebro = function(sc, path, param, project="scrnaseq", species, assay="RNA", column_sample="orig.ident", column_cluster="seurat_clusters", gene_lists = NULL, marker_genes=NULL, enriched_pathways=NULL, column_ccphase="Phase") {
+ExportToCerebro = function(sc, path, project="scrnaseq", species, assay="RNA", delayed_array=FALSE) {
+  # Here is an example how the cerebro object is organised 
+  #examp_file= system.file('extdata', 'v1.3', 'example.crb', package = 'cerebroApp')
+  #examp = readRDS(examp_file)
   
-  # Set to NULL if the requested CC phase is not part of the actual metadata
-  if (!(column_ccphase %in% colnames(sc[[]]))) column_ccphase = NULL
-  
-  
-  # Save the Seurat object in the cerebroApp format
+  # Export to cerebro format
   cerebroApp::exportFromSeurat(sc,
-                               file=path,
                                assay=assay,
                                slot="data",
-                               experiment_name=project,
-                               organism=species,
-                               groups=c(column_sample, column_cluster),
-                               nUMI=paste("nCount", assay, sep="_"),
-                               nGene=paste("nFeature", assay, sep="_"),
-                               cell_cycle=column_ccphase,
-                               add_all_meta_data=T)
+                               file=path,
+                               experiment_name="My experiment",
+                               organism="Hg",
+                               groups=c("orig.ident", "seurat_clusters"),
+                               cell_cycle="Phase",
+                               nUMI="nCount_RNA",
+                               nGene="nFeature_RNA",
+                               add_all_meta_data=TRUE,
+                               use_delayed_array=delayed_array)
   
-  # Export function does not include all information - need to add manually
-  # crb_obj = readRDS(path)
-  # 
-  # # Add basic parameters (are hardcoded unfortunately)
-  # crb_obj$parameters[["gene_nomenclature"]] = "gene_name"
-  # crb_obj$parameters[["discard_genes_expressed_in_fewer_cells_than"]] = "NA"
-  # crb_obj$parameters[["keep_mitochondrial_genes"]] = TRUE
-  # crb_obj$parameters[["variables_to_regress_out"]] = paste(param$vars_to_regress, collapse=",")
-  # crb_obj$parameters[["number_PCs"]] = param$pc_n
-  # crb_obj$parameters[["cluster_resolution"]] = param$cluster_resolution
-  # crb_obj$parameters[["filtering"]] = list(UMI_min="NA", UMI_max="NA", genes_min="NA", genes_max="NA")
-  # crb_obj$parameters[["tSNE_perplexity"]] = "NA"
-  # 
-  # # Add gene lists (G2M_phase_genes, S_phase_genes, mitochondrial_genes may be hardcoded; additional lists may be custom)
-  # if(!is.null(gene_lists) & length(gene_lists)>0) crb_obj$gene_lists = gene_lists
-  # 
-  # # Add technical information
-  # crb_obj$technical_info = list(R=R.utils::captureOutput(devtools::session_info()), seurat_version=packageVersion("Seurat"))
-  # 
-  # # Add sample-related information
-  # crb_obj$samples = list()
-  # crb_obj$samples[["colors"]] = param$col_samples
-  # crb_obj$samples[["overview"]] = data.frame(sample=levels(sc[[column_sample, drop=TRUE]]))
-  # 
-  # crb_obj$samples[["by_cluster"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-  #   dplyr::group_by(sample, cluster) %>%
-  #   dplyr::summarise(num_cells=length(cluster)) %>%
-  #   dplyr::group_by(sample) %>%
-  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #   tidyr::pivot_wider(names_from=cluster, values_from=num_cells, values_fill=list(num_cells=0))
-  # 
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$samples[["by_cell_cycle_seurat"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-  #     dplyr::group_by(sample, phase) %>%
-  #     dplyr::summarise(num_cells=length(phase)) %>%
-  #     dplyr::group_by(sample) %>%
-  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  # }
-  # 
-  # # Add cluster-related information
-  # crb_obj$clusters = list()
-  # crb_obj$clusters[["colors"]] = param$col_clusters
-  # crb_obj$clusters[["overview"]] = data.frame(cluster=levels(sc[[column_cluster, drop=TRUE]]))
-  # 
-  # crb_obj$clusters[["by_samples"]] = data.frame(sample=sc[[column_sample, drop=TRUE]], cluster=sc[[column_cluster, drop=TRUE]]) %>%
-  #   dplyr::group_by(sample, cluster) %>%
-  #   dplyr::summarise(num_cells=length(cluster)) %>%
-  #   dplyr::group_by(cluster) %>%
-  #   dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #   tidyr::pivot_wider(names_from=sample, values_from=num_cells, values_fill=list(num_cells=0))
-  # 
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$clusters[["by_cell_cycle_seurat"]] = data.frame(cluster=sc[[column_cluster, drop=TRUE]], phase=sc[[column_ccphase, drop=TRUE]]) %>% 
-  #     dplyr::group_by(cluster, phase) %>%
-  #     dplyr::summarise(num_cells=length(phase)) %>%
-  #     dplyr::group_by(cluster) %>%
-  #     dplyr::mutate(total_cell_count=sum(num_cells)) %>%
-  #     tidyr::pivot_wider(names_from=phase, values_from=num_cells, values_fill=list(num_cells=0))
-  # }
-  # 
-  # tree = Tool(object=sc, slot="BuildClusterTree")
-  # if(!is.null(tree)) crb_obj$clusters[["tree"]] = tree
-  # 
-  # # Fix cell cycle information
-  # if ("Phase" %in% colnames(sc[[]])) {
-  #   crb_obj$cells$cell_cycle_seurat = factor(crb_obj$cells$Phase, levels=c("G1","G2M","S"))
-  # }
-  # 
-  # # Add marker genes
-  # crb_obj$marker_genes = list()
-  # crb_obj$marker_genes[["parameters"]] = list(only_positive=FALSE, minimum_percentage=0.25, logFC_threshold=param$log2fc, test="MAST", p_value_threshold=param$padj)
-  # if(!is.null(marker_genes) & nrow(marker_genes)>0) {
-  #   crb_obj$marker_genes[["by_cluster"]] = marker_genes %>% dplyr::select(c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj"))
-  # } else {
-  #   crb_obj$marker_genes[["by_cluster"]] = "no markers found"
-  # }
-  # crb_obj$marker_genes[["by_sample"]]
-  # 
-  # # Add enriched pathways
-  # crb_obj$enriched_pathways = list(enrichr=list())
-  # crb_obj$enriched_pathways$enrichr$parameters = list(databases=param$enrichr_dbs, adj_p_cutoff="NA", max_terms="NA")
-  # 
-  # pathways_by_cluster = purrr::map_dfr(names(enriched_pathways), function(x){
-  #   d = purrr::flatten_dfr(enriched_pathways[x], .id="db")
-  #   if (nrow(d) == 0) return(d)
-  #   d$set = x
-  #   d$cluster = gsub("\\S+_cluster_","",d$set)
-  #   return(d[,c(ncol(d), ncol(d)-1, 1, 2:(ncol(d)-2))])
-  # })
-  # pathways_by_cluster$cluster = factor(pathways_by_cluster$cluster, levels=unique(pathways_by_cluster$cluster))
-  # pathways_by_cluster$db = factor(pathways_by_cluster$db, levels=unique(pathways_by_cluster$db))
-  # pathways_by_cluster$Term = paste(pathways_by_cluster$Term, ifelse(grepl("DEG_up", pathways_by_cluster$set), "UP", "DOWN"))
-  # pathways_by_cluster$set = NULL
-  # 
-  # crb_obj$enriched_pathways$enrichr[["by_cluster"]] = pathways_by_cluster
-  # crb_obj$enriched_pathways$enrichr[["by_sample"]] = "no enrichment found"
-  # 
-  # # Save modified object
-  # saveRDS(crb_obj, file=path)
+  # Now read in and modify
+  cerebro = readRDS(path)
   
-  return(TRUE)
+  # experiment
+  
+  #
+  # Marker genes
+  #
+  marker_table = Seurat::Misc(sc, "markers")$results
+  
+  # in cerebro: examp$getMarkerGenes(method="cerebro_seurat", name="seurat_clusters")
+  #    seurat_clusters       gene        p_val avg_logFC pct.1 pct.2    p_val_adj on_cell_surface
+  #                 0 AC020656.1 1.095396e-82 1.7802607 0.949 0.099 1.192448e-78           FALSE
+  #                 0       VCAN 4.315651e-82 2.5346885 0.968 0.139 4.698018e-78           FALSE
+  #                 0       MNDA 2.696722e-79 2.2424081 0.962 0.142 2.935652e-75           FALSE
+  #                 0    S100A12 3.558204e-79 2.9539401 0.942 0.130 3.873460e-75           FALSE
+  #                 0       CD14 4.624049e-76 1.7989296 0.910 0.084 5.033740e-72            TRUE
+  
+  marker_table = marker_table[, c("cluster", "gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")]
+  marker_table$on_cell_surface = NA
+  colnames(marker_table) = c("seurat_clusters", "gene", "p_val", "avg_logFC", "pct.1", "pct.2", "p_val_adj", "on_cell_surface")
+  cerebro$addMarkerGenes(method="MAST", name="seurat_clusters", table=marker_table)
+  
+  #
+  # Pathways for marker genes
+  #
+  marker_enrichr_table = Seurat::Misc(sc, "markers")$enrichr
+  
+  # in cerebro: seurat_clusters                         db                                                           Term Overlap      P.value Adjusted.P.value Old.P.value Old.Adjusted.P.value Odds.Ratio
+  # 0 GO_Biological_Process_2018                          neutrophil degranulation (GO:0043312)  87/479 1.097332e-62     5.599685e-59           0                    0  10.146838
+  # 0 GO_Biological_Process_2018 neutrophil activation involved in immune response (GO:0002283)  87/483 2.304602e-62     5.880192e-59           0                    0  10.062806
+  # 0 GO_Biological_Process_2018                      neutrophil mediated immunity (GO:0002446)  87/487 4.805017e-62     8.173335e-59           0                    0   9.980154
+  # 0 GO_Biological_Process_2018                              regulated exocytosis (GO:0045055)  20/148 2.281345e-12     2.910426e-09           0                    0   7.549449
+  
+  #
+  # Cluster tree(s)
+  #
+  tree = Seurat::Misc(sc, "trees")$seurat_clusters
+  cerebro$addTree(group_name="seurat_clusters", tree=tree)
+  
+  tree = Seurat::Misc(sc, "trees")$orig.ident
+  cerebro$addTree(group_name="orig.ident", tree=tree)
+  
+  #
+  # Most expressed genes
+  #
+  #examp$addMostExpressedGenes(group_name="sample", table=tbl)
+  
+  #
+  # Most expressed genes
+  #
+  #examp$addMostExpressedGenes(group_name="sample", table=tbl)
+  saveRDS(cerebro, path)
+  
+  return(path)
 }

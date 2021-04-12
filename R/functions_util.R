@@ -1,29 +1,3 @@
-# 'Calculate enrichment of cells per sample per cluster
-#' 
-#' @param sc Seurat object
-cells_fisher = function(sc) {
-  cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
-  cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% unique() %>% sort()
-  out = matrix(0+NA, nrow=0, ncol=length(cell_clusters)) %>% as.data.frame()
-  for(s in cell_samples) {
-    ft.list = lapply(cell_clusters, function(cl) { 
-      a = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
-      b = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters==cl) %>% dplyr::count() %>% as.numeric()
-      c = sc[[]] %>% dplyr::filter(orig.ident==s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
-      d = sc[[]] %>% dplyr::filter(orig.ident!=s, seurat_clusters!=cl) %>% dplyr::count() %>% as.numeric()
-      tbl.2by2 = matrix(c(a, b, c, d), ncol=2, nrow=2, byrow=TRUE)
-      ft = fisher.test(tbl.2by2, alternative="greater")
-      return(c(oddsRatio=round(as.numeric(ft$estimate), 2),
-               p=formatC(as.numeric(ft$p.value), format="e", digits=1)))
-    })
-    ft.matrix = purrr::reduce(ft.list, .f=cbind)
-    rownames(ft.matrix) = paste0(s, ".", rownames(ft.matrix))
-    out = rbind(out, ft.matrix)
-  }
-  colnames(out) = paste0("Cl_", cell_clusters)
-  return(out)
-}
-
 #' Given a vector, report at most n elements as concatenated string.
 #' 
 #' @param x A vector.
@@ -32,19 +6,29 @@ cells_fisher = function(sc) {
 #' @return A string with at most n elements to concatenated.
 first_n_elements_to_string = function(x, n=5, sep=",") {
   s = paste(x[1:min(n,length(x))], collapse=sep)
-  if (length(x)>n) s = paste(s, "...", sep=sep)
+  if (length(x) > n) s = paste(s, "...", sep=sep)
   return(s)
 }
 
+#' Get git repository version
+#' 
+#' @param path_to_git: Path to git repository.
+#' @return The git repository version.
+GitRepositoryVersion = function(path_to_git) {
+  repo = tryCatch({system(paste0("git --git-dir=", path_to_git, "/.git rev-parse HEAD"), intern=TRUE)},
+                  warning = function(war) {return("Unknown")})
+  return(repo)
+}
+
 #' Report session info in a table
+#' 
 #' @param path_to_git: Path to git repository.
 #' @return The session info as table.
-scrnaseq_session_info = function(path_to_git=".") {
+ScrnaseqSessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
-  repo = tryCatch({system(paste0("git --git-dir ", path_to_git, "/.git log --format='%H' -n 1"), intern=TRUE)},
-    warning = function(war) {return("Unknown")})
+  repo = GitRepositoryVersion(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
   info_session = sessionInfo()
@@ -58,7 +42,79 @@ scrnaseq_session_info = function(path_to_git=".") {
   return(out)
 }
 
-#' Returns the names of an object
+#' Returns a subsample of cells.
+#' 
+#' @param sc A Seurat sc object.
+#' @param n Number of cells to subsample.
+#' @param seed Seed for sampling. Default is 1.
+#' @param group Metadata column group to consider for sampling with group_proportional.
+#' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
+#' @return Sampled cell names.
+ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
+  set.seed(seed)
+
+  # Set n
+  if (n > ncol(sc)) n = ncol(sc)
+  
+  # Sample cells
+  cell_names = sc[[]] %>% tibble::rownames_to_column() %>% dplyr::select(dplyr::all_of(c("rowname", group)))
+  colnames(cell_names) = ifelse(is.null(group), "rowname", c("rowname", "group"))
+  
+  if (!is.null(group) && !group_proportional) {
+    num_groups = length(unique(cell_names$group))
+    n_per_group = round(n/num_groups)
+    
+    cell_names_sample = lapply(split(cell_names$rowname, cell_names$group), function(l) {
+      if (length(l) < n_per_group) {
+        return(sample(l, length(l)))
+      } else {
+        return(sample(l, n_per_group))
+      }
+    }) %>% unlist() %>% unname() 
+    
+  } else {
+    cell_names_sample = sample(cell_names$rowname, n)
+  }
+  
+  return(cell_names_sample)
+}
+
+#' Adds one more lists to the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param lists A named list with one or more lists (named or unnamed vectors only).
+#' @param lists_slot In which slot of the Seurat misc slot should the list(s) be stored.
+#' @param add_to_list When a list with this name already exists, add to the list instead of overwriting the list. Default is FALSE.
+#' @param make_unique Make lists unique (after they were stored in the misc slot). Default is FALSE.
+#' @return A Seurat sc object with updated list(s).
+ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, make_unique=FALSE) {
+  stored_lists = Seurat::Misc(sc, slot=lists_slot)
+  if (is.null(stored_lists)) stored_lists = list()
+  
+  # Check that the lists have names, otherwise set to 'list_1', 'list_2' etc
+  lists_names = purrr::map_chr(seq(lists), function(i) {
+    n = names(lists[i])
+    if (is.null(n) || nchar(n) == 0) return(paste0("list_",as.character(i))) else return(names(lists[i]))
+  })
+  names(lists) = lists_names
+  
+  for(n in names(lists)) {
+    if (n %in% names(stored_lists) & add_to_list == TRUE) {
+      stored_lists[[n]] = c(stored_lists[[n]], unlist(lists[[n]]))
+    } else {
+      stored_lists[[n]] = unlist(lists[[n]])
+    }
+    
+    if (make_unique) stored_lists[[n]] = unique(stored_lists[[n]])
+  }
+  
+  # Add to Seurat object
+  suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
+  return(sc)
+}
+
+#' Returns the names of an object.
+#' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and names as values.
 list_names = function(x) {
@@ -66,13 +122,15 @@ list_names = function(x) {
 }
 
 #' Returns a vector with its values as names.
+#' 
 #' @param x A vector.
 #' @return A vector with its values as names.
 values_to_names = function(x) {
   return(setNames(x,x))
 }
 
-#' Returns the indices of an object
+#' Returns the indices of an object.
+#' 
 #' @param x A list or vector with names.
 #' @return A named vector with names as names and indices as values.
 list_indices = function(x) {
@@ -80,6 +138,7 @@ list_indices = function(x) {
 }
 
 #' Wrapper around the biomaRt::useEnsembl function to cope with unavailable Ensembl mirrors. Tries different Ensembl mirrors and returns a mart object with the mirror that works.
+#' 
 #' @param biomart A biomaRt database name. Possible database names can be retrieved with the function listEnsembl().
 #' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
 #' @param mirror Specify an Ensembl mirror to connect to. The valid options here are 'www', 'uswest', 'useast', 'asia'. If no mirror is specified, then the first mirror that works will be used. Will be ignored if a host is specified.
@@ -124,6 +183,7 @@ GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
 
 
 #' Returns the mirror of a biomaRt object.
+#' 
 #' @param mart_obj A biomaRt object obtained by GetBiomaRt or useEnsembl name.
 #' @return The mirror of the biomaRt object. Can be 'www', 'uswest', 'useast' or 'asia'.
 GetBiomaRtMirror = function(mart_obj) {
@@ -141,10 +201,11 @@ GetBiomaRtMirror = function(mart_obj) {
 }
 
 #' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
+#' 
 #' @param num_colours The number of colours to generate.
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
-#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value can be provided to generate more colours.
+#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value are used to generate more colours.
 #' @return The generated colours.
 GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
   palette = eval(parse(text=palette))
@@ -163,11 +224,12 @@ GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7
 
 #' Returns a message formatted for markdown. 
 #' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_message = function(x, options){
-  x = gsub('^##','',x)
+  x = gsub('##', '<br/>', gsub('^## Message:','',x))
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
                 '<style> .alert-info { background-color: #abd9c6; color: black; } </style>', 
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
@@ -179,21 +241,22 @@ format_message = function(x, options){
 
 #' Prints a message so that it will be included in the markdown document.
 #' Note that cat is used since print will not work.
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return No return value.
 Message = function(x, options){
-  # asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
+  # Function asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
   knitr::asis_output(format_message(x, options))
 }
 
 #' Returns a warning message formatted for markdown. 
-#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html.
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
 format_warning = function(x, options){
-  x = gsub('^## Warning:','',x)
+  x = gsub('##', '<br/>', gsub('^## Warning:','',x))
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
                  '<style> .alert-warning { background-color: #fae39c; color: black; } </style>', 
                  '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
@@ -205,16 +268,17 @@ format_warning = function(x, options){
 
 #' Prints a warning so that it will be included in the markdown document.
 #' Note that cat is used since print will not work. Will only work with chunk option results="asis".
+#' 
 #' @param x The message.
 #' @param options Further options.
 #' @return No return value.
 Warning = function(x, options){
-  # asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup"
+  # Function asis_output: prints something in mode results="asis"; normal_print: prints something in mode results="markup".
   knitr::asis_output(format_warning(x, options))
 }
 
 #' Returns a error formatted for markdown.
-#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html
+#' See: https://www.w3schools.com/bootstrap/bootstrap_alerts.asp and https://bookdown.org/yihui/rmarkdown-cookbook/output-hooks.html.
 #' @param x The message.
 #' @param options Further options.
 #' @return The message formatted for markdown.
@@ -230,6 +294,7 @@ format_error = function(x, options){
 }
 
 #' Prints an error so that it will be included in the markdown document.
+#' 
 #' Note that cat is used since print will not work.
 #' @param x The message.
 #' @param options Further options.
@@ -239,12 +304,12 @@ Error = function(x, options){
   knitr::asis_output(format_error(x, options))
 }
 
-# Report parameters in a table
+#' Report parameters in a table.
 #' @param params The parameter list.
 #' @return A table with parameters for printing.
-scrnaseq_params_info = function(params) { 
+ScrnaseqParamsInfo = function(params) { 
   
-  # Intitialize output table
+  # Initialize output table
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Value")
   
@@ -273,22 +338,22 @@ scrnaseq_params_info = function(params) {
 }
 
 # Checks if the parameters are valid.
-#' @param params The parameter list.
-#' @param 
+#'
+#' @param param The parameter list.
 #' @return Returns a list with error messages.
 check_parameters = function(param) {
   error_messages = c()
   
-  # project_id
+  # Check project_id
   if (!"project_id" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'project_id' is missing!")
   }
   
-  # path_data
+  # Check path_data
   if (!"path_data" %in% names(param) | 
       !is.data.frame(param$path_data) | 
-      !ncol(param$path_data)==4 | 
-      !nrow(param$path_data)>0 | 
+      !ncol(param$path_data) == 4 | 
+      !nrow(param$path_data) > 0 | 
       any(!c("name", "type", "path", "stats") %in% colnames(param$path_data))) {
     
     error_messages = c(error_messages, "The parameter 'path_data' (table with count data information) is missing or is not a data.frame with three columns and at least one row or misses at least one of the following columns: 'name' (dataset name), 'type' (10x or smartseq2), 'path' (path to counts directory or file), 'stats' (path to 10x metrics summary file; can be NA)!")
@@ -305,71 +370,71 @@ check_parameters = function(param) {
     is_valid = purrr::map_lgl(datasets_10x$path, function(p){
       return(dir.exists(p) & file.exists(paste(p,"barcodes.tsv.gz", sep="/")) & file.exists(paste(p,"features.tsv.gz", sep="/")) & file.exists(paste(p,"matrix.mtx.gz", sep="/")))
     })
-    if (length(is_valid)>0 & any(!is_valid)) {
+    if (length(is_valid) > 0 & any(!is_valid)) {
       error_messages = c(error_messages, "At least one 10x dataset 'path' of the parameter 'path_data' is not a directory or misses at least one of the following files: 'barcodes.tsv', 'features.tsv.gz', 'matrix.mtx.gz'!")
     }
   
     datasets_smartseq2 = param$path_data %>% dplyr::filter(type=="smartseq2")
     is_valid = purrr::map_lgl(datasets_smartseq2$path, file.exists)
-    if (length(is_valid)>0 & any(!is_valid)) {
+    if (length(is_valid) > 0 & any(!is_valid)) {
       error_messages = c(error_messages, "For at least one smartseq2 dataset, the 'path' of the parameter 'path_data' could not be found!")
     }
   
     is_valid = purrr::map_lgl(param$path_data$stats, function(p){
       if (is.na(p)) return(TRUE) else return(file.exists(p))
     })
-    if (length(is_valid)>0 && any(!is_valid)) {
+    if (length(is_valid) > 0 && any(!is_valid)) {
       error_messages = c(error_messages, "At least one 'stats' file of the parameter 'path_data' could not be found. If not available, please set to NA!")
     }
   }
-  # path_out
+  # Check path_out
   if (!"path_out" %in% names(param) || !dir.exists(dirname(dirname(dirname("."))))) {
     error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing or cannot be accessed!")
   }
   
-  # file_known_markers
+  # Check file_known_markers
   if (!is.null(param$file_known_markers) && !file.exists(param$file_known_markers)) {
     error_messages = c(error_messages, "The parameter 'file_known_markers' (Excel file with markers) is set but the file cannot be found. If not available, please set to NULL!")
   }
   
-  # mart_dataset
+  # Check mart_dataset
   if (!"mart_dataset" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'mart_dataset' (Biomart dataset name) is missing!")
   }
   
-  # annot_version
+  # Check annot_version
   if (!"annot_version" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'annot_version' (Ensembl version) is missing!")
   }
   
-  # annot_main
+  # Check annot_main
   if (!"annot_main" %in% names(param) |
       any(!c("ensembl", "symbol", "entrez") %in% names(param$annot_main))) {
     error_messages = c(error_messages, "The parameter 'annot_main' is missing or is not a named vector with names 'ensembl', 'smybol' and 'entrez' as well as corresponding values!")
   }
   
-  # file_annot
+  # Check file_annot
   if (!is.null(param$file_annot) && !file.exists(param$file_annot)) {
     error_messages = c(error_messages, "The parameter 'file_annot' (annotation file) is set but the file cannot be found. If not available, please set to NULL!")
   }
   
-  # mart_attributes
+  # Check mart_attributes
   if (!"mart_attributes" %in% names(param) || !is.vector(param$mart_attributes) || length(param$mart_attributes)==0) {
     error_messages = c(error_messages, "The parameter 'mart_attributes' (Biomart attributes) is missing or is not a non-empty vector!")
   }
   
-  # biomart_mirror
+  # Check biomart_mirror
   if (!is.null(param$biomart_mirror) && !param$biomart_mirror %in% c("www", "useast", "uswest", "asia")) {
     error_messages = c(error_messages, "The parameter 'biomart_mirror' (Biomart mirror) is set but does not contain one of the following values: 'www', 'uswest', 'useast' ,'asia'!")
   }
   
-  # mt
+  # Check mt
   if (!"mt" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'mt' (prefix of mitochondrial genes) is missing!")
   }
   
-  # cell_filter: can be numeric with length 2 or character or factor with any length; can also contain sublists per sample with the same criteria
-  if ("cell_filter" %in% names(param) && length(param$cell_filter)>0) {
+  # Check cell_filter: can be numeric with length 2 or character or factor with any length; can also contain sublists per sample with the same criteria
+  if ("cell_filter" %in% names(param) && length(param$cell_filter) > 0) {
     is_valid = purrr::map_lgl(param$cell_filter, function(f) {
       if (is.list(f)) {
         return(any(!purrr::map_lgl(f, function(g){
@@ -384,11 +449,11 @@ check_parameters = function(param) {
     }
   }
   
-  # feature_filter: so far only contains: min_counts and min_cells; can also contain sublists per sample with the same criteria
+  # Check feature_filter: so far only contains: min_counts and min_cells; can also contain sublists per sample with the same criteria
   if (!"feature_filter" %in% names(param) || !is.list(param$feature_filter)) {
     error_messages = c(error_messages, "The parameter 'feature_filter' is missing or not a list!")
   } else {
-    if ("feature_filter" %in% names(param) && length(param$feature_filter)>0) {
+    if ("feature_filter" %in% names(param) && length(param$feature_filter) > 0) {
       is_valid = sum(c("min_counts", "min_cells") %in% names(param$feature_filter))==2
       if (!is_valid) {
         is_valid = purrr::map_lgl(param$feature_filter, function(f) {
@@ -401,94 +466,108 @@ check_parameters = function(param) {
     }
   }
   
-  # samples_to_drop
+  # Check samples_to_drop
   if ("samples_to_drop" %in% names(param) && !is.character(param$samples_to_drop)) {
     error_messages = c(error_messages, "The parameter 'samples_to_drop' is not a character vector. Please set to NULL if there are no samples to drop!")
   }
   
-  # samples_min_cells
+  # Check samples_min_cells
   if ("samples_min_cells" %in% names(param) && !is.numeric(param$samples_min_cells)) {
     error_messages = c(error_messages, "The parameter 'samples_min_cells' must be a number specifying the minimum number of cells a sample must have. Please set to NULL if there is no minimum!")
   }
   
-  # cc_remove
+  # Check cc_remove
   if (!"cc_remove" %in% names(param) || !is.logical(param$cc_remove)) {
     error_messages = c(error_messages, "The parameter 'cc_remove' (correct for cell cycle) is missing or is not a logical value!")
   }
 
-  # cc_remove_all
+  # Check cc_remove_all
   if (!"cc_remove_all" %in% names(param) || !is.logical(param$cc_remove_all)) {
     error_messages = c(error_messages, "The parameter 'cc_remove_all' (remove all cell cycle) is missing or is not a logical value!")
   }
   
-  # vars_to_regress
+  # Check vars_to_regress
   if ("vars_to_regress" %in% names(param) && !is.character(param$vars_to_regress)) {
     error_messages = c(error_messages, "The parameter 'vars_to_regress' is not a character vector. Please set to NULL if there are no variables to regress out!")
   }
   
-  # latent_vars
+  # Check latent_vars
   if ("latent_vars" %in% names(param) && !is.character(param$latent_vars)) {
     error_messages = c(error_messages, "The parameter 'latent_vars' is not a character vector. Please set to NULL if there are no variables to included in statistical tests!")
   }
   
-  # integrate_samples
+  # Check integrate_samples
   if (!"integrate_samples" %in% names(param) || !is.list(param$integrate_samples)) {
     error_messages = c(error_messages, "The parameter 'integrate_samples' is missing or not a list!")
   } else {
-    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "standard", "reference", "reciprocal")) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge), 'standard' (integrate), 'reference' (integrate based on reference), 'reciprocal' (fast integrate in PCA space)!")
+    if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "integrate")) {
+      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
     }
     
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("standard", "reference", "reciprocal") && !"dimensions" %in% names(param$integrate_samples)) {
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("integrate") && !"dimensions" %in% names(param$integrate_samples)) {
       error_messages = c(error_messages, "The sub parameter 'dimensions' of parameter 'integrate_samples' is missing. Please specify the number of dimensions to include for integration!")
-    }
-    
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("reference") && !"reference" %in% names(param$integrate_samples)) {
-      error_messages = c(error_messages, "The sub parameter 'reference' of parameter 'integrate_samples' is missing. Please specify the reference sample to use for integration!")
     }
   }
 
-  # normalisation_default
+  # Check normalisation_default
   if (!"norm" %in% names(param) || !param$norm %in% c("RNA", "SCT")) {
     error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
   }
 
-  # pc_n
+  # Check pc_n
   if (!"pc_n" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'pc_n' is missing!")
   }
 
-  # cluster_resolution
+  # Check cluster_resolution
   if (!"cluster_resolution" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'cluster_resolution' is missing!")
   }
 
-  # padj
-  if (!"padj" %in% names(param)) {
+  # Check marker_padj
+  if (!"marker_padj" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'padj' is missing!")
   }
 
-  # log2FC
-  if (!"log2FC" %in% names(param)) {
+  # Check marker_log2FC
+  if (!"marker_log2FC" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'log2fc' is missing!")
   }
+  
+  # Check deg_contrasts
+  if ("deg_contrasts" %in% names(param) & !is.null(param$deg_contrasts)) {
+    if (is.character(param$deg_contrasts) && file.exists(param$deg_contrasts)) {
+      deg_contrasts_table = openxlsx::read.xlsx(param$deg_contrasts)
+    } else {
+      deg_contrasts_table = param$deg_contrasts
+    }
+    
+    if (!is.data.frame(param$deg_contrasts)) {
+      error_messages = c(error_messages, "The parameter 'deg_contrasts' must be either a data.frame or an existing Excel file with a valid table in the first sheet!")
+    } else {
+      if (!all(c("condition_column","condition_group1", "condition_group2") %in% colnames(deg_contrasts_table))){
+        error_messages = c(error_messages, "The table specified by parameter 'deg_contrasts' must contain the following columns: 'condition_column', 'condition_group1' and 'condition_group2'!")
+      }
+      
+    }
+  }
 
-  # p_enrichr
-  if (!"p_enrichr" %in% names(param)) {
+  # Check enrichr_padj
+  if (!"enrichr_padj" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'p_enrichr' is missing!")
   }
 
-  # col
+  # Check col
   if (!"col" %in% names(param) || !param$col %in% colors()) {
     error_messages = c(error_messages, "The parameter 'col' is missing or not a valid colour!")
   }
 
-  # col_palette_samples
+  # Check col_palette_samples
   if (!"col_palette_samples" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'col_palette_samples' is missing!")
   }
   
-  # col_palette_clusters
+  # Check col_palette_clusters
   if (!"col_palette_clusters" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'col_palette_clusters' is missing!")
   }
@@ -497,6 +576,7 @@ check_parameters = function(param) {
 }
 
 # Checks if python is valid.
+#'
 #' @return Returns a list with error messages.
 check_python = function() {
   error_messages = c()
@@ -512,7 +592,21 @@ check_python = function() {
   return(error_messages)
 }
 
-# Checks if enrichR is live.
+# Checks if pandoc is valid.
+#'
+#' @return Returns a list with error messages.
+check_pandoc = function() {
+  error_messages = c()
+  
+  if (nchar(Sys.which("pandoc")) == 0) {
+    return("Pandoc is not installed on this system or not found in the specified path!")
+  }
+
+  return(error_messages)
+}
+
+#' Checks if enrichR is live.
+#'
 #' @param databases The enrichR databases to use.
 #' @return Returns a list with error messages.
 check_enrichr = function(databases) {
@@ -523,8 +617,12 @@ check_enrichr = function(databases) {
     return("EnrichR is not available or cannot connect to the databases")
   }
   
-  # Are the databases available
-  available_databases = enrichR::listEnrichrDbs()[,"libraryName"]
+  # Are databases available at all
+  available_databases = tryCatch({ enrichR::listEnrichrDbs()[,"libraryName"] }, error=function(e) {return(NULL) })
+  if (is.null(available_databases)) return("Could not list databases available at enrichR! Please check the enrichR vignette!")
+  
+  
+  # Are the requested databases available
   are_valid = databases %in% available_databases
   if (any(!are_valid)) {
     return(paste("The following enrichR databases are not available:",paste(databases[!are_valid],collapse=", "),"!"))
@@ -533,7 +631,17 @@ check_enrichr = function(databases) {
   return(c())
 }
 
-# Checks if all required packages are installed.
+#' Checks if packages are installed.
+#'
+#' @param packages A character vector with package names.
+#' @return Logical vector with TRUE for installed and FALSE for not installed
+packages_installed = function(packages) {
+  return(packages %in% installed.packages()[ , "Package"])
+}
+
+
+#' Checks if all required packages are installed.
+#'
 #' @return Returns a list with error messages.
 check_installed_packages = function() {
   required_packages = c("Seurat", "ggplot2", "patchwork", "magrittr",
@@ -544,8 +652,7 @@ check_installed_packages = function() {
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
                         "knitcitations")
   
-  is_installed = required_packages %in% installed.packages()[,"Package"]
-  
+  is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {
     return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
@@ -553,7 +660,8 @@ check_installed_packages = function() {
   }
 }
 
-# Checks if Ensembl annotation is available
+#' Checks if Ensembl annotation is available.
+#'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.
 #' @param mirror Ensembl mirror.
@@ -583,3 +691,48 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes) {
 
   return(error_messages)
 }
+
+#' On error, R will not start a debugger but just print a traceback. For non-interactive use.
+#' @return None.
+on_error_just_print_traceback = function(x) {
+  options(rlang_trace_top_env = rlang::caller_env())
+  options(error = function() {
+    sink()
+    print(rlang::trace_back(bottom = sys.frame(-1)), simplify = "none")
+  })
+  return(invisible(NULL))
+}
+
+#' On error, R will start a debugger on the terminal. For interactive use without X11.
+#' @return None.
+on_error_start_terminal_debugger = function(x) {
+  options(error = function() {
+    sink()
+    recover()
+  })
+  return(invisible(NULL))
+}
+
+#' On error, R will run the default debugging process. Default.
+#' @return None.
+on_error_default_debugging = function(x) {
+  return(invisible(NULL))
+}
+
+#' Wrapper around citep and citet. Takes care of connection problems.
+#'
+#' @param reference Argument for citep or citet.
+#' @param type Use 'citet' or 'citep'.
+#' @return Returns the output of citep or citet.
+Cite = function(reference, type="citet") {
+  formatted = tryCatch({
+    if (type=="citet") knitcitations::citet(reference) else knitcitations::citep(reference)
+  },
+  error=function(cond) {
+    return(NULL)
+  })
+  
+  if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
+  return(formatted)
+}
+
