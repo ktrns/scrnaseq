@@ -270,7 +270,7 @@ git_files_to_source = c("R/functions_io.R",
               "R/functions_util.R")
 git_files_to_source = paste(param$path_to_git, git_files_to_source, sep="/")
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
-if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
+if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
 invisible(purrr::map(git_files_to_source, source))
 
 # Debugging mode: 
@@ -1368,7 +1368,7 @@ p1 = ggplot(sc[[]], aes(x=S.Score, y=G2M.Score, colour=Phase)) +
   AddStyle(col=Misc(sc, "colour_lists")[["Phase"]])
 
 p2 = ggplot(sc@meta.data %>% 
-              dplyr::group_by(seurat_clusters,Phase) %>% 
+              dplyr::group_by(seurat_clusters, Phase) %>% 
               dplyr::summarise(num_reads=length(Phase)), 
             aes(x=seurat_clusters, y=num_reads, fill=Phase)) + 
   geom_bar(stat="identity", position="fill") + 
@@ -1376,7 +1376,16 @@ p2 = ggplot(sc@meta.data %>%
   scale_y_continuous("Fraction of cells") + 
   AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]])
 
-p = p1 + p2 & theme(legend.position="bottom")
+p3 = ggplot(sc@meta.data %>% 
+              dplyr::group_by(orig.ident, Phase) %>% 
+              dplyr::summarise(num_reads=length(Phase)), 
+            aes(x=orig.ident, y=num_reads, fill=Phase)) + 
+  geom_bar(stat="identity", position="fill") + 
+  scale_y_continuous("Fraction of cells") +
+  AddStyle() + 
+  theme(axis.text.x = element_text(angle=30, hjust=1, vjust=1)) + xlab("")
+
+p = p1 + p2 + p3 & theme(legend.position="bottom")
 p = p + patchwork::plot_annotation(title="Cell cycle phases")
 p
 ```
@@ -1665,6 +1674,9 @@ We use the term "marker genes" to specifically describe genes that are up-regula
 ```{r degs_table, eval=markers_found}
 if (markers_found) {
   markers_top = DegsUpDisplayTop(markers_filt$up, n=5)
+  
+  # Add labels
+  markers_top$labels = paste0(markers_top$cluster, ": ", markers_top$gene)
 
   # Show table
   knitr::kable(markers_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
@@ -1675,134 +1687,79 @@ if (markers_found) {
 
 
 ## Visualisation of top marker genes {.tabset}
-The following plots are exemplary to how we can visualise differentially expressed genes using the Seurat R-package. The selected genes are the top marker genes for each cluster, respectively. 
-```{r markers_plot, eval=markers_found}
-if (markers_found) {
-  # Get top 1 gene per cluster and plot
-  if (nrow(markers_filt$all) > 0) {
-    markers_examples = markers_filt$up %>% 
-      dplyr::group_by(cluster) %>% 
-      dplyr::top_n(n=1, wt=avg_log2FC) %>% 
-      dplyr::select(cluster, gene) %>% 
-      as.data.frame()
-  } else { 
-    markers_examples = data.frame(cluster=numeric(), gene=character())
-  }
-  markers_examples = setNames(markers_examples$gene, paste0(markers_examples$cluster, ": ", markers_examples$gene))
-}
-```
+The following plots visualise the top marker genes for each cluster, respectively. Clear marker genes indicate good clusters that represent cell types. 
 
 ```{r markers_fig_heights}
 # Note: We need to run this chunk as it specifies a variable that is used in chunk definitions below
 if (markers_found) {
-  # Each row contains 2 plots
-  nr_rows = ceiling(length(markers_examples)/2)
 
-  # The height of each plot might depend on the number of clusters 
-  height_per_row = max(2, 0.3 * length(unique(Idents(sc))))
-
-  # Total height of plots 
-  fig_height_markers = max(5, height_per_row * nr_rows)
+  # Feature plots and violin plots: each row contains 5 plots
+  #   Row height is not dependent on the number of clusters
+  #   The plot has 5 columns and 1 row per cluster, hence the layout works nicely if we find 
+  #     at least 5 markers per cluster
+  nr_rows_5cols = ceiling(nrow(markers_top)/5)
+  fig_height_5cols = nr_rows_5cols * 3
+  
+  # Dotplots: each row contains 2 plots
+  #   Row height is dependent on the number of clusters 
+  nr_rows_dp_2cols = ceiling(length(levels(sc$seurat_clusters))/2)
+  fig_height_dp_2cols = nr_rows_dp_2cols * max(4, 0.5 * length(unique(Idents(sc))))
+  
 } else {
-  fig_height_markers = 7
+  fig_height_5cols = fig_height_dp_2cols = 7 
 }
 ```
 
 ### Feature plots
-```{r markers_plot_umap, eval=markers_found, fig.height=fig_height_markers}
+```{r markers_plot_umap, eval=markers_found, fig.height=fig_height_5cols}
 if (markers_found) {
-  # Shows gene expression on the UMAP
-  p_list = Seurat::FeaturePlot(sc, features=markers_examples, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i])
-  p = patchwork::wrap_plots(p_list, ncol=2) + 
-    patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data, top 1 marker gene per cluster")
+  # First plot per cluster to adjust the colours accordingly, and combine it all at the end
+  p_list=list()
+  for(cl in levels(sc$seurat_clusters)) {
+    p_list[[cl]] = Seurat::FeaturePlot(sc, features=markers_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(gene), 
+                                       cols=c("lightgrey", param$col_clusters[cl]), combine=FALSE, label=TRUE)
+    for (i in seq(p_list[[cl]])) p_list[[cl]][[i]] = p_list[[cl]][[i]] + 
+        AddStyle(title=(markers_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(labels))[i], 
+                 xlab="", ylab="", 
+                 legend_position="bottom")
+  }
+  
+  # Flatten the plot structure
+  p_list = unlist(p_list, recursive=FALSE)
+  p = patchwork::wrap_plots(p_list, ncol=5) + 
+    patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data, top marker genes per cluster")
   p
 }
 ```
 
-### Violin plots (raw)
-```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_markers}
-if (markers_found) {
-  # Violin plot of raw gene expression counts
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE, pt.size=0.2)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
-                                                              legend_title="Cluster", 
-                                                              fill=param$col_clusters, 
-                                                              xlab="Cluster")
-  p = patchwork::wrap_plots(p_list, ncol=2) + 
-    patchwork::plot_annotation(title="Violin plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
-  suppressMessages(p)
-}
-```
-
 ### Violin plots (normalised)
-```{r markers_plot_violin_norm, eval=markers_found, fig.height=fig_height_markers}
+```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_5cols}
 if (markers_found) {
-  # Violin plot of normalised gene expression data
-  p_list = Seurat::VlnPlot(sc, features=markers_examples, combine=FALSE, pt.size=0.2)
-  for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
-                                                              legend_title="Cluster", 
-                                                              fill=param$col_clusters, 
-                                                              xlab="Cluster") 
-  p = patchwork::wrap_plots(p_list, ncol=2) + 
-    patchwork::plot_annotation(title="Violin plot of normalised gene expression data, top 1 marker gene per cluster") +
-    patchwork::plot_layout(guides="collect") &
-    theme(legend.position="bottom")
-  suppressMessages(p)
-}
-```
-
-### Ridge plots (raw)
-```{r markers_plot_ridge_raw, eval=markers_found, fig.height=fig_height_markers, message=FALSE}
-if (markers_found) {
-  # Ridge plot of raw gene expression counts
-  p_list = Seurat::RidgePlot(sc, features=markers_examples, assay="RNA", slot="counts", combine=FALSE)
-  for (i in seq(p_list)) {
-    p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
-                                         legend_title="Cluster", 
-                                         fill=param$col_clusters, 
-                                         ylab="Cluster")
+  # Plot violin plots per marker gene, and combine it all at the end
+  # This layout works out nicely if there are 5 marker genes per cluster
+  p_list=list()
+  for(i in 1:nrow(markers_top)) { 
+    p_list[[i]] = Seurat::VlnPlot(sc, features=markers_top$gene[i], assay="RNA", pt.size=0, cols=param$col_clusters) + 
+      AddStyle(title=markers_top$labels[i], xlab="")
   }
-  p = patchwork::wrap_plots(p_list, ncol=2) + 
-    patchwork::plot_annotation(title="Ridge plot of raw gene expression counts, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides="collect") &
-    theme(legend.position="bottom")
-  suppressMessages(p)
+  p = patchwork::wrap_plots(p_list, ncol=5) + 
+    patchwork::plot_annotation(title="Violin plot of for normalised gene expression data, top marker genes per cluster") & theme(legend.position="none")
+  p
 }
 ```
 
-### Ridge plots (normalised)
-```{r markers_plot_ridge_norm, eval=markers_found, fig.height=fig_height_markers, message=FALSE}
-if (markers_found) {
-  # Ridge plot of normalised gene expression data
-  p_list = Seurat::RidgePlot(sc, features=markers_examples, slot="data", combine=FALSE)
-  for (i in seq(p_list)) {
-    p_list[[i]] = p_list[[i]] + AddStyle(title=names(markers_examples)[i], 
-                                         legend_title="Cluster", 
-                                         fill=param$col_clusters, 
-                                         ylab="Cluster")
-  }
-  p = patchwork::wrap_plots(p_list, ncol=2) + 
-    patchwork::plot_annotation(title="Ridge plot of normalised and log-transformed gene expression data, top 1 marker gene per cluster") + 
-    patchwork::plot_layout(guides="collect") &
-    theme(legend.position="bottom")
-  suppressMessages(p)
-}
-```
-
-### Dot plot
-```{r markers_plot_dot, eval=markers_found, fig.height=fig_height_markers*2}
+### Dot plot (scaled)
+```{r markers_plot_dot_scaled, eval=markers_found, fig.height=fig_height_dp_2cols}
 if (markers_found) {
   # Visualises how feature expression changes across different clusters
+  # Plot dotplots per cluster, and combine it all at the end
   p_list = lapply(levels(sc$seurat_clusters), function(cl) {
     genes = markers_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(gene)
     if (length(genes) > 0) { 
-      genes = genes[length(genes):1]
       p = suppressMessages(Seurat::DotPlot(sc, features=genes) + 
         scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
-        AddStyle(title=paste0("Top markers (up-regulated genes) for cluster ", cl), ylab="Cluster", legend_position="bottom") + 
-        theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
+        AddStyle(title=paste0("Top marker genes for cluster ", cl, " (scaled)"), ylab="Cluster", legend_position="bottom") + 
+        theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
         guides(size=guide_legend(order=1)))
       return(p)
     } else { 
@@ -1811,8 +1768,33 @@ if (markers_found) {
     }
   })
   
-  p = patchwork::wrap_plots(p_list[!purrr::map_lgl(p_list, is.null)], ncol=2)
-  print(p)
+  p = patchwork::wrap_plots(p_list, ncol=2)
+  p
+}
+```
+
+### Dot plot (non-scaled)
+```{r markers_plot_dot_nonscaled, eval=markers_found, fig.height=fig_height_dp_2cols}
+if (markers_found) {
+  # Visualises how feature expression changes across different clusters
+  # Plot dotplots per cluster, and combine it all at the end
+  p_list = lapply(levels(sc$seurat_clusters), function(cl) {
+    genes = markers_top %>% dplyr::filter(cluster==cl) %>% dplyr::pull(gene)
+    if (length(genes) > 0) { 
+      genes = genes[length(genes):1]
+      p = suppressMessages(DotPlotUpdated(sc, features=genes, scale=FALSE, cols=c("lightgrey", param$col)) + 
+        AddStyle(title=paste0("Top marker genes for cluster ", cl, " (not scaled)"), ylab="Cluster", legend_position="bottom") + 
+        theme(axis.text.x = element_text(angle=90, hjust=1, vjust=.5)) + 
+        guides(size=guide_legend(order=1)))
+      return(p)
+    } else { 
+      message("No up-regulated genes for cluster ", cl, ".")
+      return(NULL)
+    }
+  })
+      
+  p = patchwork::wrap_plots(p_list, ncol=2)
+  p
 }
 ```
 
@@ -1856,7 +1838,7 @@ for (cl in levels(sc$seurat_clusters)) {
     dplyr::top_n(n=n_genes_max_dotplot, wt=p_val_adj_score) %>% 
     dplyr::pull(gene)
   if (length(markers_filt_up_cl_top) > 0) {
-    p_list[[cl]] = Seurat::DotPlot(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident", scale=FALSE, cols=c("lightgrey", param$col)) +
+    p_list[[cl]] = DotPlotUpdated(sc, features=markers_filt_up_cl_top, idents=cl, group.by="orig.ident", scale=FALSE, cols=c("lightgrey", param$col)) +
       AddStyle(title=paste0("Up to ", n_genes_max_dotplot, " markers (up-regulated genes) for cluster ", cl, " (not scaled)"), ylab="Cluster", legend_position="bottom") + 
       theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) + 
       guides(size=guide_legend(order=1))
