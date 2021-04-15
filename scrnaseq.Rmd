@@ -49,7 +49,7 @@ library(future) # multicore support for Seurat
 # Knit: knitr
 # Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
 # Tables: kableExtra, DT
-# Plots: ggsci, ggpubr
+# Plots: ggsci
 # IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
 # DEG: mast
@@ -98,7 +98,7 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
-param$downsample_cells_n = NULL
+param$downsample_cells_n = 100
 
 # Path to output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -230,7 +230,8 @@ param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", 
                                  condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
                                  subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
                                  subset_group=c(NA, "", "1;2"),
-                                 downsample_cells_n=c(NA, 50, 30))
+                                 downsample_cells_n=c(NA, 50, 30),
+                                 log2FC=log2(c(1.5, 1.5, 1.5)))
 
 # P-value threshold for functional enrichment tests
 param$enrichr_padj = 0.05
@@ -298,8 +299,6 @@ error_messages = c()
 error_messages = c(error_messages, check_installed_packages())
 # Check python
 error_messages = c(error_messages, check_python())
-# Check pandoc
-error_messages = c(error_messages, check_pandoc())
 # Check parameters
 error_messages = c(error_messages, check_parameters(param))
 # Check enrichR
@@ -575,7 +574,7 @@ param$feature_filter = purrr::map(list_names(sc), function(s) {
 ```{r qc_calculate_cells}
 # Calculate percentage of counts in mitochondrial genes for each Seurat object
 sc = purrr::map(sc, function(s) {
-  mt_features = grep(pattern=param$mt, rownames(sc), value=TRUE)
+  mt_features = grep(pattern=param$mt, rownames(s), value=TRUE)
   return(Seurat::PercentageFeatureSet(s, features=mt_features, col.name="percent_mt", assay="RNA"))
 })
 
@@ -1145,7 +1144,6 @@ p = PlotRLE(as.matrix(log2(GetAssayData(subset(sc, cells=cells_RLE_subset), assa
             col=param$col_samples) + 
   labs(title="log2(raw counts + 1)")
 p
-rm(data_RLE_raw)
 ```
 
 ### Normalised data
@@ -1226,8 +1224,10 @@ For the current dataset, `r param$pc_n` PCs were chosen.
 Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm `r Cite("10.1038/s41598-019-41695-z", "citep")`. 
 ```{r clustering}
 # Construct phylogenetic tree relating the 'average' cell from each sample
-sc = Seurat::BuildClusterTree(sc, features=rownames(sc), verbose=FALSE)
-Seurat::Misc(sc, "trees") = list(orig.ident = Seurat::Tool(sc, "Seurat::BuildClusterTree"))
+if (length(levels(sc$orig.ident)) > 1) {
+  sc = suppressWarnings(Seurat::BuildClusterTree(sc, features=rownames(sc), verbose=FALSE))
+  Seurat::Misc(sc, "trees") = list(orig.ident = Seurat::Tool(sc, "Seurat::BuildClusterTree"))
+}
 
 # The number of clusters can be optimized by tuning 'resolution' -> based on feedback from the client whether or not clusters make sense
 # Choose the number of PCs to use for clustering
@@ -1237,8 +1237,10 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
 sc = Seurat::FindClusters(sc, resolution=param$cluster_resolution, algorithm=4, verbose=FALSE, method="igraph")
 
 # Construct phylogenetic tree relating the 'average' cell from each cluster
-sc = Seurat::BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE)
-Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Tool(sc, "Seurat::BuildClusterTree")))
+if (length(levels(sc$seurat_clusters)) > 1) {
+  sc = suppressWarnings(Seurat::BuildClusterTree(sc, dims=1:param$pc_n, verbose=FALSE))
+  suppressWarnings({Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Tool(sc, "Seurat::BuildClusterTree")))})
+}
 
 # Set up colors for clusters and add the sc object
 cluster_names = levels(sc$seurat_clusters)
@@ -1382,7 +1384,7 @@ p3 = ggplot(sc@meta.data %>%
             aes(x=orig.ident, y=num_reads, fill=Phase)) + 
   geom_bar(stat="identity", position="fill") + 
   scale_y_continuous("Fraction of cells") +
-  AddStyle() + 
+  AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]]) + 
   theme(axis.text.x = element_text(angle=30, hjust=1, vjust=1)) + xlab("")
 
 p = p1 + p2 + p3 & theme(legend.position="bottom")
@@ -2017,14 +2019,14 @@ if (markers_found) {
 # Differentially expressed genes
 If requested, we identify genes that are differentially expressed between two groups of cells. Groups can be defined by columns in the cell metadata. Different types of tests can be used and input data for testing can be the different assays as well as the computed dimensionality reductions. Resulting _p_-values are adjusted using the Bonferroni method. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
 
-```{r computing_deg_contrasts, warning=FALSE, results="hide"}
+```{r degs_test_contrasts}
 # We first compute the DEGs for all requested contrasts
 
 # Prepare a list with contrasts (input can be R data.frame table or Excel file)
 degs_contrasts_list = DegsSetupContrastsList(sc, param$deg_contrasts, param$latent_vars)
 
 # Add the actual data to the list
-degs_contrasts_list = purrr::map(degs_contrasts_list[1], function(contrast){
+degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){
   # If there were already errors, just return
   if (length(contrast[["error_messages"]]) > 0) return(c(contrast, list(object=NULL, cells_group1_idx_subset=as.integer(), cells_group2_idx_subset=as.integer())))
   
@@ -2038,14 +2040,16 @@ degs_contrasts_list = purrr::map(degs_contrasts_list[1], function(contrast){
     contrast[["object"]] = Seurat::Reductions(sc, slot=contrast[["assay"]])
   } else {
     # Use assay
-    contrast[["object"]] = Seurat::GetAssay(sc[,unique(c(cells_group1_idx,cells_group2_idx))], assay=contrast[["assay"]])
+    contrast[["object"]] = Seurat::GetAssay(sc[,unique(c(cells_group1_idx, cells_group2_idx))], assay=contrast[["assay"]])
     
     # This saves a lot of memory for parallelisation
     if (contrast[["slot"]]!="scale.data") contrast[["object"]]@scale.data = new(Class='matrix')
   }
   
   # Variable latent vars must be passed as data.frame
-  if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]]) > 0) contrast[["latent_vars"]] = sc[[unique(c(cells_group1_idx,cells_group2_idx)), contrast[["latent_vars"]], drop=FALSE]]
+  if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]]) > 0) {
+    contrast[["latent_vars"]] = sc[[unique(c(cells_group1_idx, cells_group2_idx)), contrast[["latent_vars"]], drop=FALSE]]
+  }
   
   # Now update cell indices so that they match to subset
   contrast[["cells_group1_idx_subset"]] = match(colnames(sc)[cells_group1_idx], colnames(contrast[["object"]]))
@@ -2054,11 +2058,13 @@ degs_contrasts_list = purrr::map(degs_contrasts_list[1], function(contrast){
   return(contrast)
 })
 
-# Compute the tests; TODO: this chunk may be done in parallel in future
-degs_contrasts_results = purrr::map(degs_contrasts_list[1], function(contrast) {
+# Compute the tests
+# TODO: this chunk may be done in parallel in future
+degs_contrasts_results = purrr::map(degs_contrasts_list, function(contrast) {
   if (length(contrast$error_messages)==0) {
     # No errors, do contrast
-    test_results = DegsTestCellSets(object=contrast[["object"]],
+    test_results = suppressWarnings(
+      DegsTestCellSets(object=contrast[["object"]],
                                    slot=contrast[["slot"]],
                                    cells_1=colnames(contrast[["object"]])[contrast[["cells_group1_idx_subset"]]],
                                    cells_2=colnames(contrast[["object"]])[contrast[["cells_group2_idx_subset"]]],
@@ -2067,6 +2073,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_list[1], function(contrast) {
                                    test.use=contrast[["test"]],
                                    min.pct=contrast[["min_pct"]],
                                    latent.vars=contrast[["latent_vars"]])
+    )
   } else {
     # Errors, return empty data.frame
     test_results = DegsEmptyResultsTable()
@@ -2091,8 +2098,11 @@ degs_contrasts_results = purrr::map(degs_contrasts_list[1], function(contrast) {
 
 # Also remove objects from deg_contrasts_list (save memory)
 degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){ contrast[["object"]] = NULL; return(contrast)})
+```
 
-# Compute enrichr results (not in parallel due to server load)
+```{r degs_enrichr, warning=FALSE, results="hide"}
+# Use the existing variable and add Enrichr results
+# Not in parallel due to server load
 degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   # Get results table
   results_table = contrast$results
@@ -2132,9 +2142,11 @@ degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
   enrichr_results = rbind(enrichr_results_up, enrichr_results_down)
   return(c(contrast, list(enrichr=enrichr_results)))
 })
+```
 
+```{r degs_write_results}
 # Now regroup list so that subsets are together again
-original_contrast_rows = purrr::map_int(degs_contrasts_results, function(contrast){return(contrast[["contrast_row"]]) })
+original_contrast_rows = purrr::map_int(degs_contrasts_results, function(contrast){ return(contrast[["contrast_row"]]) })
 degs = split(degs_contrasts_results, original_contrast_rows)
 
 # Write degs to files
@@ -2154,12 +2166,12 @@ output_files[["degs"]] = purrr::map_chr(degs, function(degs_subsets) {
   return(file)
 })
 
-# Write enrichr results to files
+# Write Enrichr results to files
 output_files[["degs_enrichr"]] = purrr::map_chr(degs, function(degs_subsets) {
   # The output file
   file = paste0(param$path_out, "/degs_contrast_row_", degs_subsets[[1]][["contrast_row"]], "_functions.xlsx")
   
-  # Write enrichr results
+  # Write Enrichr results
   degs_subsets_enrichr = purrr::map(degs_subsets, function(contrast) {return(contrast[["enrichr"]])})
   names(degs_subsets_enrichr) = purrr::map_chr(degs_subsets, function(contrast) {return(ifelse(!is.na(contrast[["subset_group"]]), contrast[["subset_group"]], "All"))})
   file = EnrichrWriteResults(degs_subsets_enrichr, file=file)
@@ -2171,8 +2183,50 @@ output_files[["degs_enrichr"]] = purrr::map_chr(degs, function(degs_subsets) {
 Misc(sc, "degs") = degs
 ```
 
+```{r degs_plots}
+for (i in seq(degs)) { 
+  for (j in seq(degs[[i]])) {
 
-```{r deg_summary, results="asis", fig.show="asis"}
+    # Average expression of all genes
+    x = subset(sc, cells=degs[[i]][[j]]$cells_group2_idx) %>% GetAssayData(slot="data")
+    x = log2(Matrix::rowMeans(expm1(x)) + 1)
+    y = subset(sc, cells=degs[[i]][[j]]$cells_group1_idx) %>% GetAssayData(slot="data") 
+    y = log2(Matrix::rowMeans(expm1(y)) + 1)
+    tmp = cbind(x=x, y=y) %>% as.data.frame()
+    tmp = cbind(tmp, col=rep("none", nrow(tmp)))
+    tmp = cbind(tmp, gene=rownames(sc))
+    lims = c(min(c(x, y)), max(x, y))
+    
+    ## Color DEGs
+    up = degs[[i]][[j]]$results %>% dplyr::filter(avg_log2FC > 0) %>% dplyr::pull(gene)
+    if (length(up) > 0) tmp[up, "col"] = "up"
+    down = degs[[i]][[j]]$results %>% dplyr::filter(avg_log2FC < 0) %>% dplyr::pull(gene)
+    if (length(down) > 0) tmp[down, "col"] = "down"
+    cols = c(none="grey", up="darkgoldenrod1", down="steelblue")
+
+    ## Plots
+    degs[[i]][[j]]$plot_scatter = ggplot(tmp %>% dplyr::arrange(col, gene), aes(x=x, y=y, col=col)) + 
+      geom_abline(slope=1, intercept=0, col="lightgrey") + 
+      geom_abline(slope=1, intercept=c(-degs[[i]][[j]]$log2FC, degs[[i]][[j]]$log2FC), col="lightgrey", lty=2) + 
+      geom_point() + 
+      xlim(lims) + ylim(lims) +
+      AddStyle(xlab=degs[[i]][[j]]$condition_group1, ylab=degs[[i]][[j]]$condition_group2, 
+               col=cols, legend_position="bottom", legend_title="Filtered genes")
+
+    # Feature plot of top 5 genes, sorted by the p-value
+    degs_top = degs[[i]][[j]]$results %>% dplyr::top_n(n=-4, wt=p_val) %>% dplyr::top_n(n=-4, wt=avg_log2FC) %>% dplyr::pull(gene)
+    if (length(degs_top) > 0) {
+      p_list = Seurat::FeaturePlot(sc, features=degs_top, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
+      for (p in seq(p_list)) p_list[[p]] = p_list[[p]] + AddStyle(legend_position="bottom", xlab="", ylab="")
+      degs[[i]][[j]]$plot_feature = patchwork::wrap_plots(p_list, ncol=ifelse(length(degs_top) > 1, 2, 1))
+    } else {
+      degs[[i]][[j]]$plot_feature = NULL
+    }
+  }
+}
+```
+
+```{r deg_print_summary_to_html, results="asis", fig.show="asis"}
 knitr_header_string = '
 
 ## {{condition_column}}: {{condition_group1}} vs {{condition_group2}}
@@ -2213,7 +2267,7 @@ for (i in seq(degs)) {
   # Get error messages
   error_messages = unique(purrr::flatten_chr(purrr::map(degs_subsets, function(contrast){return(contrast[["error_messages"]])})))
 
-  # Create combined results table
+   # Create combined results table
   degs_subsets_results = purrr::map_dfr(degs_subsets, function(contrast) {
     subset_group_value = ifelse(!is.na(contrast[["subset_group"]]), contrast[["subset_group"]], "All")
     return(contrast[["results"]] %>% 
@@ -2224,7 +2278,7 @@ for (i in seq(degs)) {
                        DEGs_up=sum(avg_log2FC > 0),
                        DEGs_down=sum(avg_log2FC < 0)))
   }) %>% tibble::as_tibble()
-
+  
   # Print warnings/errors
   if (length(error_messages) > 0) {
     warning(error_messages)
@@ -2232,9 +2286,26 @@ for (i in seq(degs)) {
   
   # Print summary table
   cat(
-      knitr::kable(degs_subsets_results,align="l", caption="DEG summary", col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated"), format="html") %>%
+      knitr::kable(degs_subsets_results,
+                   align="l", caption="DEG summary", 
+                   col.names=c("Subset", "Cells in group 1", "Cells in group 2", "# DEGs", "# DEGs upregulated", "# DEGs downregulated"), 
+                   format="html") %>%
         kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
     )
+  
+  # Print plots per contrast
+  for (contrast in seq(degs_subsets)) {
+    p = degs_subsets[[contrast]]$plot_scatter | degs_subsets[[contrast]]$plot_feature
+    title = "Scatterplot and feature plots"
+    if (!is.na(degs_subsets[[contrast]]$subset_column)) {
+      title = paste0(title, " (subset ", degs_subsets[[contrast]]$subset_column, 
+                     ": ", degs_subsets[[contrast]]$subset_group, ")")
+    }
+    
+    p = p + patchwork::plot_annotation(title=title)
+    print(p)
+  }
+  
   cat('\n \n')
 } 
 ```
@@ -2310,10 +2381,14 @@ output_files[["gene_annotation"]] = file.path(param$path_out, "gene_annotation.x
 
 * Annotation files  
   + `r basename(param$file_annot)`: Table that contains several identifiers and annotation (columns) per gene (rows) (optional)   
-* Differentially expressed genes  
-  + degs_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
-* Functional enrichment of differentially expressed genes per cell cluster  
-  + Functions_DEG_down_cluster_1.xlsx, Functions_DEG_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Marker genes  
+  + markers_cluster_vs_rest.xlsx: Excel file with one tab per cell cluster  
+* Functional enrichment of marker genes per cell cluster  
+  + Functions_marker_down_cluster_1.xlsx, Functions_marker_up_cluster_1.xlsx, ...: Excel files with one tab per database
+* Differentially expressed genes
+  + degs_contrast_row_1_results.xlsx, degs_contrast_row_2_results.xlsx, ...: Excel files per test
+* Functional enrichment of differentially expressed genes 
+  + degs_contrast_row_1_functions.xlsx, degs_contrast_row_2_functions.xlsx, ...: Excel files per test
 * Loupe Cell Browser files  
   + Seurat2Loupe_umap.csv: Seurat UMAP 2D visualisation   
     Import to Loupe through "Import Projection"   
