@@ -181,6 +181,7 @@ param$vars_to_regress = c()
 #   - k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample))
 #   - k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
 #   - k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
+#   - k.score: How many neighbors for calculating scores (default: min(30, minimum number of cells in a sample))
 param$integrate_samples = list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
 
 # TO DISCUSS from Seurat vignette:
@@ -619,7 +620,7 @@ sc = purrr::map(list_names(sc), function(n) {
 })
 ```
 
-```{r qc_plot_cells, fig.asp=1}
+```{r qc_plot_cells, fig.width=10, fig.asp=0.5, fig.retina=2}
 # Plot QC metrics for cells
 cell_qc_features = c("nFeature_RNA", "nCount_RNA", "percent_mt")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "percent_ercc")
@@ -658,8 +659,21 @@ for (i in names(cell_qc_features)) {
                                              lty=2, col="firebrick")
   }
 }
-p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
-p
+#p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
+
+p_list = c(p_list, p_list)
+
+# p = 1
+patchwork::wrap_plots(p_list[1], ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
+
+# p = 2
+#patchwork::wrap_plots(p_list[1:2], ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
+
+# p = 3
+#patchwork::wrap_plots(p_list[1:3], ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
+#p
+
+knitr::knit_exit()
 ```
 
 ```{r qc_plot_correlation, fig.asp=0.6}
@@ -1071,7 +1085,8 @@ if (param$integrate_samples[["method"]]=="integrate") {
                       use_reciprocal_pca=param$integrate_samples[["use_reciprocal_pca"]], 
                       k_filter=param$integrate_samples[["k.filter"]], 
                       k_weight=param$integrate_samples[["k.weight"]], 
-                      k_anchor=param$integrate_samples[["k.anchor"]])
+                      k_anchor=param$integrate_samples[["k.anchor"]],
+                      k_score=param$integrate_samples[["k.score"]])
 
   # Re-score cell cycle effects after integration
   if (param$cc_rescore_after_merge) {
@@ -2162,7 +2177,7 @@ degs_contrasts_results = purrr::map(degs_contrasts_list, function(contrast) {
 degs_contrasts_list = purrr::map(degs_contrasts_list, function(contrast){ contrast[["object"]] = NULL; return(contrast)})
 
 # Compute enrichr results (not in parallel due to server load)
-degs_contrasts_results = purrr::map(degs_contrasts_results, function(contrast) {
+degs_contrasts_results = furrr::map_future(degs_contrasts_results, function(contrast) {
   # Get results table
   results_table = contrast$results
   

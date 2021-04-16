@@ -353,19 +353,21 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
   # Convert into list, do checks and set up defaults
   contrasts_list = split(contrasts_table, seq(nrow(contrasts_table)))
   contrasts_list = purrr::map(seq(contrasts_list), function(i) {
-    contrast = unlist(contrasts_list[[i]])
     
+    # Unlist does not keep the classes of the variables
+    contrast = list()
+    for(j in colnames(contrasts_list[[i]])) {
+      contrast[[j]] = contrasts_list[[i]][, j, drop=TRUE]
+      if(class(contrast[[j]]) == "character") contrast[[j]] = trimws(contrast[[j]])
+    }
     error_messages = c()
-    
-    # Deal with leading/trailing whitespaces
-    contrast = purrr::map(contrast, trimws)
     
     # Get condition_column
     if (contrast[["condition_column"]] %in% colnames(cell_metadata)) {
       
       # Get condition_group1; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group2 combined
       if (nchar(contrast[["condition_group1"]])==0) {
-        contrast[["condition_group1"]] = NA
+        contrast[["condition_group1"]] = as.character(NA)
       } else {
         
         condition_group1 = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator="+")
@@ -379,7 +381,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       
       # Get condition_group2; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group1 combined (see the actual DEG functions)
       if (nchar(contrast[["condition_group2"]])==0) {
-        contrast[["condition_group2"]] = NA
+        contrast[["condition_group2"]] = as.character(NA)
       } else {
         
         condition_group2 = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator="+")
@@ -396,8 +398,8 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     }
 
     # Get subset_column and subset_group (if available); subsets cells based on this column prior to testing
-    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = NA
-    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = NA
+    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = as.character(NA)
+    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = as.character(NA)
     
     if (!is.na(contrast[["subset_column"]])) {
       valid = TRUE
@@ -437,12 +439,15 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get padj
     if (!"padj" %in% names(contrast) || is.na(contrast[["padj"]])) contrast[["padj"]] = 0.05
+    contrast[["padj"]] = as.numeric(contrast[["padj"]])
     
     # Get log2FC
     if (!"log2FC" %in% names(contrast) || is.na(contrast[["log2FC"]])) contrast[["log2FC"]] = 0
+    contrast[["log2FC"]] = as.numeric(contrast[["log2FC"]])
     
     # Get min_pct
     if (!"min_pct" %in% names(contrast) || is.na(contrast[["min_pct"]])) contrast[["min_pct"]] = 0.1
+    contrast[["min_pct"]] = as.numeric(contrast[["min_pct"]])
     
     # Get assay
     if (!"assay" %in% names(contrast) || is.na(contrast[["assay"]])) contrast[["assay"]] = "RNA"
@@ -528,7 +533,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       is_in_condition_group1 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group1_values
       is_in_condition_group1 = is_in_condition_group1 & is_in_subset_group
     } else {
-      cells_condition_group1 = NA
+      cells_condition_group1 = as.character(NA)
     }
     
     # Do condition_group2
@@ -537,7 +542,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       is_in_condition_group2 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group2_values
       is_in_condition_group2 = is_in_condition_group2 & is_in_subset_group
     } else {
-      cells_condition_group2 = NA
+      cells_condition_group2 = as.character(NA)
     }    
     
     # If one of the condition groups is NA, set the cell names to the complement of the cells in the other condition group (and potential subset)

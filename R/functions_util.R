@@ -1,3 +1,20 @@
+#' Tests if values can be converted to numbers.
+#' 
+#' @param x A vector with values.
+#' @return TRUE if they can be converted otherwise FALSE.
+converts_to_number = function(x) {
+  return(suppressWarnings(!is.na(as.numeric(x))))
+}
+
+#' Tests if values can be converted to logical.
+#' 
+#' @param x A vector with values.
+#' @return TRUE if they can be converted otherwise FALSE.
+converts_to_logical = function(x) {
+  return(suppressWarnings(!is.na(as.logical(x))))
+}
+
+
 #' Given a vector, report at most n elements as concatenated string.
 #' 
 #' @param x A vector.
@@ -337,19 +354,21 @@ ScrnaseqParamsInfo = function(params) {
   return(out)
 }
 
-# Checks if the parameters are valid.
+# Checks if the parameters are valid and converts them if needed.
 #'
 #' @param param The parameter list.
 #' @return Returns a list with error messages.
 check_parameters = function(param) {
   error_messages = c()
   
-  # Check project_id
+  # Check project_id ###
   if (!"project_id" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'project_id' is missing!")
+  } else {
+    param$project_id = as.character(param$project_id)
   }
   
-  # Check path_data
+  # Check path_data ###
   if (!"path_data" %in% names(param) | 
       !is.data.frame(param$path_data) | 
       !ncol(param$path_data) == 4 | 
@@ -358,6 +377,11 @@ check_parameters = function(param) {
     
     error_messages = c(error_messages, "The parameter 'path_data' (table with count data information) is missing or is not a data.frame with three columns and at least one row or misses at least one of the following columns: 'name' (dataset name), 'type' (10x or smartseq2), 'path' (path to counts directory or file), 'stats' (path to 10x metrics summary file; can be NA)!")
   } else {
+    param$path_data$name = as.character(param$path_data$name)
+    param$path_data$type = as.character(param$path_data$type)
+    param$path_data$path = as.character(param$path_data$path)
+    param$path_data$stats = as.character(param$path_data$stats)
+    
     if (any(duplicated(param$path_data$name))) {
       error_messages = c(error_messages, "The column 'name' of the parameter 'path_data' must contain unique values!")
     }
@@ -368,7 +392,7 @@ check_parameters = function(param) {
     
     datasets_10x = param$path_data %>% dplyr::filter(type=="10x")
     is_valid = purrr::map_lgl(datasets_10x$path, function(p){
-      return(dir.exists(p) & file.exists(paste(p,"barcodes.tsv.gz", sep="/")) & file.exists(paste(p,"features.tsv.gz", sep="/")) & file.exists(paste(p,"matrix.mtx.gz", sep="/")))
+      return(dir.exists(p) & file.exists(file.path(p,"barcodes.tsv.gz")) & file.exists(file.path(p,"features.tsv.gz")) & file.exists(file.path(p,"matrix.mtx.gz")))
     })
     if (length(is_valid) > 0 & any(!is_valid)) {
       error_messages = c(error_messages, "At least one 10x dataset 'path' of the parameter 'path_data' is not a directory or misses at least one of the following files: 'barcodes.tsv', 'features.tsv.gz', 'matrix.mtx.gz'!")
@@ -387,151 +411,289 @@ check_parameters = function(param) {
       error_messages = c(error_messages, "At least one 'stats' file of the parameter 'path_data' could not be found. If not available, please set to NA!")
     }
   }
-  # Check path_out
-  if (!"path_out" %in% names(param) || !dir.exists(dirname(dirname(dirname("."))))) {
-    error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing or cannot be accessed!")
+  
+  # Check path_out ###
+  if (!"path_out" %in% names(param)) {
+    error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
+  } else {
+    param$path_out = gsub(pattern="\\/+$", replacement="", as.character(param$path_out))
   }
   
-  # Check file_known_markers
-  if (!is.null(param$file_known_markers) && !file.exists(param$file_known_markers)) {
-    error_messages = c(error_messages, "The parameter 'file_known_markers' (Excel file with markers) is set but the file cannot be found. If not available, please set to NULL!")
+  # Check file_known_markers ###
+  if (!is.null(param$file_known_markers)){
+    if (!file.exists(param$file_known_markers)) error_messages = c(error_messages, "The parameter 'file_known_markers' (Excel file with markers) is set but the file cannot be found. If not available, please set to NULL!")
+    param$file_known_markers = as.character(param$file_known_markers)
   }
   
-  # Check mart_dataset
+  # Check mart_dataset ###
   if (!"mart_dataset" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'mart_dataset' (Biomart dataset name) is missing!")
+  } else {
+    param$mart_dataset = as.character(param$mart_dataset)
   }
   
-  # Check annot_version
+  # Check annot_version ###
   if (!"annot_version" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'annot_version' (Ensembl version) is missing!")
+  } else {
+    param$annot_version = as.character(param$annot_version)
   }
   
-  # Check annot_main
+  # Check annot_main ###
   if (!"annot_main" %in% names(param) |
       any(!c("ensembl", "symbol", "entrez") %in% names(param$annot_main))) {
     error_messages = c(error_messages, "The parameter 'annot_main' is missing or is not a named vector with names 'ensembl', 'smybol' and 'entrez' as well as corresponding values!")
+  } else {
+    param$annot_main = as.character(param$annot_main)
   }
   
-  # Check file_annot
-  if (!is.null(param$file_annot) && !file.exists(param$file_annot)) {
-    error_messages = c(error_messages, "The parameter 'file_annot' (annotation file) is set but the file cannot be found. If not available, please set to NULL!")
+  # Check file_annot ###
+  if (!is.null(param$file_annot)) {
+    if (!file.exists(param$file_annot)) error_messages = c(error_messages, "The parameter 'file_annot' (annotation file) is set but the file cannot be found. If not available, please set to NULL!")
+    param$file_annot = as.character(param$file_annot)
   }
   
-  # Check mart_attributes
+  # Check mart_attributes ###
   if (!"mart_attributes" %in% names(param) || !is.vector(param$mart_attributes) || length(param$mart_attributes)==0) {
     error_messages = c(error_messages, "The parameter 'mart_attributes' (Biomart attributes) is missing or is not a non-empty vector!")
+  } else {
+    param$mart_attributes = as.character(param$mart_attributes)
   }
   
-  # Check biomart_mirror
-  if (!is.null(param$biomart_mirror) && !param$biomart_mirror %in% c("www", "useast", "uswest", "asia")) {
-    error_messages = c(error_messages, "The parameter 'biomart_mirror' (Biomart mirror) is set but does not contain one of the following values: 'www', 'uswest', 'useast' ,'asia'!")
+  # Check biomart_mirror ###
+  if (!is.null(param$biomart_mirror)) {
+    if (!param$biomart_mirror %in% c("www", "useast", "uswest", "asia")) error_messages = c(error_messages, "The parameter 'biomart_mirror' (Biomart mirror) is set but does not contain one of the following values: 'www', 'uswest', 'useast' ,'asia'!")
+    param$biomart_mirror = as.character(param$biomart_mirror)
   }
   
-  # Check mt
+  # Check mt ###
   if (!"mt" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'mt' (prefix of mitochondrial genes) is missing!")
+  } else {
+    param$mt = as.character(param$mt)
   }
   
-  # Check cell_filter: can be numeric with length 2 or character or factor with any length; can also contain sublists per sample with the same criteria
+  # Check cell_filter: can be numeric with length 2 or character or factor with any length; can also contain sublists per sample with the same criteria ###
   if ("cell_filter" %in% names(param) && length(param$cell_filter) > 0) {
-    is_valid = purrr::map_lgl(param$cell_filter, function(f) {
+    is_valid = TRUE
+    for (i in seq(param$cell_filter)) {
+      f = param$cell_filter[[i]]
+      
       if (is.list(f)) {
-        return(any(!purrr::map_lgl(f, function(g){
-          return((is.numeric(g) & length(g)==2) | is.character(f) | is.factor(f))
-        })))
+        # Sample-specific values
+        for (j in seq(f)) {
+          f_s = f[[j]]
+          if (length(f_s) == 2 & all(converts_to_number(f_s))) {
+            f_s = as.numeric(f_s)
+          } else if ( (is.character(f_s) | is.factor(f_s)) & length(f_s) > 0) {
+            f_s = as.character(f_s)
+          } else {
+            is_valid = FALSE
+          }
+          f[[j]] = f_s
+        }
       } else {
-        return((is.numeric(f) & length(f)==2) | is.character(f) | is.factor(f))
+        # Global values
+        if (length(f) == 2 & all(converts_to_number(f))) {
+          f = as.numeric(f)
+        } else if ( (is.character(f) | is.factor(f)) & length(f) > 0) {
+          f = as.character(f)
+        } else {
+          is_valid = FALSE
+        }
       }
-    })
-    if (any(!is_valid)) {
+      param$cell_filter[[i]] = f
+    }
+    
+    if (!is_valid) {
       error_messages = c(error_messages, "The parameter 'cell_filter' should contain filters for cell properties with the following structures: a) lists of length 2 with minimum and maxium for numeric properties (set NA if not applicable), b) character/factor vectors for categorial properties. This can also specified by sample using sublists with the sample names as used by the script!")
     }
+  } else {
+    param$cell_filter = list()
   }
   
-  # Check feature_filter: so far only contains: min_counts and min_cells; can also contain sublists per sample with the same criteria
-  if (!"feature_filter" %in% names(param) || !is.list(param$feature_filter)) {
-    error_messages = c(error_messages, "The parameter 'feature_filter' is missing or not a list!")
-  } else {
-    if ("feature_filter" %in% names(param) && length(param$feature_filter) > 0) {
-      is_valid = sum(c("min_counts", "min_cells") %in% names(param$feature_filter))==2
-      if (!is_valid) {
-        is_valid = purrr::map_lgl(param$feature_filter, function(f) {
-          return(sum(c("min_count", "min_cells") %in% names(f))==2)
-        })
-      }
-      if (any(!is_valid)) {
-        error_messages = c(error_messages, "The parameter 'feature_filter' should contain global entries for 'min_counts' (minimum count for gene to be expressed) and 'min_cells' (minimum cells for a gene to be considered). This can also specified by sample using sublists with the sample names as used by the script!")
+  # Check feature_filter: so far only contains: min_counts and min_cells; can also contain sublists per sample with the same criteria  ###
+  if ("feature_filter" %in% names(param) && length(param$feature_filter) > 0) {
+    valid = TRUE
+    
+    # Always set a global default for the minimum number of counts; but sample-specific values will overrule it
+    if (!"min_counts" %in% names(param$feature_filter)) {
+      param$feature_filter[["min_counts"]] = 1
+    } else {
+      if (converts_to_number(param$feature_filter[["min_counts"]])) {
+        param$feature_filter[["min_counts"]] = as.numeric(param$feature_filter[["min_counts"]])
+      } else {
+        valid = FALSE
       }
     }
+    
+    # Always set a global default for the minimum number of cells; but sample-specific values will overrule it
+    if (!"min_cells" %in% names(param$feature_filter)) {
+      param$feature_filter[["min_cells"]] = 1
+    } else {
+      if (converts_to_number(param$feature_filter[["min_cells"]])) {
+        param$feature_filter[["min_cells"]] = as.numeric(param$feature_filter[["min_cells"]])
+      } else {
+        valid = FALSE
+      }
+    }
+    
+    # Check sample-specific values
+    valid = TRUE
+    for (n in setdiff(names(param$feature_filter), c("min_counts", "min_cells"))) {
+      f = param$feature_filter[[n]]
+      
+      if ("min_counts" %in% names(f)) {
+        if (converts_to_number(f[["min_counts"]])) {
+          f[["min_counts"]] = as.numeric(f[["min_counts"]])
+        } else {
+          valid = FALSE
+        }
+      }
+      
+      if ("min_cells" %in% names(f)) {
+        if (converts_to_number(f[["min_cells"]])) {
+          f[["min_cells"]] = as.numeric(f[["min_cells"]])
+        } else {
+          valid = FALSE
+        }
+      }
+      
+      param$feature_filter[[n]] = f
+    }
+    
+    if (!valid) error_messages =  c(error_messages, paste("The parameter 'feature_filter' can contain: a) 'min_counts' for the minimum counts for a gene to be considered expressed,",
+                   "b) 'min_cells' for the minimum number of cells in which a gene must be expressed. This can also specified by sample using sublists with the sample names as used by the script!"))
+    
+  } else {
+    param$feature_filter = list(min_counts = 1, min_cells = 1)
   }
   
-  # Check samples_to_drop
-  if ("samples_to_drop" %in% names(param) && !is.character(param$samples_to_drop)) {
-    error_messages = c(error_messages, "The parameter 'samples_to_drop' is not a character vector. Please set to NULL if there are no samples to drop!")
+  # Check samples_to_drop  ###
+  if ("samples_to_drop" %in% names(param)) {
+    param$samples_to_drop = as.character(param$samples_to_drop)
+  } else {
+    param$samples_to_drop = as.character(NULL)
   }
   
-  # Check samples_min_cells
-  if ("samples_min_cells" %in% names(param) && !is.numeric(param$samples_min_cells)) {
-    error_messages = c(error_messages, "The parameter 'samples_min_cells' must be a number specifying the minimum number of cells a sample must have. Please set to NULL if there is no minimum!")
+  # Check samples_min_cells  ###
+  if ("samples_min_cells" %in% names(param)) {
+    if (converts_to_number(param$samples_min_cells)) {
+      param$samples_min_cells = as.numeric(param$samples_min_cells)
+    } else{
+      error_messages = c(error_messages, "The parameter 'samples_min_cells' must be a number specifying the minimum number of cells a sample must have. Please set to NULL if there is no minimum!")
+    }
+  } else {
+    param$samples_min_cells = 10
   }
   
-  # Check cc_remove
-  if (!"cc_remove" %in% names(param) || !is.logical(param$cc_remove)) {
-    error_messages = c(error_messages, "The parameter 'cc_remove' (correct for cell cycle) is missing or is not a logical value!")
+  # Check cc_remove  ###
+  if ("cc_remove" %in% names(param)) {
+    if (converts_to_logical(param$cc_remove)) {
+      param$cc_remove = as.logical(param$cc_remove)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cc_remove' (correct for cell cycle) is missing or is not a logical value!")
+    }
+  } else {
+    param$cc_remove = FALSE
   }
 
-  # Check cc_remove_all
-  if (!"cc_remove_all" %in% names(param) || !is.logical(param$cc_remove_all)) {
-    error_messages = c(error_messages, "The parameter 'cc_remove_all' (remove all cell cycle) is missing or is not a logical value!")
+  # Check cc_remove_all  ###
+  if ("cc_remove_all" %in% names(param)) {
+    if (converts_to_logical(param$cc_remove_all)) {
+      param$cc_remove_all = as.logical(param$cc_remove_all)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cc_remove_all' (remove all cell cycle) is missing or is not a logical value!")
+    }
+  } else {
+    param$cc_remove_all = FALSE
   }
   
-  # Check vars_to_regress
-  if ("vars_to_regress" %in% names(param) && !is.character(param$vars_to_regress)) {
-    error_messages = c(error_messages, "The parameter 'vars_to_regress' is not a character vector. Please set to NULL if there are no variables to regress out!")
+  # Check vars_to_regress  ###
+  if ("vars_to_regress" %in% names(param)) {
+    param$vars_to_regress = as.character(param$vars_to_regress)
+  } else {
+    param$vars_to_regress = as.character(NULL)
   }
   
-  # Check latent_vars
-  if ("latent_vars" %in% names(param) && !is.character(param$latent_vars)) {
-    error_messages = c(error_messages, "The parameter 'latent_vars' is not a character vector. Please set to NULL if there are no variables to included in statistical tests!")
+  # Check latent_vars  ###
+  if ("latent_vars" %in% names(param)) {
+    param$latent_vars = as.character(param$latent_vars)
+  } else {
+    param$latent_vars = as.character(NULL)
   }
   
   # Check integrate_samples
-  if (!"integrate_samples" %in% names(param) || !is.list(param$integrate_samples)) {
-    error_messages = c(error_messages, "The parameter 'integrate_samples' is missing or not a list!")
-  } else {
+  if ("integrate_samples" %in% names(param) && is.list(param$integrate_samples)) {
     if (!"method" %in% names(param$integrate_samples) || !param$integrate_samples$method %in% c("single", "merge", "integrate")) {
-      error_messages = c(error_messages, "The sub parameter 'method' of parameter 'integrate_samples' is missing or not one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
+      error_messages = c(error_messages, "The parameter 'integrate_samples' misses a 'method' entry that is one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
     }
     
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method %in% c("integrate") && !"dimensions" %in% names(param$integrate_samples)) {
-      error_messages = c(error_messages, "The sub parameter 'dimensions' of parameter 'integrate_samples' is missing. Please specify the number of dimensions to include for integration!")
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"dimensions" %in% names(param$integrate_samples)) {
+      error_messages = c(error_messages, "The parameter 'integrate_samples' misses a 'dimensions' entry. Please specify the number of dimensions to include for integration!")
     }
+    
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"reference" %in% names(param$integrate_samples)) {
+      param$integrate_samples["reference"] = NULL
+    }
+  
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"use_reciprocal_pca" %in% names(param$integrate_samples)) {
+      param$integrate_samples[["use_reciprocal_pca"]] = FALSE
+    }
+  } else {
+    param$integrate_samples = list(method="merge", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
   }
 
+  
   # Check normalisation_default
-  if (!"norm" %in% names(param) || !param$norm %in% c("RNA", "SCT")) {
-    error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
+  if ("norm" %in% names(param)) {
+    if (!param$norm %in% c("RNA", "SCT")) {
+      error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
+    }
+  } else {
+    param$norm = "RNA"
   }
 
   # Check pc_n
-  if (!"pc_n" %in% names(param)) {
-    error_messages = c(error_messages, "The parameter 'pc_n' is missing!")
+  if ("pc_n" %in% names(param)) {
+    if (converts_to_number(param$pc_n)) {
+      param$pc_n = as.numeric(param$pc_n)
+    } else {
+      error_messages = c(error_messages, "The parameter 'pc_n' is not a numeric value!")
+    }
+  } else {
+    param$pc_n = 10
   }
 
   # Check cluster_resolution
-  if (!"cluster_resolution" %in% names(param)) {
-    error_messages = c(error_messages, "The parameter 'cluster_resolution' is missing!")
+  if ("cluster_resolution" %in% names(param)) {
+    if (converts_to_number(param$cluster_resolution)) {
+      param$cluster_resolution = as.numeric(param$cluster_resolution)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cluster_resolution' is not a numeric value!")
+    }
+  } else {
+    param$cluster_resolution = 0.5
   }
 
   # Check marker_padj
-  if (!"marker_padj" %in% names(param)) {
-    error_messages = c(error_messages, "The parameter 'padj' is missing!")
+  if ("marker_padj" %in% names(param)) {
+    if (converts_to_number(param$marker_padj)) {
+      param$marker_padj = as.numeric(param$marker_padj)
+    } else {
+      error_messages = c(error_messages, "The parameter 'marker_padj' is not a numeric value!")
+    }
+  } else {
+    param$marker_padj = 0.05
   }
 
   # Check marker_log2FC
-  if (!"marker_log2FC" %in% names(param)) {
-    error_messages = c(error_messages, "The parameter 'log2fc' is missing!")
+  if ("marker_log2FC" %in% names(param)) {
+    if (converts_to_number(param$marker_log2FC)) {
+      param$marker_log2FC = as.numeric(param$marker_log2FC)
+    } else {
+      error_messages = c(error_messages, "The parameter 'log2fc' is not a numeric value!")
+    }
   }
   
   # Check deg_contrasts
@@ -598,7 +760,7 @@ check_python = function() {
 check_pandoc = function() {
   error_messages = c()
   
-  if (nchar(Sys.which("pandoc")) == 0) {
+  if (length(rmarkdown::find_pandoc()) == 0) {
     return("Pandoc is not installed on this system or not found in the specified path!")
   }
 
