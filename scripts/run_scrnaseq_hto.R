@@ -18,8 +18,7 @@ parser = ArgumentParser(
     add_help=TRUE,
     prog=script_name,
     description="Demultiplexes a single cell dataset containing samples tagged by hashtags with the scrnaseq_hto workflow.",
-    epilog="Upon successfull completion, the output directory will contain an HTML report, the counts per sample and a CSV file with 
-the cell identities for import into the Loupe Cell Browser.")
+    epilog="Upon successfull completion, the output directory will contain an HTML report, the counts per sample and a CSV file with the cell identities for import into the Loupe Cell Browser.")
 
 parser$add_argument(c("--project-id"), action="store", help="Project ID", default="bfx", dest="project_id")
 parser$add_argument(c("--path-data"), action="store", help="Path to a filtered counts directory created by the 10X cellranger pipeline", dest="path_data")
