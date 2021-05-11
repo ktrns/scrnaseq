@@ -719,7 +719,7 @@ Cite = function(reference, type="citet") {
     return(NULL)
   })
   
-  if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
+  if (is.null(formatted)) formatted = reference
   return(formatted)
 }
 
