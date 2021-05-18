@@ -1051,7 +1051,9 @@ if (param$integrate_samples[["method"]]=="integrate") {
   if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) param$integrate_samples[["use_reciprocal_pca"]] = FALSE
 
   # Run integration
-  sc = RunIntegration(sc, ndims=param$integrate_samples[["dimensions"]], 
+  sc = RunIntegration(sc, 
+                      assay=param$norm,
+                      ndims=param$integrate_samples[["dimensions"]], 
                       verbose=FALSE, 
                       reference=param$integrate_samples[["reference"]], 
                       use_reciprocal_pca=param$integrate_samples[["use_reciprocal_pca"]], 
@@ -2196,11 +2198,11 @@ for (i in seq(degs)) {
       geom_abline(slope=1, intercept=c(-degs[[i]][[j]]$log2FC, degs[[i]][[j]]$log2FC), col="lightgrey", lty=2) + 
       geom_point() + 
       xlim(lims) + ylim(lims) +
-      AddStyle(xlab=degs[[i]][[j]]$condition_group1, ylab=degs[[i]][[j]]$condition_group2, 
+      AddStyle(ylab=degs[[i]][[j]]$condition_group1, xlab=degs[[i]][[j]]$condition_group2, 
                col=c(none="grey", up="darkgoldenrod1", down="steelblue"), 
                legend_position="bottom", legend_title="Filtered genes")
 
-    # Feature plot of top 5 genes, sorted by the p-value
+    # Feature plot of top 4 genes, sorted by the p-value
     degs_top = degs[[i]][[j]]$results %>% dplyr::top_n(n=-4, wt=p_val) %>% dplyr::top_n(n=-4, wt=avg_log2FC) %>% dplyr::pull(gene)
     if (length(degs_top) > 0) {
       p_list = Seurat::FeaturePlot(sc, features=degs_top, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
@@ -2299,12 +2301,99 @@ for (i in seq(degs)) {
 
 # Output
 
-## Files
+```{r todo}
+# AP: 
+# * finish the chunk sc_scafe
+# * fix colours in the chunk cellxgene_export
+# KS: 
+# * add documentation on the output files -> list files and what to do with them
+```
+
+## Export to Loupe Cell Browser
+If all provided datasets are of type "10x", we export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
+```{r loupe_export}
+if (all(param$path_data$type == "10x")) { 
+  
+  # Export UMAP coordinates
+  loupe_umap = as.data.frame(sc@reductions$umap@cell.embeddings)
+  loupe_umap = cbind(Barcode=rownames(loupe_umap), loupe_umap)
+  colnames(loupe_umap) = c("Barcode", "UMAP-1", "UMAP-2")
+  write.table(loupe_umap, file=paste0(param$path_out, "/Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+
+  # Export categorical metadata
+  loupe_meta = as.data.frame(sc@meta.data)
+  idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
+  loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
+  write.table(x=loupe_meta, file=paste0(param$path_out, "/Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+
+  # Export gene sets
+  loupe_genesets = data.frame(List=sapply(markers_filt$up[,"cluster"], function(s) paste0("DEG_up_cluster_", s)), 
+                              Name=markers_filt$up[,"gene"], 
+                              Ensembl=ifelse(markers_filt$up[,"gene"] %in% names(seurat_rowname_to_ensembl),
+                                             seurat_rowname_to_ensembl[markers_filt$up[,"gene"]], markers_filt$up[,"gene"]))
+                            
+  loupe_genesets = rbind(loupe_genesets, 
+                         data.frame(List=sapply(markers_filt$down[,"cluster"], function(s) paste0("DEG_down_cluster_", s)), 
+                                   Name=markers_filt$down[,"gene"],
+                                   Ensembl=ifelse(markers_filt$down[,"gene"] %in% names(seurat_rowname_to_ensembl),
+                                                  seurat_rowname_to_ensembl[markers_filt$down[,"gene"]], markers_filt$down[,"gene"])))
+
+  genesets_to_export = list(genes_cc_s_phase=genes_s[,2], genes_cc_g2m_phase=genes_g2m[,2])
+  for (i in names(genesets_to_export)) {
+    tmp_genes = genesets_to_export[[i]]
+    tmp_genes = tmp_genes[tmp_genes %in% names(symbol_to_ensembl)]
+    loupe_genesets = rbind(loupe_genesets,
+                           data.frame(List=i,
+                                      Name=tmp_genes,
+                                      Ensembl=ifelse(tmp_genes %in% names(seurat_rowname_to_ensembl), 
+                                                     seurat_rowname_to_ensembl[tmp_genes], tmp_genes)))
+  }
+
+  write.table(loupe_genesets, file=paste0(param$path_out, "/Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
+}
+```
+
+## Export to cellxgene browser
+We export the assay data, cell metadata, clustering and visualisation in a format that can be read by the cellxgene browser `r Cite("https://github.com/chanzuckerberg/cellxgene", "citep")`.
+```{r cellxgene_export, message=FALSE, warning=FALSE, results="hide"}
+# Comment KS: 
+#   Colours don't work yet
+#   Colour-codes should not contain transparency, cellxgene cannot handle it 
+#   The object with correct colour-codes can be loaded, but no colours are visible
+
+# Convert Seurat single cell object to python anndata object which will be accessible via reticulate here
+adata = sceasy::convertFormat(sc, from="seurat", to="anndata", outFile=NULL, assay=DefaultAssay(sc))
+
+# Set up correct colours (see https://chanzuckerberg.github.io/cellxgene/posts/prepare) so that colours match
+# adata$uns = dict(list(seurat_clusters_colors = tolower(gsub(pattern="#..", x=unname(Misc(sc, "colour_lists")$seurat_clusters), replacement="#", perl=TRUE)),
+#                            orig.ident_colors = tolower(gsub(pattern="#..", x=unname(Misc(sc, "colour_lists")$orig.ident), replacement="#", perl=TRUE))))
+
+adata$write(file.path(param$path_out, "sc.h5ad"))
+output_files[["sc_anndata"]] = file.path(param$path_out, "sc.h5ad")
+```
+
+## Export to the Cerebro browser
+We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`.
+```{r cerebro_export, message=FALSE, warning=FALSE}
+# Export to cerebro (almost functional)
+res = ExportToCerebro(sc=sc, 
+                      path=paste0(param$path_out,"/cerebro.crb"), 
+                      project=param$project_id, 
+                      species=cerebro_species, 
+                      assay=DefaultAssay(sc),
+                      delayed_array=FALSE)
+```
+
+## Output files
 
 All files generated with this report are written into the provided output folder `r param$path_out`: 
 
+```{r save}
+# Keep until AP fixed the next chunk
+save.image(paste0(param$path_out, "/scrnaseq.RData"))
+```
 
-```{r sc_save, eval=F}
+```{r sc_save, eval=FALSE}
 
 #
 # 1. Seurat object
@@ -2361,9 +2450,6 @@ output_files[["gene_annotation"]] = file.path(param$path_out, "gene_annotation.x
 #
 # 3. Counts for 500 cells plus metadata
 #
-
-# TODO
-
 ```
 
 * Annotation files  
@@ -2383,89 +2469,10 @@ output_files[["gene_annotation"]] = file.path(param$path_out, "gene_annotation.x
     Import to Loupe through "Import Categories"   
   + Seurat2Loupe_genesets.csv: Seurat differentially expressed genes   
     Import to Loupe through "Import Lists"   
+* cellxgene files: 
+  + sc.h5ad: Can be loaded into the cellxgene browser
 * Cerebro files:
   + cerebro.crb: Can be loaded into the Cerebro Browser  
-
-STILL TO DO
-
-## Export to Loupe Cell Browser
-We export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser.  
-```{r loupe_export}
-# Export UMAP coordinates
-loupe_umap = as.data.frame(sc@reductions$umap@cell.embeddings)
-loupe_umap = cbind(Barcode=rownames(loupe_umap), loupe_umap)
-colnames(loupe_umap) = c("Barcode", "UMAP-1", "UMAP-2")
-write.table(loupe_umap, file=paste0(param$path_out, "/Loupe_umap.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
-
-# Export categorical metadata
-loupe_meta = as.data.frame(sc@meta.data)
-idx_keep = sapply(1:ncol(loupe_meta), function(x) !is.numeric(loupe_meta[,x]))
-loupe_meta = cbind(Barcode=rownames(loupe_meta), loupe_meta[, idx_keep])
-write.table(x=loupe_meta, file=paste0(param$path_out, "/Loupe_metadata.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
-
-# Export gene sets
-loupe_genesets = data.frame(List=sapply(markers_filt$up[,"cluster"], function(s) paste0("DEG_up_cluster_", s)), 
-                            Name=markers_filt$up[,"gene"], 
-                            Ensembl=ifelse(markers_filt$up[,"gene"] %in% names(seurat_rowname_to_ensembl),
-                                           seurat_rowname_to_ensembl[markers_filt$up[,"gene"]], markers_filt$up[,"gene"]))
-                            
-loupe_genesets = rbind(loupe_genesets, 
-                       data.frame(List=sapply(markers_filt$down[,"cluster"], function(s) paste0("DEG_down_cluster_", s)), 
-                                  Name=markers_filt$down[,"gene"],
-                                  Ensembl=ifelse(markers_filt$down[,"gene"] %in% names(seurat_rowname_to_ensembl),
-                                           seurat_rowname_to_ensembl[markers_filt$down[,"gene"]], markers_filt$down[,"gene"])))
-
-genesets_to_export = list(genes_cc_s_phase=genes_s[,2], genes_cc_g2m_phase=genes_g2m[,2])
-for (i in names(genesets_to_export)) {
-  tmp_genes = genesets_to_export[[i]]
-  tmp_genes = tmp_genes[tmp_genes %in% names(symbol_to_ensembl)]
-  loupe_genesets = rbind(loupe_genesets,
-                         data.frame(List=i,
-                                    Name=tmp_genes,
-                                    Ensembl=ifelse(tmp_genes %in% names(seurat_rowname_to_ensembl), 
-                                                   seurat_rowname_to_ensembl[tmp_genes], tmp_genes)))
-}
-
-write.table(loupe_genesets, file=paste0(param$path_out, "/Loupe_genesets.csv"), col.names=TRUE, row.names=FALSE, quote=FALSE, sep=",")
-```
-
-* list files here
-* shortly explain how to
-
-## Export to cellxgene browser
-We export the assay data, cell metadata, clustering and visualisation in a format that can be read by the cellxgene browser `r Cite("https://github.com/chanzuckerberg/cellxgene", "citep")`.
-
-```{r cellxgene_export, include=FALSE}
-# Convert Seurat single cell object to python anndata object which will be accessible via reticulate here
-adata = sceasy::convertFormat(sc, from="seurat", to="anndata", outFile=NULL)
-
-# Set up correct colours (see https://chanzuckerberg.github.io/cellxgene/posts/prepare) to that colours match
-adata$uns = dict(list(seurat_clusters_colors = unname(Misc(sc, "colour_lists")$seurat_clusters),
-                           orig.ident_colors = unname(Misc(sc, "colour_lists")$orig.ident)))
-
-adata$write(file.path(param$path_out, "sc.h5ad"))
-output_files[["sc_anndata"]] = file.path(param$path_out, "sc.h5ad")
-
-```
-
-* list files here
-* shortly explain howto
-
-
-## Export to the Cerebro browser
-We export the assay data, clustering, visualisation, marker genes and enriched pathways in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`
-```{r cerebro_integration, message=FALSE, warning=FALSE, eval=F}
-# Export to cerebro (almost functional)
-res = ExportToCerebro(sc=sc, 
-                      path=paste0(param$path_out,"/cerebro.crb"), 
-                      project=param$project_id, 
-                      species=cerebro_species, 
-                      assay=DefaultAssay(sc),
-                      delayed_array=FALSE)
-```
-
-* list files here
-* shortly explain howto
 
 # Parameters and software versions
 The following parameters were used to run the workflow.  
@@ -2483,7 +2490,6 @@ out = ScrnaseqSessionInfo(param$path_to_git)
 knitr::kable(out, align="l") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 ```
-
 
 # References
 ```{r bib, message=FALSE}
