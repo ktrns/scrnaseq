@@ -1,0 +1,363 @@
+---
+author:
+  - "[Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/)"
+  - "[Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics)"
+date: "`r format(Sys.time(), '%B, %Y')`"
+geometry: margin=2cm
+output:
+   html_document:
+    toc: true
+    toc_depth: 4
+    code_folding: hide
+    highlight: tango
+    theme: paper
+params:
+   # Project ID
+   project_id: 10x_pbmc_5k 
+   
+   # Input directory
+   path_data: test_datasets/10x_pbmc_5k_protein/counts/
+  
+   # Metrics summary
+   stats: test_datasets/10x_pbmc_5k_protein/metrics_summary.csv
+   
+   # Output directory
+   path_out: test_datasets/10x_pbmc_5k_protein/counts/
+   
+   # Normalisation: LogNormalize or SCTransform
+   norm: "LogNormalize"
+   
+   # Prefix of mitochondrial genes
+   mt_names: "^MT-"
+   
+   # Filter for low-quality cells
+   cell_filter: !r list(nFeature_RNA=c(200, NA), percent_mt=c(NA, 20), nCount_RNA=c(1000, NA))
+   
+   # The number of PCs to use
+   pc_n: 10
+   
+   # Main color to use for plots
+   col: "palevioletred"
+   
+   # Downsample data to at most N cells (mainly for tests); set to NULL to deactivate
+   downsample_cells_n: NULL
+   
+   # Path to git
+   path_to_git: "."
+   
+   # Debugging mode: 
+   # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+   debugging_mode: on_error_default_debugging
+title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
+subtitle: "Identification of multiplets"
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+# R Options
+options(stringsAsFactors=FALSE,
+        "citation_format"="pandoc", 
+        dplyr.summarise.inform=FALSE, 
+        knitr.table.format="html",
+        future.globals.maxSize=2000000000, mc.cores=4, 
+        future.fork.enable=TRUE, future.plan="multicore",
+        future.rng.onMisuse="ignore")
+
+# Required libraries
+library(Seurat) # main
+library(ggplot2) # plots
+library(patchwork) # combination of plots
+library(magrittr) # %>% operator
+
+# Other libraries we use
+# Knit: knitr
+# Data handling: dplyr, tidyr, purrr
+# Tables: kableExtra
+# Plots: ggsci
+
+# Knitr default options
+knitr::opts_chunk$set(echo=TRUE,                     # output code
+                      cache=FALSE,                   # do not cache results
+                      message=TRUE,                  # show messages
+                      warning=TRUE,                  # show warnings
+                      tidy=FALSE,                    # do not auto-tidy-up code
+                      fig.width=10,                  # default fig width in inches
+                      class.source='fold-hide',      # by default collapse code blocks
+                      dev=c('png', 'pdf'),           # create figures in png and pdf; the first device (png) will be used for HTML output
+                      dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                                    pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
+                      dpi=96,                        # figure resolution (note: final = dpi*fig.retina; will not work with pandoc see below)
+                      fig.retina=2                   # retina multiplier for HTML output (note: final = dpi*fig.retina)
+                                     
+)
+```
+
+```{r preparation_and_initial_checks}
+# Path for figures in png and pdf format
+knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
+
+
+# Git directory and files to source must be done first, then all helper functions can be sourced
+git_files_to_source = c("R/functions_io.R",
+              "R/functions_plotting.R",
+              "R/functions_util.R")
+git_files_to_source = paste(params$path_to_git, git_files_to_source, sep="/")
+file_exists = purrr::map_lgl(git_files_to_source, file.exists)
+
+if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", params$path_to_git, "'.!"))
+invisible(purrr::map(git_files_to_source, source))
+
+# Debugging mode: 
+# 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+invisible(switch (params$debugging_mode, 
+        default_debugging=on_error_default_debugging(), 
+        terminal_debugger=on_error_start_terminal_debugger(),
+        print_traceback=on_error_just_print_traceback(),
+        on_error_default_debugging()))
+
+# Set output hooks
+knitr::knit_hooks$set(message=format_message, warning=format_warning)
+
+# Create output directories
+if (!file.exists(params$path_out)) dir.create(params$path_out, recursive=TRUE, showWarnings=FALSE)
+
+# Do checks
+error_messages = c()
+# Check installed packages
+error_messages = c(error_messages, check_installed_packages())
+# Check parameters TODO
+#error_messages = c(error_messages, check_parameters(param))
+
+# Stop here if there are errors
+if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
+```
+
+# Read input data
+In this first section of the report, we begin by printing mapping statistics that have been produced prior to this workflow.
+```{r mapping_stats, message=TRUE, results='asis'}
+# Are statistics provided?
+if (!is.null(params$stats)) {
+  cat('\n## Stats {.tabset}\n\n')
+  mapping_stats = read.delim(params$stats,sep=",", header=FALSE, check.names=FALSE) %>% t() %>% as.data.frame()
+  colnames(mapping_stats) = c("V1","Dataset")
+  rownames(mapping_stats) = mapping_stats$V1
+  mapping_stats$V1 = NULL
+
+  mapping_stats_general = mapping_stats[!grepl("^Antibody:",rownames(mapping_stats)),,drop=FALSE]
+  mapping_stats_antibodies = mapping_stats[grepl("^Antibody:",rownames(mapping_stats)),,drop=FALSE]
+  
+  cat('\n### General\n\n')
+  print(knitr::kable(mapping_stats_general, align="l", caption="General statistics") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")))
+ 
+  cat('\n### Antibodies\n\n')
+  print(knitr::kable(mapping_stats_antibodies, align="l", caption="Antibody statistics") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")))
+} else { 
+  message("Mapping statistics cannot be shown. No valid file provided.")
+}
+```
+
+# Filtering and normalisation/scaling
+Then, we read 10X data from the files produced by CellRanger:  
+
+* **barcodes.tsv.gz**: All cell barcodes  
+* **features.tsv.gz**: (Ensembl) ID, name, and type for each feature  
+* **matrix.mtx.gz**: Counts for all features  
+
+and setup a Seurat object with the **Gene Expresssion** data in assay **RNA**.
+
+```{r read_datasets}
+# Load the dataset with its assays and create a Seurat object with the **Gene Expresssion** data in assay **RNA**.
+sc = ReadSparseMatrix(params$path_data, project=params$project_id, row_name_column=1)
+sc = sc[[1]]
+
+# If requested: sample at most n cells
+if (!is.null(params$downsample_cells_n)) {
+  sampled_barcodes = sample(Seurat::Cells(sc), min(params$downsample_cells_n, length(Seurat::Cells(sc))))
+  sc = subset(sc, cells=sampled_barcodes)
+}
+
+# Calculate percentage of counts in mitochondrial genes
+mt_features = grep(pattern=params$mt_names, rownames(sc), value=TRUE)
+sc = Seurat::PercentageFeatureSet(sc, features=mt_features, col.name="percent_mt", assay="RNA")
+
+# Calculate percentage of counts in ribosomal genes
+ribo_features = grep(pattern="^RP[SL]", rownames(sc), value=TRUE, ignore.case=TRUE)
+sc = Seurat::PercentageFeatureSet(sc, features=ribo_features, col.name="percent_ribo", assay="RNA")
+
+# Calculate percentage of counts in ERCC for each Seurat object (if assay is available)
+if ("ERCC" %in% Seurat::Assays(sc)) {
+  sc$percent_ercc = sc$nCount_ERCC/(sc$nCount_ERCC + sc$nCount_RNA)*100
+}
+```
+
+To ensure that input data is cleared of low-quality cell clusters, we first threshold cells according to RNA nCount, nFeature and percent_mt. Cells filtered based on the following thresholds: 
+```{r filter_print_cutoffs}
+cell_filter_lst = params$cell_filter
+is_numeric_filter = purrr::map_lgl(cell_filter_lst, function(f) return(is.numeric(f) & length(f)==2))
+
+# Numeric cell filters
+if (length(cell_filter_lst[is_numeric_filter]) > 0) {
+  purrr::invoke(rbind, cell_filter_lst[is_numeric_filter]) %>%
+    knitr::kable(align="l", caption="Numeric filters applied to cells", col.names=c("Min", "Max")) %>% 
+    kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+}
+
+# Categorial cell filters
+if (length(cell_filter_lst[!is_numeric_filter]) > 0) {
+purrr::invoke(rbind, cell_filter_lst[!is_numeric_filter] %>% purrr::map(paste, collapse=",")) %>%
+  knitr::kable(align="l", caption="Categorial filters applied to cells", col.names=c("Values")) %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+}
+```
+
+The number of excluded cells and features is as follows: 
+```{r filter_cells}
+# Iterate over datasets and filters
+# Record a cell if it does not pass the filter
+sc_cells_to_exclude = purrr::map(list_names(params$cell_filter), function(f) {
+  filter = params$cell_filter[[f]]
+  if (is.numeric(filter)) {
+    if (is.na(filter[1])) filter[1] = -Inf # Minimum
+    if (is.na(filter[2])) filter[2] = Inf  # Maximum 
+    idx_exclude = sc[[f, drop=TRUE]] < filter[1] | sc[[f, drop=TRUE]] > filter[2]
+    return(names(which(idx_exclude)))
+  } else if (is.character(filter)) { 
+    return(names(which(sc[[f, drop=TRUE]] %in% filter)))
+  }
+})
+
+
+# Summarise
+sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
+  return(data.frame(cells=length(s)))
+})
+
+rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
+knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) 
+
+# Now filter
+cells_to_keep = Cells(sc)
+cells_to_keep = cells_to_keep[!cells_to_keep %in% purrr::flatten_chr(sc_cells_to_exclude)]
+if (length(cells_to_keep)==0) stop("Error: no cells remaining after filtering!")
+sc = subset(sc, cells=cells_to_keep)
+```
+
+After filtering, the size of the Seurat object is: 
+```{r filter_size_after}
+sc
+```
+
+Then, we normalise, identify genes that are highly variable between cells and scale those genes. There are two types of normalisation strategy available:
+
+1. A  __standard log normalisation__, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.   
+2. __SCTransform__, a new and more sophisticated normalisation method which includes normalisation, variable genes and scaling. 
+
+```{r normalisation_and_scaling, results="hide", warning=FALSE}
+if (params$norm == "LogNormalize") {
+  # Standard normalisation
+  sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
+  
+  # Find variable features from normalised data
+  sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000, verbose=FALSE)
+  
+  # Scale (only variable features) 
+  sc = Seurat::ScaleData(sc, Seurat::VariableFeatures(sc), verbose=FALSE, vars.to.regress=c())
+} else if (params$norm == "SCTransform") {
+  
+  # Run SCTransform
+  sc = SCTransform(sc, vars.to.regress=c(), min_cells=3, verbose=FALSE, return.only.var.genes=TRUE, method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson"))
+}
+```
+
+# Dimensionality reduction, clustering and visualisation
+
+
+
+```{r dimred_and_visualisation, results="hide", warning=FALSE}
+# Run PCA
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE)
+
+# Choose the number of PCs to use for clustering
+sc = Seurat::FindNeighbors(sc, dims=1:params$pc_n, verbose=FALSE)
+
+# Find clusters using Seurats standard algorithm
+sc = Seurat::FindClusters(sc, resolution=0.5, algorithm=1)
+
+# Run UMAP
+sc = Seurat::RunUMAP(sc, dims=1:params$pc_n, verbose=FALSE, umap.method="uwot")
+```
+
+Next, we use Principal Component Analysis (PCA)
+
+A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. At this point of the analysis, we have already reduced the dimensionality of the dataset to 3,000 variable genes. The biological manifold however can be described by far fewer dimensions than the number of (variable) genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
+
+We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
+
+To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
+```{r pca}
+# Run PCA for default normalisation
+sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
+
+p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
+for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
+p =  patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
+p
+
+p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) + 
+  AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
+p
+
+p = Seurat::DimHeatmap(sc, dims=1:2, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+p
+```
+
+
+# Doublet detection
+
+```{r doublet_detection}
+
+# Identification of optimal pK
+sweep.res.list_sc = DoubletFinder::paramSweep_v3(sc, PCs=1:params$pc_n, sct=params$norm == "SCTransform")
+sweep.stats_sc = DoubletFinder::summarizeSweep(sweep.res.list_sc, GT=FALSE)
+bcmvn_sc = DoubletFinder::find.pK(sweep.stats_sc)
+
+# Estimate the number of loaded cells
+num_loaded_cells = 2*ncol(sc)
+
+# Estimate the doublet rate: 10x says 0.8% / 1000 loaded cells
+exp_doublet_rate = num_loaded_cells/1000*0.008
+
+# Estimated number of doublets based on poison distribution
+nExp_poi = round(0.15*length(Cells(sc)))
+
+# Run DoubletFinder
+sc = DoubletFinder::doubletFinder_v3(sc, PCs=1:params$pc_n, pN=0.25, pK=0.25, nExp=exp_doublet_rate, reuse.pANN=FALSE, sct=params$norm == "SCTransform")
+```
+
+# Output results
+
+```{r}
+
+```
+
+
+
+# Parameter table
+The following parameters were used to run the workflow.  
+```{r parameters_table}
+out = ScrnaseqParamsInfo(params=params)
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```
+
+# Software versions
+This report was generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
+```{r versions}
+out = ScrnaseqSessionInfo(params$path_to_git)
+
+knitr::kable(out, align="l") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width=FALSE, position="left")
+```
