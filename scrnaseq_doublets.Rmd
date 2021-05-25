@@ -262,18 +262,18 @@ if (params$norm == "LogNormalize") {
   # Find variable features from normalised data
   sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000, verbose=FALSE)
   
-  # Scale (only variable features) 
-  sc = Seurat::ScaleData(sc, Seurat::VariableFeatures(sc), verbose=FALSE, vars.to.regress=c())
+  # Scale data: the DoubletFinder tutorial uses only the variable genes but according to "Protocol for Benchmarking Computational Doublet-Detection Methods in Single-Cell RNA Sequencing" it might be better to scale all genes
+  sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), verbose=FALSE, vars.to.regress=c())
 } else if (params$norm == "SCTransform") {
   
-  # Run SCTransform
-  sc = SCTransform(sc, vars.to.regress=c(), min_cells=3, verbose=FALSE, return.only.var.genes=TRUE, method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson"))
+  # Run SCTransform: as for the standard normalisation strategy, we scale all data
+  sc = SCTransform(sc, vars.to.regress=c(), min_cells=3, verbose=FALSE, return.only.var.genes=FALSE, method=ifelse(packages_installed("glmGamPoi"), "glmGamPoi", "poisson"))
 }
 ```
 
 # Dimensionality reduction, clustering and visualisation
 
-
+Next, we use Principal Component Analysis (PCA) to overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Then we also calculate a basic clustering of the data and use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset in 2D space. Note that here we use non-optimised standard algorithms. In a comprehensive single cell analysis, these algorithms are usually tuned to yield optimal results.
 
 ```{r dimred_and_visualisation, results="hide", warning=FALSE}
 # Run PCA
@@ -283,40 +283,45 @@ sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FA
 sc = Seurat::FindNeighbors(sc, dims=1:params$pc_n, verbose=FALSE)
 
 # Find clusters using Seurats standard algorithm
-sc = Seurat::FindClusters(sc, resolution=0.5, algorithm=1)
+sc = Seurat::FindClusters(sc, resolution=0.5, algorithm=1, verbose=FALSE)
+
+# Set cluster colors
+cluster_names = levels(sc$seurat_clusters)
+sc_col_clusters = GenerateColours(num_colours=length(cluster_names), palette="ggsci::pal_d3", palette_options = list(palette="category20"))
+names(sc_col_clusters) = cluster_names
 
 # Run UMAP
 sc = Seurat::RunUMAP(sc, dims=1:params$pc_n, verbose=FALSE, umap.method="uwot")
 ```
 
-Next, we use Principal Component Analysis (PCA)
 
-A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. At this point of the analysis, we have already reduced the dimensionality of the dataset to 3,000 variable genes. The biological manifold however can be described by far fewer dimensions than the number of (variable) genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
+```{r pca_plots}
+# Plot pca
+p1 = Seurat::DimPlot(sc, reduction="pca", cols=sc_col_clusters, label=TRUE) + 
+  AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom", legend_title="Clusters")
 
-We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
+p2 = Seurat::ElbowPlot(sc, ndims=min(20, ncol(sc))) + 
+  geom_vline(xintercept=params$pc_n + .5, col="firebrick", lty=2) + 
+  AddStyle(title="PCA Elbow plot") 
 
-To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
-```{r pca}
-# Run PCA for default normalisation
-sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
+patchwork::wrap_plots(p1, p2)
+```
 
-p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE)
-for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
-p =  patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
-p
+We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP. 
 
-p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) + 
-  AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
-p
-
-p = Seurat::DimHeatmap(sc, dims=1:2, cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE)
+```{r umap_plots}
+# Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
+cluster_cells = table(sc@active.ident)
+cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
+p = Seurat::DimPlot(sc, reduction="umap", label=TRUE) + 
+  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters") + 
+  scale_color_manual(values=sc_col_clusters)
 p
 ```
 
-
 # Doublet detection
 
-```{r doublet_detection}
+```{r doublet_detection, eval=F}
 
 # Identification of optimal pK
 sweep.res.list_sc = DoubletFinder::paramSweep_v3(sc, PCs=1:params$pc_n, sct=params$norm == "SCTransform")
@@ -336,9 +341,9 @@ nExp_poi = round(0.15*length(Cells(sc)))
 sc = DoubletFinder::doubletFinder_v3(sc, PCs=1:params$pc_n, pN=0.25, pK=0.25, nExp=exp_doublet_rate, reuse.pANN=FALSE, sct=params$norm == "SCTransform")
 ```
 
-# Output results
+# Output resultsA185-99485
 
-```{r}
+```{r eval=F}
 
 ```
 
