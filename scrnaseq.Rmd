@@ -750,7 +750,8 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
       idx_exclude = sc[[n]][[f, drop=TRUE]] < filter[1] | sc[[n]][[f, drop=TRUE]] > filter[2]
       return(names(which(idx_exclude)))
     } else if (is.character(filter)) { 
-      return(names(which(sc[[n]][[f, drop=TRUE]] %in% filter)))
+      idx_exclude = !sc[[n]][[f, drop=TRUE]] %in% filter
+      return(Cells(sc[[n]])[idx_exclude])
     }
   })
 
