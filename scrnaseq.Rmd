@@ -580,7 +580,7 @@ sc = purrr::map(sc, function(s) {
 
 # Calculate percentage of counts in ribosomal genes for each Seurat object
 sc = purrr::map(sc, function(s) {
-  ribo_features = grep(pattern="^RP[SL]", rownames(sc), value=TRUE, ignore.case=TRUE)
+  ribo_features = grep(pattern="^RP[SL]", rownames(s), value=TRUE, ignore.case=TRUE)
   return(Seurat::PercentageFeatureSet(s, features=ribo_features, col.name="percent_ribo", assay="RNA"))
 })
 
