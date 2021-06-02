@@ -52,9 +52,9 @@ library(future) # multicore support for Seurat
 # Plots: ggsci
 # IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
-# DEG: mast
+# DEG: mast, limma (for a more efficient implementation of the Wilcoxon Rank Sum Test according to Seurat)
 # Functional enrichment: enrichR
-# Other: sessioninfo, cerebroApp
+# Other: sessioninfo, cerebroApp, sceasy
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE,                     # output code
