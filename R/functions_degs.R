@@ -93,7 +93,8 @@ DegsAvgDataPerIdentity = function(sc, genes) {
         avg_per_id = mapply(function(id) { 
           id_cells = WhichCells(sc, idents=id)
           if (sl=="data") {
-            id_avg = log(Matrix::rowMeans(exp(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])))
+            # This calculation is in accordance with what Seurat is doing
+            id_avg = log2(Matrix::rowMeans(exp(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])) + 1)
           } else if (sl=="counts") {
             id_avg = Matrix::rowMeans(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])
           }
@@ -134,7 +135,8 @@ DegsAvgData = function(object, cells=NULL, genes=NULL, slot="data") {
   
   if ("data" %in% slot) {
     if (length(genes)>0) {
-      avg_data = log(Matrix::rowMeans(exp(Seurat::GetAssayData(object, slot="data")[genes, , drop=FALSE])))
+      # This calculation is in accordance with what Seurat is doing
+      avg_data = log2(Matrix::rowMeans(exp(Seurat::GetAssayData(object, slot="data")[genes, , drop=FALSE])) + 1)
     }
   }
   
@@ -353,13 +355,14 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
   # Convert into list, do checks and set up defaults
   contrasts_list = split(contrasts_table, seq(nrow(contrasts_table)))
   contrasts_list = purrr::map(seq(contrasts_list), function(i) {
-    
     # Unlist does not keep the classes of the variables
+    # Hence we do a manual unlisting
     contrast = list()
-    for(j in colnames(contrasts_list[[i]])) {
+    for (j in colnames(contrasts_list[[i]])) {
       contrast[[j]] = contrasts_list[[i]][, j, drop=TRUE]
-      if(class(contrast[[j]]) == "character") contrast[[j]] = trimws(contrast[[j]])
+      if (class(contrast[[j]]) == "character") contrast[[j]] = trimws(contrast[[j]])
     }
+
     error_messages = c()
     
     # Get condition_column
@@ -599,13 +602,15 @@ EnrichrTest = function(genes, databases, padj=0.05) {
   if (length(genes) >= 3 & length(databases) > 0) {
     enrichr_results = suppressMessages(enrichR::enrichr(unique(unname(genes)), databases=databases))
   } else {
-    enrichr_results = list()
+    enrichr_results = purrr::map(databases, function(d) return(empty_enrichr_df)) # no good gene lists
+    names(enrichr_results) = databases
   }
+  
   databases = setNames(databases, databases)
   enrichr_results = purrr::map(databases, function(d) {
-    if (is.null(enrichr_results[[d]])) {
+    if (nrow(enrichr_results[[d]]) == 0) { # table is empty
       return(empty_enrichr_df)
-    } else if (ncol(enrichr_results[[d]])==1) {
+    } else if (ncol(enrichr_results[[d]]) == 1) { # there was an actual error
       warning(paste("Enrichr returns with error: ", enrichr_results[[d]][1, 1]))
       return(empty_enrichr_df)
     } else {

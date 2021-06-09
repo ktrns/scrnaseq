@@ -3,7 +3,7 @@
 #' @param x A vector with values.
 #' @return TRUE if they can be converted otherwise FALSE.
 converts_to_number = function(x) {
-  return(suppressWarnings(!is.na(as.numeric(x))))
+  return(suppressWarnings(!is.na(as.numeric(na.omit(x)))))
 }
 
 #' Tests if values can be converted to logical.
@@ -11,7 +11,7 @@ converts_to_number = function(x) {
 #' @param x A vector with values.
 #' @return TRUE if they can be converted otherwise FALSE.
 converts_to_logical = function(x) {
-  return(suppressWarnings(!is.na(as.logical(x))))
+  return(suppressWarnings(!is.na(as.logical(na.omit(x)))))
 }
 
 
@@ -354,12 +354,13 @@ ScrnaseqParamsInfo = function(params) {
   return(out)
 }
 
-# Checks if the parameters are valid and converts them if needed.
+# Checks if the parameters of the scrnaseq workflow are valid and converts them if needed.
 #'
 #' @param param The parameter list.
 #' @return Returns a list with error messages.
-check_parameters = function(param) {
+check_parameters_scrnaseq = function(param) {
   error_messages = c()
+  param[["error_messages"]] = NULL
   
   # Check project_id ###
   if (!"project_id" %in% names(param)) {
@@ -371,25 +372,26 @@ check_parameters = function(param) {
   # Check path_data ###
   if (!"path_data" %in% names(param) | 
       !is.data.frame(param$path_data) | 
-      !ncol(param$path_data) == 4 | 
+      !ncol(param$path_data) >= 4 | 
       !nrow(param$path_data) > 0 | 
       any(!c("name", "type", "path", "stats") %in% colnames(param$path_data))) {
     
-    error_messages = c(error_messages, "The parameter 'path_data' (table with count data information) is missing or is not a data.frame with three columns and at least one row or misses at least one of the following columns: 'name' (dataset name), 'type' (10x or smartseq2), 'path' (path to counts directory or file), 'stats' (path to 10x metrics summary file; can be NA)!")
+    error_messages = c(error_messages, "The parameter 'path_data' needs to be a non-empty data.frame with at least four columns - 'name' (dataset name), 'type' (10x or smartseq2), 'path' (path to counts directory or file), 'stats' (path to 10x metrics summary file; can be NA) - and an optional fifth column 'suffix' (suffix to cell names)")
   } else {
+    # name
     param$path_data$name = as.character(param$path_data$name)
-    param$path_data$type = as.character(param$path_data$type)
-    param$path_data$path = as.character(param$path_data$path)
-    param$path_data$stats = as.character(param$path_data$stats)
-    
     if (any(duplicated(param$path_data$name))) {
       error_messages = c(error_messages, "The column 'name' of the parameter 'path_data' must contain unique values!")
     }
     
+    # type
+    param$path_data$type = as.character(param$path_data$type)
     if (any(!param$path_data$type %in% c("10x","smartseq2"))) {
       error_messages = c(error_messages, "The column 'type' of the parameter 'path_data' should be either '10x' or 'smartseq2'!")
     }
     
+    # path
+    param$path_data$path = file.path(param$path_data$path)
     datasets_10x = param$path_data %>% dplyr::filter(type=="10x")
     is_valid = purrr::map_lgl(datasets_10x$path, function(p){
       return(dir.exists(p) & file.exists(file.path(p,"barcodes.tsv.gz")) & file.exists(file.path(p,"features.tsv.gz")) & file.exists(file.path(p,"matrix.mtx.gz")))
@@ -404,25 +406,43 @@ check_parameters = function(param) {
       error_messages = c(error_messages, "For at least one smartseq2 dataset, the 'path' of the parameter 'path_data' could not be found!")
     }
   
+    # stats
+    param$path_data$stats = ifelse(is.na(param$path_data$stats), NA, file.path(param$path_data$stats))
     is_valid = purrr::map_lgl(param$path_data$stats, function(p){
       if (is.na(p)) return(TRUE) else return(file.exists(p))
     })
     if (length(is_valid) > 0 && any(!is_valid)) {
       error_messages = c(error_messages, "At least one 'stats' file of the parameter 'path_data' could not be found. If not available, please set to NA!")
     }
+    
+    # suffix
+    if (!"suffix" %in% colnames(param$path_data)) {
+      param$path_data$suffix = as.character(1:nrow(param$path_data))
+    }
+  }
+  
+  # Check downsample_cells_n ###
+  if ("downsample_cells_n" %in% names(param)) {
+    if (!converts_to_number(param$downsample_cells_n)) {
+      error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
+    } else {
+      param$downsample_cells_n = as.numeric(param$downsample_cells_n)
+    }
+  } else {
+    param$downsample_cells_n = 0
   }
   
   # Check path_out ###
   if (!"path_out" %in% names(param)) {
     error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
   } else {
-    param$path_out = gsub(pattern="\\/+$", replacement="", as.character(param$path_out))
+    param$path_out = file.path(param$path_out)
   }
   
   # Check file_known_markers ###
   if (!is.null(param$file_known_markers)){
+    param$file_known_markers = file.path(param$file_known_markers)
     if (!file.exists(param$file_known_markers)) error_messages = c(error_messages, "The parameter 'file_known_markers' (Excel file with markers) is set but the file cannot be found. If not available, please set to NULL!")
-    param$file_known_markers = as.character(param$file_known_markers)
   }
   
   # Check mart_dataset ###
@@ -442,15 +462,14 @@ check_parameters = function(param) {
   # Check annot_main ###
   if (!"annot_main" %in% names(param) |
       any(!c("ensembl", "symbol", "entrez") %in% names(param$annot_main))) {
-    error_messages = c(error_messages, "The parameter 'annot_main' is missing or is not a named vector with names 'ensembl', 'smybol' and 'entrez' as well as corresponding values!")
+    error_messages = c(error_messages, "The parameter 'annot_main' is missing or is not a named vector with names 'ensembl', 'symbol' and 'entrez' as well as corresponding values!")
   } else {
-    param$annot_main = as.character(param$annot_main)
+    param$annot_main = setNames(as.character(param$annot_main), names(param$annot_main))
   }
   
   # Check file_annot ###
   if (!is.null(param$file_annot)) {
-    if (!file.exists(param$file_annot)) error_messages = c(error_messages, "The parameter 'file_annot' (annotation file) is set but the file cannot be found. If not available, please set to NULL!")
-    param$file_annot = as.character(param$file_annot)
+    param$file_annot = file.path(param$file_annot)
   }
   
   # Check mart_attributes ###
@@ -464,6 +483,8 @@ check_parameters = function(param) {
   if (!is.null(param$biomart_mirror)) {
     if (!param$biomart_mirror %in% c("www", "useast", "uswest", "asia")) error_messages = c(error_messages, "The parameter 'biomart_mirror' (Biomart mirror) is set but does not contain one of the following values: 'www', 'uswest', 'useast' ,'asia'!")
     param$biomart_mirror = as.character(param$biomart_mirror)
+  } else {
+    param$biomart_mirror = "www"
   }
   
   # Check mt ###
@@ -506,7 +527,7 @@ check_parameters = function(param) {
     }
     
     if (!is_valid) {
-      error_messages = c(error_messages, "The parameter 'cell_filter' should contain filters for cell properties with the following structures: a) lists of length 2 with minimum and maxium for numeric properties (set NA if not applicable), b) character/factor vectors for categorial properties. This can also specified by sample using sublists with the sample names as used by the script!")
+      error_messages = c(error_messages, "The parameter 'cell_filter' should contain filters for cell properties with the following structures: a) lists of length 2 with minimum and maxium for numeric properties (set NA if not applicable/no min/no max), b) character/factor vectors for categorial properties. This can also specified by sample using sublists with the sample names as used by the script!")
     }
   } else {
     param$cell_filter = list()
@@ -605,22 +626,42 @@ check_parameters = function(param) {
     } else {
       error_messages = c(error_messages, "The parameter 'cc_remove_all' (remove all cell cycle) is missing or is not a logical value!")
     }
+    
+    if (param$cc_remove_all && !param$cc_remove) {
+      error_messages = c(error_messages, "The parameter 'cc_remove_all' (remove all cell cycle)  cannot be set to TRUE while the parameter 'cc_remove' is set to FALSE!")
+    }
+    
   } else {
     param$cc_remove_all = FALSE
+  }
+  
+  # Check cc_rescore_after_merge  ###
+  if ("cc_rescore_after_merge" %in% names(param)) {
+    if (converts_to_logical(param$cc_rescore_after_merge)) {
+      param$cc_rescore_after_merge = as.logical(param$cc_rescore_after_merge)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cc_rescore_after_merge' (rescore after merging/integrating multiple samples) is missing or is not a logical value!")
+    }
+    
+    if (param$cc_remove_all && !param$cc_remove) {
+      error_messages = c(error_messages, "The parameter 'cc_rescore_after_merge' (rescore after merging/integrating multiple samples)  cannot be set to TRUE while the parameter 'cc_remove' is set to FALSE!")
+    }
+  } else {
+    param$cc_rescore_after_merge = FALSE
   }
   
   # Check vars_to_regress  ###
   if ("vars_to_regress" %in% names(param)) {
     param$vars_to_regress = as.character(param$vars_to_regress)
   } else {
-    param$vars_to_regress = as.character(NULL)
+    param["vars_to_regress"] = NULL
   }
   
   # Check latent_vars  ###
   if ("latent_vars" %in% names(param)) {
     param$latent_vars = as.character(param$latent_vars)
   } else {
-    param$latent_vars = as.character(NULL)
+    param["latent_vars"] = NULL
   }
   
   # Check integrate_samples
@@ -629,26 +670,32 @@ check_parameters = function(param) {
       error_messages = c(error_messages, "The parameter 'integrate_samples' misses a 'method' entry that is one of: 'single' (only one dataset), 'merge' (just merge) or 'integrate' (integrate)!")
     }
     
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"dimensions" %in% names(param$integrate_samples)) {
-      error_messages = c(error_messages, "The parameter 'integrate_samples' misses a 'dimensions' entry. Please specify the number of dimensions to include for integration!")
-    }
-    
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"reference" %in% names(param$integrate_samples)) {
-      param$integrate_samples["reference"] = NULL
-    }
-  
-    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate" && !"use_reciprocal_pca" %in% names(param$integrate_samples)) {
-      param$integrate_samples[["use_reciprocal_pca"]] = FALSE
+    if ("method" %in% names(param$integrate_samples) && param$integrate_samples$method=="integrate") {
+      if (!"dimensions" %in% names(param$integrate_samples)) {
+        error_messages = c(error_messages, "The parameter 'integrate_samples' misses a 'dimensions' entry. Please specify the number of dimensions to include for integration!")
+      } else if (!converts_to_number(param$integrate_samples$dimensions)) {
+        error_messages = c(error_messages, "The 'dimensions' entry of the parameter 'integrate_samples' must be numeric!")
+      } else {
+        param$integrate_samples$dimensions = as.numeric(param$integrate_samples$dimensions)
+      }
+      
+      if (!"reference" %in% names(param$integrate_samples)) {
+        param$integrate_samples["reference"] = NULL
+      }
+      
+      if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) {
+        param$integrate_samples[["use_reciprocal_pca"]] = FALSE
+      }
     }
   } else {
-    param$integrate_samples = list(method="merge", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
+    param$integrate_samples = list(method="merge")
   }
 
   
-  # Check normalisation_default
+  # Check norm (normalisation)
   if ("norm" %in% names(param)) {
     if (!param$norm %in% c("RNA", "SCT")) {
-      error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) is missing or not one of: 'RNA', 'SCT'!")
+      error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) must be one of: 'RNA', 'SCT'!")
     }
   } else {
     param$norm = "RNA"
@@ -734,7 +781,9 @@ check_parameters = function(param) {
     error_messages = c(error_messages, "The parameter 'col_palette_clusters' is missing!")
   }
   
-  return(error_messages)
+  # Add to param object and return
+  if (length(error_messages) > 0) param[["error_messages"]] = error_messages
+  return(param)
 }
 
 # Checks if python is valid.
@@ -747,8 +796,10 @@ check_python = function() {
     return("Python is not installed on this system or not found in the specified path!")
   }
   
-  if (!reticulate::py_module_available("leidenalg")) {
-    error_messages = c(error_messages, "The python package 'leidenalg' is missing!")
+  python_modules = c("leidenalg", "anndata", "scipy")
+  is_available = purrr::map_lgl(python_modules, reticulate::py_module_available)
+  if (any(!is_available)) {
+    error_messages = c(error_messages, paste0("The following python packages are missing: ", paste(python_modules[!is_available], sep=", "),"!"))
   }
 
   return(error_messages)
@@ -787,7 +838,7 @@ check_enrichr = function(databases) {
   # Are the requested databases available
   are_valid = databases %in% available_databases
   if (any(!are_valid)) {
-    return(paste("The following enrichR databases are not available:",paste(databases[!are_valid],collapse=", "),"!"))
+    return(paste0("The following enrichR databases are not available: ",paste(databases[!are_valid],collapse=", "),"!"))
   }
   
   return(c())
@@ -802,21 +853,21 @@ packages_installed = function(packages) {
 }
 
 
-#' Checks if all required packages are installed.
+#' Checks if all packages required for the scrnaseq workflow are installed.
 #'
 #' @return Returns a list with error messages.
-check_installed_packages = function() {
+check_installed_packages_scrnaseq = function() {
   required_packages = c("Seurat", "ggplot2", "patchwork", "magrittr",
                         "reticulate", "enrichR", "future", "knitr",
                         "dplyr", "tidyr", "purrr", "stringr", "sctransform", 
-                        "Matrix", "kableExtra", "DT", "ggsci", "ggpubr",
+                        "Matrix", "kableExtra", "DT", "ggsci",
                         "openxlsx", "readr", "R.utils", "biomaRt",
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
-                        "knitcitations")
+                        "knitcitations", "sceasy")
   
   is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {
-    return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
+    return(paste0("The R packages '", required_packages[!is_installed],"' are not installed!"))
   } else {
     return(c())
   }
@@ -829,28 +880,38 @@ check_installed_packages = function() {
 #' @param mirror Ensembl mirror.
 #' @param version Ensembl version.
 #' @param attributes The attributes to download.
+#' @param file_annot File with existing annotation to use instead.
 #' @return Returns a list with error messages.
-check_ensembl = function(biomart, dataset, mirror, version, attributes) {
+check_ensembl = function(biomart, dataset, mirror, version, attributes, file_annot=NULL) {
   error_messages = c()
-
-  # See if mart is available
-  annot_mart = suppressWarnings(GetBiomaRt(biomart, dataset, mirror, version))
-  if (is.null(annot_mart)) {
-    if (is.null(mirror)) {
-      return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ," using biomaRt'!"))
-    } else {
-      return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ,"' at mirror '",mirror,"' using biomaRt!"))
+  
+  if (is.null(file_annot) || !file.exists(file_annot)) {
+    # See if mart is available
+    annot_mart = suppressWarnings(GetBiomaRt(biomart, dataset, mirror, version))
+    if (is.null(annot_mart)) {
+      if (is.null(mirror)) {
+        return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ," using biomaRt'!"))
+      } else {
+        return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ,"' at mirror '",mirror,"' using biomaRt!"))
+      }
+    }
+  
+    # See if attributes are valid
+    attributes = unique(attributes)
+    available_attributes = biomaRt::listAttributes(annot_mart)[,1]
+    is_available = attributes %in% available_attributes
+    if (any(!is_available)) {
+      error_messages = c(error_messages, paste0("The following Ensembl attributes could not be found using biomaRt: ", paste(attributes[!is_available], sep=", "),"!"))
+    }
+  } else {
+    file_annot_tbl = read.delim(file_annot, nrows=50)
+    is_available = attributes %in% colnames(file_annot_tbl)
+    if (any(!is_available)) {
+      error_messages = c(error_messages, paste0("The existing annotation file '", file_annot,"' misses the following Ensembl attributes: ", paste(attributes[!is_available], sep=", "),"!"))
     }
   }
   
-  # See if attributes are valid
-  attributes = unique(attributes)
-  available_attributes = biomaRt::listAttributes(annot_mart)[,1]
-  is_available = attributes %in% available_attributes
-  if (any(!is_available)) {
-    error_messages = c(error_messages, paste("The following Ensembl attributes could not be found using biomaRt:",paste(attributes[!is_available], sep=", "),"!"))
-  }
-
+  
   return(error_messages)
 }
 
@@ -894,7 +955,7 @@ Cite = function(reference, type="citet") {
     return(NULL)
   })
   
-  if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
+  if (is.null(formatted)) formatted = reference
   return(formatted)
 }
 
