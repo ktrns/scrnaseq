@@ -220,12 +220,15 @@ GetBiomaRtMirror = function(mart_obj) {
 #' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
 #' 
 #' @param num_colours The number of colours to generate.
+#' @param names A character vector with names to be assigned to the colour values. If NULL, no names. 
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
 #' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value are used to generate more colours.
 #' @return The generated colours.
-GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
-  palette = eval(parse(text=palette))
+GenerateColours = function(num_colours, names=NULL, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
+  palette = tryCatch({eval(parse(text=palette))}, error=function(cond) return(NULL))
+  if (is.null(palette)) stop("GenerateColours: Could not find specified palette!")
+  
   colours = purrr::flatten_chr(purrr::map(alphas, function(a) {
     palette_options[["alpha"]] = a
     cols = suppressWarnings(do.call(do.call(palette, palette_options), list(100)))
@@ -236,7 +239,9 @@ GenerateColours = function(num_colours, palette="ggsci::pal_igv", alphas=c(1,0.7
     stop("GenerateColours: Cannot generate the requested number of colours. Please change palette or add alpha values.")
   }
   
-  return(colours[1:num_colours])
+  colours = colours[1:num_colours]
+  if (!is.null(names)) colours = setNames(colours, names)
+  return(colours)
 }
 
 #' Returns a message formatted for markdown. 
@@ -417,7 +422,7 @@ check_parameters_scrnaseq = function(param) {
     
     # suffix
     if (!"suffix" %in% colnames(param$path_data)) {
-      param$path_data$suffix = as.character(1:nrow(param$path_data))
+      param$path_data$suffix = paste0("-", 1:nrow(param$path_data))
     }
   }
   
@@ -784,6 +789,8 @@ check_parameters_scrnaseq = function(param) {
   # Add to param object and return
   if (length(error_messages) > 0) param[["error_messages"]] = error_messages
   return(param)
+  
+  # Check
 }
 
 # Checks if python is valid.
