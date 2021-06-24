@@ -232,7 +232,7 @@ knitr::kable(summary, align="l", caption="Dataset summary") %>%
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
-# Demutliplexing with hashtag oligos (HTOs)
+# Demultiplexing with hashtag oligos (HTOs)
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts

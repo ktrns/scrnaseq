@@ -93,7 +93,8 @@ DegsAvgDataPerIdentity = function(sc, genes) {
         avg_per_id = mapply(function(id) { 
           id_cells = WhichCells(sc, idents=id)
           if (sl=="data") {
-            id_avg = log(Matrix::rowMeans(exp(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])))
+            # This calculation is in accordance with what Seurat is doing
+            id_avg = log2(Matrix::rowMeans(exp(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])) + 1)
           } else if (sl=="counts") {
             id_avg = Matrix::rowMeans(Seurat::GetAssayData(sc[, id_cells], assay=as, slot=sl)[genes, ])
           }
@@ -134,7 +135,8 @@ DegsAvgData = function(object, cells=NULL, genes=NULL, slot="data") {
   
   if ("data" %in% slot) {
     if (length(genes)>0) {
-      avg_data = log(Matrix::rowMeans(exp(Seurat::GetAssayData(object, slot="data")[genes, , drop=FALSE])))
+      # This calculation is in accordance with what Seurat is doing
+      avg_data = log2(Matrix::rowMeans(exp(Seurat::GetAssayData(object, slot="data")[genes, , drop=FALSE])) + 1)
     }
   }
   
@@ -314,7 +316,7 @@ DegsTestCellSets = function(object, slot="data", cells_1=NULL, cells_2=NULL, is_
     arguments = c(list(object=object, cells.1=cells_1, cells.2=cells_2), additional_arguments)
   }
   
-  deg_results = suppressMessages((do.call(Seurat::FindMarkers, arguments)))
+  deg_results = suppressMessages(do.call(Seurat::FindMarkers, arguments))
   if (nrow(deg_results)==0) return(no_degs_results)
   
   # Fix base 2 for log fold change
@@ -353,19 +355,22 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
   # Convert into list, do checks and set up defaults
   contrasts_list = split(contrasts_table, seq(nrow(contrasts_table)))
   contrasts_list = purrr::map(seq(contrasts_list), function(i) {
-    contrast = unlist(contrasts_list[[i]])
-    
+    # Unlist does not keep the classes of the variables
+    # Hence we do a manual unlisting
+    contrast = list()
+    for (j in colnames(contrasts_list[[i]])) {
+      contrast[[j]] = contrasts_list[[i]][, j, drop=TRUE]
+      if (class(contrast[[j]]) == "character") contrast[[j]] = trimws(contrast[[j]])
+    }
+
     error_messages = c()
-    
-    # Deal with leading/trailing whitespaces
-    contrast = purrr::map(contrast, trimws)
     
     # Get condition_column
     if (contrast[["condition_column"]] %in% colnames(cell_metadata)) {
       
       # Get condition_group1; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group2 combined
       if (nchar(contrast[["condition_group1"]])==0) {
-        contrast[["condition_group1"]] = NA
+        contrast[["condition_group1"]] = as.character(NA)
       } else {
         
         condition_group1 = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator="+")
@@ -379,7 +384,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       
       # Get condition_group2; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group1 combined (see the actual DEG functions)
       if (nchar(contrast[["condition_group2"]])==0) {
-        contrast[["condition_group2"]] = NA
+        contrast[["condition_group2"]] = as.character(NA)
       } else {
         
         condition_group2 = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator="+")
@@ -396,8 +401,8 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     }
 
     # Get subset_column and subset_group (if available); subsets cells based on this column prior to testing
-    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = NA
-    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = NA
+    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = as.character(NA)
+    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = as.character(NA)
     
     if (!is.na(contrast[["subset_column"]])) {
       valid = TRUE
@@ -437,12 +442,15 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get padj
     if (!"padj" %in% names(contrast) || is.na(contrast[["padj"]])) contrast[["padj"]] = 0.05
+    contrast[["padj"]] = as.numeric(contrast[["padj"]])
     
     # Get log2FC
     if (!"log2FC" %in% names(contrast) || is.na(contrast[["log2FC"]])) contrast[["log2FC"]] = 0
+    contrast[["log2FC"]] = as.numeric(contrast[["log2FC"]])
     
     # Get min_pct
     if (!"min_pct" %in% names(contrast) || is.na(contrast[["min_pct"]])) contrast[["min_pct"]] = 0.1
+    contrast[["min_pct"]] = as.numeric(contrast[["min_pct"]])
     
     # Get assay
     if (!"assay" %in% names(contrast) || is.na(contrast[["assay"]])) contrast[["assay"]] = "RNA"
@@ -461,9 +469,9 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get latent_vars
     if (!"latent_vars" %in% names(contrast) || is.na(contrast[["latent_vars"]])) {
-      if (length(latent_vars) > 0) contrast[["latent_vars"]] = latent_vars else contrast[["latent_vars"]] = NULL
+      contrast[["latent_vars"]] = NULL
     } else {
-      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["subset_group"]], first_level_separator=";")
+      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["latent_vars"]], first_level_separator=";")
     }
     
     if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]]) > 0) {
@@ -528,7 +536,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       is_in_condition_group1 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group1_values
       is_in_condition_group1 = is_in_condition_group1 & is_in_subset_group
     } else {
-      cells_condition_group1 = NA
+      cells_condition_group1 = as.character(NA)
     }
     
     # Do condition_group2
@@ -537,7 +545,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       is_in_condition_group2 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group2_values
       is_in_condition_group2 = is_in_condition_group2 & is_in_subset_group
     } else {
-      cells_condition_group2 = NA
+      cells_condition_group2 = as.character(NA)
     }    
     
     # If one of the condition groups is NA, set the cell names to the complement of the cells in the other condition group (and potential subset)
@@ -594,13 +602,15 @@ EnrichrTest = function(genes, databases, padj=0.05) {
   if (length(genes) >= 3 & length(databases) > 0) {
     enrichr_results = suppressMessages(enrichR::enrichr(unique(unname(genes)), databases=databases))
   } else {
-    enrichr_results = list()
+    enrichr_results = purrr::map(databases, function(d) return(empty_enrichr_df)) # no good gene lists
+    names(enrichr_results) = databases
   }
+  
   databases = setNames(databases, databases)
   enrichr_results = purrr::map(databases, function(d) {
-    if (is.null(enrichr_results[[d]])) {
+    if (nrow(enrichr_results[[d]]) == 0) { # table is empty
       return(empty_enrichr_df)
-    } else if (ncol(enrichr_results[[d]])==1) {
+    } else if (ncol(enrichr_results[[d]]) == 1) { # there was an actual error
       warning(paste("Enrichr returns with error: ", enrichr_results[[d]][1, 1]))
       return(empty_enrichr_df)
     } else {
