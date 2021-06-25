@@ -38,7 +38,7 @@ params:
    mart_dataset: hsapiens_gene_ensembl
    annot_version: 98
    annot_main: !r c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
-   mart_attributes: !r c(params$annot_main, 
+   mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
                         c("chromosome_name", "start_position", "end_position", 
                           "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
    biomart_mirror: NULL
@@ -334,6 +334,9 @@ This section should contain a short description of the experiment and the data.
 ```{r preparation_and_initial_checks}
 # Copy input parameters to internal parameter list
 param = params
+if (is.null(param$samples_to_drop )) param$samples_to_drop = c()
+if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
+if (is.null(param$latent_vars)) param$latent_vars = c()
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("functions_io.R",
