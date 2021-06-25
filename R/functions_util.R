@@ -427,7 +427,7 @@ check_parameters_scrnaseq = function(param) {
   }
   
   # Check downsample_cells_n ###
-  if ("downsample_cells_n" %in% names(param)) {
+  if (("downsample_cells_n" %in% names(param)) & (!is.null(param$downsample_cells_n))) {
     if (!converts_to_number(param$downsample_cells_n)) {
       error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
     } else {
