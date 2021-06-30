@@ -70,3 +70,13 @@ write.table(feat, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\
 close(fh)
 
 unlink("download", recursive=TRUE)
+
+# write marker file
+openxlsx::write.xlsx(data.frame(bcell=c("ENSG00000105369", "ENSG00000156738"),
+                                tcell=c("ENSG00000167286", NA),
+                                tcell_cd8p=c("ENSG00000153563", "ENSG00000172116"),
+                                nk=c("ENSG00000115523", "ENSG00000105374"),
+                                myeloid=c("ENSG00000101439", "ENSG00000090382"),
+                                monocytes=c("ENSG00000203747", NA),
+                                dendritic=c("ENSG00000179639", NA)),
+                     "known_markers.xlsx")

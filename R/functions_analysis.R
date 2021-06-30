@@ -39,7 +39,7 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
   if (sum(genes_s_exists) >= 10 & sum(genes_s_exists) >= 10){
     
     # Calculate CC scores
-    sc = Seurat::CellCycleScoring(sc, 
+    sc = Seurat::CellCycleScoring(sc,
                                   s.features=genes_s[genes_s_exists],
                                   g2m.features=genes_g2m[genes_g2m_exists], 
                                   set.ident=FALSE, verbose=FALSE)
@@ -50,8 +50,8 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
     sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s[genes_s_exists], CC_G2M_phase=genes_g2m[genes_g2m_exists]), lists_slot="gene_lists")
     
   } else {
-    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = NA
-    sc[["Phase"]] = factor(NA, levels=c("G1", "G2M", "S"))
+    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = as.numeric(NA)
+    sc[["Phase"]] = factor(as.character(NA), levels=c("G1", "G2M", "S"))
     if(name!="") name=paste0(name, " ")
     warning(paste0("There are not enough G2/M and S phase markers in the dataset ", name, "to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle effects is skipped."))
   }
@@ -73,10 +73,11 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
 #' @param k_filter How many neighbors to use when filtering anchors. If NULL, automatically set to min(200, minimum number of cells in a sample)).
 #' @param k_weight Number of neighbors to consider when weighting anchors. If NULL, automatically set to min(100, minimum number of cells in a sample)).
 #' @param k_anchor How many neighbors to use when picking anchors. If NULL, automatically set to min(5, minimum number of cells in a sample)).
+#' @param k_score How many neighbors for calculating scores. If NULL, automatically set to min(30, minimum number of cells in a sample)).
 #' @param vars_to_regress For reciprocal PCA: when doing the scaling, which variables should be regressed out when doing the scaling
 #' @param min_cells For reciprocal PCA: when doing the scaling for SCT, the minimum number of cells a gene should be expressed
 #' @return A Seurat object with an integrated assay (RNAintegrated or SCTintegrated) and a merged assay (RNA or SCT)
-RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE, verbose=FALSE, assay="RNA", k_filter=NULL, k_weight=NULL, k_anchor=NULL, vars_to_regress=NULL, min_cells=1) {
+RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE, verbose=FALSE, assay="RNA", k_filter=NULL, k_weight=NULL, k_anchor=NULL, k_score=NULL, vars_to_regress=NULL, min_cells=1) {
   # THIS FUNCTION NEEDS TO BE REVIEWED
   
   # Note: Assay names should only have numbers and letters
@@ -89,6 +90,8 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
   if (is.null(k_weight)) k_weight = min(100, purrr::map_int(sc, ncol))
   # Param k.anchor: How many neighbors to use when picking anchors
   if (is.null(k_anchor)) k_anchor = min(5, purrr::map_int(sc, ncol))
+  # Param k_score: How many neighbors to use fo calculating scores
+  if (is.null(k_score)) k_score = min(30, purrr::map_int(sc, ncol))
   
   # Param ndims: Number of dimensions cannot be larger than number of cells; note: Seurat gives an error that ndims must smaller than the number of cells
   ndims = min(c(ndims, purrr::map_int(sc, ncol)-1))
@@ -139,6 +142,7 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
                                                            anchor.features=integrate_RNA_features, 
                                                            k.filter=k_filter,
                                                            k.anchor=k_anchor, 
+                                                           k.score=k_score,
                                                            reference=reference,
                                                            verbose=verbose,
                                                            reduction=ifelse(use_reciprocal_pca, "rpca", "cca"))
@@ -191,6 +195,7 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
                                                    anchor.features=integrate_SCT_features, 
                                                    k.filter=k_filter,
                                                    k.anchor=k_anchor,
+                                                   k.score=k_score,
                                                    reference=reference,
                                                    verbose=verbose,
                                                    reduction=ifelse(use_reciprocal_pca, "rpca", "cca"))
