@@ -26,7 +26,7 @@ parser$add_argument(c("--stats"), action="store", help="Optional: path to a metr
 parser$add_argument(c("--path-out"), action="store", help="Path to an output directory (default: %default)", default="demultiplexed", dest="path_out")
 parser$add_argument(c("--hto-features"), action="store", help="One or more HTO features for demultiplexing samples, separated by commas (e.g. HTO1,HTO2 ...). To assign a name to a sample, add a '=' to the HTO followed by the name (e.g. HTO1=SampleA,HTO2=SampleB). When the HTO features are not present, the script will exit with an error.", dest="hto_names")
 parser$add_argument(c("--hto-features-regex"), action="store", help="Alternatively, specify a regular expression to identify HTO features. When the HTO features cannot be found, the script will exit without an error.", dest="hto_regex")
-parser$add_argument(c("--norm"), action="store", help="Use LogNormalize or CLR for HTO normalisation (default: %default)", default="LogNormalize", dest="norm")
+parser$add_argument(c("--norm"), action="store", help="Use LogNormalize or CLR for HTO normalisation (default: %default)", default="CLR", dest="norm")
 parser$add_argument(c("--col"),  action="store", help="R colour for quantitative plots (default: %default)", default="palevioletred", dest="col")
 parser$add_argument(c("--mt-names"),  action="store", help="Prefix of mitochondrial genes (default: %default)", default="^MT-", dest="mt_names")
 parser$add_argument(c("--downsample-cells-n"),  action="store", type="integer", help="Downsample data to at most N cells (default: %default)", default=NULL, dest="downsample_cells_n")
