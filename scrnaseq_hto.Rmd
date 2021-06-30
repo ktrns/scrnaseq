@@ -26,7 +26,7 @@ params:
   path_out: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
    
   # HTO names
-  #   HTOs have an ID that is included in the 'features.tsv' input file
+  #   HTOs have an ID that is included in the "features.tsv" input file
   #   We additionally ask for readable names that are used throughout this report (optional)
   #   This could look like this, where HTO1-3 are the IDs included raw dataset
   #    - without names: 'hto.names: c("HTO1", "HTO2", "HTO3")'
@@ -55,8 +55,8 @@ params:
   path_to_git: "."
    
   # Debugging mode: 
-  # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
-  debugging_mode: on_error_default_debugging
+  # "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
+  debugging_mode: "default_debugging"
 title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
 subtitle: "Demultiplexing with hashtag oligos"
 author: "`r params$author`"
@@ -223,7 +223,7 @@ hto_counts = Seurat::GetAssayData(sc, assay="HTO", slot="counts")
 hto_counts_row = hto_counts %>% Matrix::rowSums() %>% as.data.frame()
 colnames(hto_counts_row) = "HtoCounts"
 if (any(hto_counts_row$HtoCounts == 0)) {
-  sc = subset(sc, features=rownames(which(hto_counts_row$HtoCounts == 0)))
+  sc[["HTO"]] = subset(sc[["HTO"]], features=rownames(which(hto_counts_row$HtoCounts > 0)))
   warning("Discarded ", sum(hto_counts_row$HtoCounts == 0), " HTOs with 0 HTO counts.")
 }
 
@@ -231,7 +231,7 @@ if (any(hto_counts_row$HtoCounts == 0)) {
 hto_counts_col = hto_counts %>% Matrix::colSums() %>% summary() %>% as.matrix() %>% as.data.frame()
 colnames(hto_counts_col) = "HtoCounts"
 if (any(hto_counts_col$HtoCounts == 0)) {
-  sc = subset(sc, cells=rownames(which(hto_counts_col[, "HtoCounts"] == 0)))
+  sc = subset(sc, cells=rownames(which(hto_counts_col[, "HtoCounts"] > 0)))
   warning("Discarded ", sum(hto_counts_col$HtoCounts == 0), " cells with 0 HTO counts.")
 }
 
@@ -244,14 +244,14 @@ knitr::kable(hto_counts_col, align="l", caption="HTO counts per cell (summary)")
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 ```
 
-# Demutliplexing with HTOs
+# Demultiplexing with HTOs
 This section of the report shows how cells are assigned to their sample-of-origin. 
 
 ## Normalisation of HTO counts
 We start the analysis by normalising raw HTO counts. If `LogNormalize` was chosen for normalisation, HTO counts for each cell are divided by the total counts for that cell, multiplied by 10,000 and then natural-log transformed. If `CLR` was chosen for normalisation, HTO counts for each cell are divided by the geometric mean of the counts for that cell and then natural-log transformed. 
 ```{r hto_normalisation}
 # HTO
-sc = suppressWarnings(Seurat::NormalizeData(sc, assay="HTO", normalization.method="CLR", verbose=FALSE))
+sc = suppressWarnings(Seurat::NormalizeData(sc, assay="HTO", normalization.method=params$norm, verbose=FALSE))
 ```
 
 ## Classification of cells based on normalised HTO data
@@ -412,7 +412,7 @@ p = p + patchwork::plot_annotation("Number of counts and features for HTO-classi
 p
 ```
 
-# Filtering singlets
+# Keeping singlets
 This section of the report states the number of cells that remain after negative and doublet cells are removed. 
 ```{r hto_subset}
 sc.all = sc
