@@ -592,19 +592,6 @@ check_python = function() {
   return(error_messages)
 }
 
-# Checks if pandoc is valid.
-#'
-#' @return Returns a list with error messages.
-check_pandoc = function() {
-  error_messages = c()
-  
-  if (nchar(Sys.which("pandoc")) == 0) {
-    return("Pandoc is not installed on this system or not found in the specified path!")
-  }
-
-  return(error_messages)
-}
-
 #' Checks if enrichR is live.
 #'
 #' @param databases The enrichR databases to use.
@@ -647,7 +634,7 @@ check_installed_packages = function() {
   required_packages = c("Seurat", "ggplot2", "patchwork", "magrittr",
                         "reticulate", "enrichR", "future", "knitr",
                         "dplyr", "tidyr", "purrr", "stringr", "sctransform", 
-                        "Matrix", "kableExtra", "DT", "ggsci", "ggpubr",
+                        "Matrix", "kableExtra", "DT", "ggsci",
                         "openxlsx", "readr", "R.utils", "biomaRt",
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
                         "knitcitations")
@@ -732,7 +719,7 @@ Cite = function(reference, type="citet") {
     return(NULL)
   })
   
-  if (is.null(formatted)) formatted = paste0("'", reference, "' (Citation server error)")
+  if (is.null(formatted)) formatted = reference
   return(formatted)
 }
 
