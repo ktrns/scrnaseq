@@ -756,7 +756,7 @@ check_parameters_scrnaseq = function(param) {
       deg_contrasts_table = param$deg_contrasts
     }
     
-    if (!is.data.frame(param$deg_contrasts)) {
+    if (!is.data.frame(deg_contrasts_table)) {
       error_messages = c(error_messages, "The parameter 'deg_contrasts' must be either a data.frame or an existing Excel file with a valid table in the first sheet!")
     } else {
       if (!all(c("condition_column","condition_group1", "condition_group2") %in% colnames(deg_contrasts_table))){
