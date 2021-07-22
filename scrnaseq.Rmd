@@ -13,8 +13,8 @@ output:
     code_folding: "hide"
     highlight: "tango"
     theme: "paper"
-    css: "style.css"
-#bibliography: "references.bib"
+    css: "css/style.css"
+bibliography: "references.bib"
 ---
 
 
@@ -36,7 +36,6 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
-reticulate_python3_path = "C:/Program Files/Python38/python.exe"
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -300,6 +299,9 @@ knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/")
 # Path for annotation
 if (is.null(param$file_annot)) param$file_annot = file.path(param$path_out, "annotation", paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
 
+# Path for cell cycle genes file
+param$cc_genes_marker_file = file.path(param$path_out, "annotation", "cell_cycle_markers.xlsx")
+
 # Do checks
 error_messages = c()
 
@@ -320,7 +322,8 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
                                                  mirror=param$biomart_mirror, 
                                                  version=param$annot_version,
                                                  attributes=param$mart_attributes,
-                                                 file_annot=param$file_annot))
+                                                 file_annot=param$file_annot,
+                                                 file_cc_markers=param$cc_genes_marker_file))
 
 # Stop here if there are errors
 if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
@@ -418,12 +421,10 @@ rownames(annot_ensembl) = annot_ensembl[, ensembl]
 
 ```{r read_cc_genes}
 # Use biomart to translate human cell cycle genes to the species of interest and save them in a file
-cc_genes_marker_file = file.path(param$path_out, "annotation", "cell_cycle_markers.xlsx")
-
-if (file.exists(cc_genes_marker_file)) {
+if (file.exists(param$cc_genes_marker_file)) {
   # Load from file
-  genes_s = openxlsx::read.xlsx(cc_genes_marker_file, sheet=1)
-  genes_g2m = openxlsx::read.xlsx(cc_genes_marker_file, sheet=2)
+  genes_s = openxlsx::read.xlsx(param$cc_genes_marker_file, sheet=1)
+  genes_g2m = openxlsx::read.xlsx(param$cc_genes_marker_file, sheet=2)
   
 } else { 
   # Obtain from Ensembl
@@ -458,7 +459,7 @@ if (file.exists(cc_genes_marker_file)) {
   colnames(genes_g2m) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
   
   # Write to file
-  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m),file=cc_genes_marker_file)
+  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m),file=param$cc_genes_marker_file)
 }
 
 # Convert Ensembl ID to Seurat-compatible unique rowname
@@ -605,7 +606,7 @@ sc = purrr::map(list_names(sc), function(n) {
 })
 ```
 
-```{r qc_plot_cells, fig.asp=1}
+```{r qc_plot_cells}
 # Plot QC metrics for cells
 cell_qc_features = c("nFeature_RNA", "nCount_RNA", "percent_mt")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "percent_ercc")
@@ -648,7 +649,7 @@ p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Distribu
 p
 ```
 
-```{r qc_plot_correlation, fig.asp=0.6}
+```{r qc_plot_correlation, fig.height=6}
 # Correlate QC metrics for cells
 p_list = list()
 p_list[[1]] = ggplot(sc_cell_metadata, aes_string(x=cell_qc_features[2], y=cell_qc_features[1], colour="orig.ident")) +
@@ -669,7 +670,7 @@ p
 
 ## Genes with highest expression
 We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages. Genes with the highest median percentage of counts are plotted below. 
-```{r highest_expression, fig.asp=0.6}
+```{r highest_expression, fig.height=6}
 # Plot only samples that we intend to keep 
 sc_names = names(sc)[!(names(sc) %in% param$samples_to_drop)]
 genes_highestExpr = lapply(sc_names, function(i) {
@@ -1195,21 +1196,21 @@ To decide how many PCs to include in downstream analyses, we visualise the cells
 sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
 ```
 
-```{r pca_loadings, fig.asp=0.5}
+```{r pca_loadings, fig.height=5}
 p_list = Seurat::VizDimLoadings(sc, dims=1:2, reduction="pca", col=param$col, combine=FALSE, balanced=TRUE)
 for (i in seq(p_list)) p_list[[i]] = p_list[[i]] + AddStyle()
 p =  patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Top gene loadings of the first two PCs") 
 p
 ```
 
-```{r pca_dims, fig.asp=0.6}
+```{r pca_dims, fig.height=6}
 p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) + 
   AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 ```
 
 
-```{r pca_heatmaps, fig.asp=2.3}
+```{r pca_heatmaps, fig.height=23}
 p_list = Seurat::DimHeatmap(sc, dims=1:min(20, ncol(sc)), cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE, combine=FALSE)
 p_list = purrr::map(seq(p_list), function(i) {
   p_list[[i]] = p_list[[i]] + 
@@ -1224,7 +1225,7 @@ p
 ## Dimensionality of the dataset
 We next need to decide how many PCs we want to use for our analyses. The following "Elbow plot" is designed to help us make an informed decision.  PCs are ranked based on the percentage of variance they explain. 
 
-```{r dimensionality, fig.asp=0.6}
+```{r dimensionality, fig.height=6}
 # More approximate technique used to reduce computation time
 p = Seurat::ElbowPlot(sc, ndims=min(20, ncol(sc))) + 
   geom_vline(xintercept=param$pc_n + .5, col="firebrick", lty=2) + 
@@ -1285,7 +1286,7 @@ For a nice read to intuitively understand UMAP, see `r Cite("https://pair-code.g
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot"))
 ```
 
-```{r umap_by_cluster, fig.asp=0.6}
+```{r umap_by_cluster, fig.height=6}
 # Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
@@ -1298,7 +1299,7 @@ p
 ```
 
 ## Coloured by sample 
-```{r umap_by_sample, fig.asp=0.6}
+```{r umap_by_sample, fig.height=6}
 # Add a UMAP that is coloured by sample of origin
 cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
 
@@ -1312,7 +1313,7 @@ p
 
 # Distribution of cells in clusters
 
-```{r cells_per_cluster, fig.asp=0.5}
+```{r cells_per_cluster, fig.height=5}
 # Count cells per cluster per sample 
 cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% levels()
 cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% levels()
@@ -1374,7 +1375,7 @@ DefaultAssay(sc) = param$norm
 # Cell Cycle Effect {.tabset}
 How much do gene expression profiles in the dataset reflect the cell cycle phases the single cells were in? After initial normalisation, we determined the effects of cell cycle heterogeneity by calculating a score for each cell based on its expression of G2M and S phase markers. Scoring is based on the strategy described in `r Cite("10.1126/science.aad0501")`, and human gene symbols are translated to gene symbols of the species of interest using biomaRt. This section of the report visualises the above calculated cell cycle scores. 
 
-```{r cellCycleEffect, fig.asp=0.5}
+```{r cellCycleEffect, fig.height=5}
 # Set up colours for cell cycle effect and add to sc object
 col =  GenerateColours(num_colours=length(levels(sc$Phase)), names=levels(sc$Phase), palette="ggsci::pal_npg", alphas=1)
 sc = ScAddLists(sc, lists=list(Phase=col), lists_slot="colour_lists")
@@ -1410,7 +1411,7 @@ p
 ```
 
 ## UMAP coloured by cell cycle phases
-```{r cellCycleEffect_umap_phases, fig.asp=0.6}
+```{r cellCycleEffect_umap_phases, fig.height=6}
 if (any(!is.na(sc$Phase))) {
   # UMAP with phases superimposed
   # Note: This is a hack to colour by phase but label by Cluster
@@ -1423,7 +1424,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by S phase
-```{r cellCycleEffect_umap_s, fig.asp=0.6}
+```{r cellCycleEffect_umap_s, fig.height=6}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
     AddStyle(title="UMAP, cells coloured by S phase")
@@ -1433,7 +1434,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by G2/M phase
-```{r cellCycleEffect_umap_g2m, fig.asp=0.6}
+```{r cellCycleEffect_umap_g2m, fig.height=6}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) + 
     AddStyle(title="UMAP, cells coloured by G2M phase")
@@ -1443,7 +1444,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by the difference between S and G2/M phase
-```{r cellCycleEffect_umap_ccdiff, fig.asp=0.6}
+```{r cellCycleEffect_umap_ccdiff, fig.height=6}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="CC.Difference", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
     AddStyle(title="UMAP, cells coloured by CC.Difference")
@@ -1456,7 +1457,7 @@ if (any(!is.na(sc$Phase))) {
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
 
 ## Number of counts 
-```{r clusterQC_nCount_featurePlot, fig.asp=0.4}
+```{r clusterQC_nCount_featurePlot, fig.height=4}
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nCount_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
@@ -1475,7 +1476,7 @@ p
 ```
 
 ## Number of features
-```{r clusterQC_nFeature_featurePlot, fig.asp=0.4}
+```{r clusterQC_nFeature_featurePlot, fig.height=4}
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nFeature_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
@@ -1493,7 +1494,7 @@ p
 ```
 
 ## Percent mitochondrial reads
-```{r clusterQC_mt_featurePlot, fig.asp=0.4}
+```{r clusterQC_mt_featurePlot, fig.height=4}
 p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col)) + 
   AddStyle(title="Feature plot")
 p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
@@ -1508,7 +1509,7 @@ p
 ```
 
 ## Percent ribosomal reads
-```{r clusterQC_ribo_featurePlot, fig.asp=0.4}
+```{r clusterQC_ribo_featurePlot, fig.height=4}
 p1 = Seurat::FeaturePlot(sc, features="percent_ribo", cols=c("lightgrey", param$col)) +
   AddStyle(title="Feature plot")
 p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
@@ -1995,7 +1996,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_vs_rest.xlsx", n, ".xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_", n, "_vs_rest.xlsx")))
   }))
   
   
@@ -2020,7 +2021,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_vs_rest.xlsx", n, ".xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_", n, "_vs_rest.xlsx")))
   }))
   
   # Combine, flatten into data.frame and add to sc misc slot
@@ -2500,6 +2501,14 @@ Result files are:
     * subset_500_cells_normalised_data.xlsx: Normalised subset of 500 cells in Excel format (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
     * subset_500_cells_scaled_data.xlsx: Normalised and scaled subset of 500 cells in Excel format (for heatmap plotting with morpheus)
     * subset_500_cells_column_annotations.xlsx: Cell annotations for the 500 cells subset in Excel format (for heatmap plotting with morpheus)
+  * figures/
+    * all plots of the HTML report in PNG and PDF format
+  * marker_degs/
+    * markers_cluster_vs_rest.xslx: Marker genes for each cluster in Excel format
+    * functions_marker_up_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the up-regulated markers for cluster 1,2,3,... in Excel format
+    * functions_marker_down_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the down-regulated markers for cluster 1,2,3,... in Excel format
+    * degs_contrast_row_[1,2,3,...]_results.xlsx: Results (genes) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
+    * degs_contrast_row_[1,2,3,...]_functions.xlsx: Results (enriched functions and pathways) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
 
 # Parameters and software versions
 The following parameters were used to run the workflow.  

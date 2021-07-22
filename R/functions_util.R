@@ -880,19 +880,20 @@ check_installed_packages_scrnaseq = function() {
   }
 }
 
-#' Checks if Ensembl annotation is available.
+#' Checks if Ensembl is available so that annotation and cell cycle markers can be downloaded.
 #'
 #' @param biomart Biomart database name.
 #' @param dataset Dataset name.
 #' @param mirror Ensembl mirror.
 #' @param version Ensembl version.
 #' @param attributes The attributes to download.
-#' @param file_annot File with existing annotation to use instead.
+#' @param file_annot File with existing annotation to use.
+#' @param file_cc_markers File with existing cell cycle markers to use.
 #' @return Returns a list with error messages.
-check_ensembl = function(biomart, dataset, mirror, version, attributes, file_annot=NULL) {
+check_ensembl = function(biomart, dataset, mirror, version, attributes, file_annot=NULL, file_cc_markers=NULL) {
   error_messages = c()
   
-  if (is.null(file_annot) || !file.exists(file_annot)) {
+  if (is.null(file_annot) || !file.exists(file_annot) || is.null(file_cc_markers) || !file.exists(file_cc_markers)) {
     # See if mart is available
     annot_mart = suppressWarnings(GetBiomaRt(biomart, dataset, mirror, version))
     if (is.null(annot_mart)) {
