@@ -4,97 +4,18 @@ author:
   - "[Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/)"
   - "[Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics)"
 date: "`r format(Sys.time(), '%B, %Y')`"
-geometry: margin=2cm
+geometry: "margin=2cm"
 output:
   html_document:
     toc: true
     toc_depth: 2
     toc_float: true
-    code_folding: hide
-    highlight: tango
-    theme: paper
-bibliography: "references.bib"
+    code_folding: "hide"
+    highlight: "tango"
+    theme: "paper"
+    css: "style.css"
+#bibliography: "references.bib"
 ---
-
-```{css, echo=FALSE}
-/* This sections sets the style of the expandable text boxes.
-
-The code was written by James Steinbach (October 10, 2018) and made available at https://codepen.io/jdsteinbach/pen/GYmQjo.
-*/
-  
-details {
-  margin: 1rem auto;
-  padding: 0 1rem;
-  max-width: calc(100% - 2rem);
-  position: relative;
-  border: 1px solid #78909C;
-  border-radius: 6px;
-  background-color: #ECEFF1;
-  color: #263238;
-  transition: background-color .15s;
-  
-  > :last-child {
-    margin-bottom: 1rem;
-  }
-  
-  &::before {
-    width: 100%;
-    height: 100%;
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    border-radius: inherit;
-    opacity: .15;
-    box-shadow: 0 .25em .5em #263238;
-    pointer-events: none;
-    transition: opacity .2s;
-    z-index: -1;
-  }
-  
-  &[open] {
-    background-color: #FFF;
-    
-    &::before {
-      opacity: .6;
-    }
-  }
-}
-
-summary {
-  padding: 1rem 2em 1rem 0;
-  display: block;
-  position: relative;
-  font-weight: bold;
-  cursor: pointer;
-  
-  &::before,
-  &::after {
-    width: .75em;
-    height: 2px;
-    position: absolute;
-    top: 50%;
-    right: 0;
-    content: '';
-    background-color: currentColor;
-    text-align: right;
-    transform: translateY(-50%);
-    transition: transform .2s ease-in-out;
-  }
-  
-  &::after {
-    transform: translateY(-50%) rotate(90deg);
-    
-    [open] & {
-      transform: translateY(-50%) rotate(180deg);
-    }
-  }
-  
-  &::-webkit-details-marker {
-    display: none;
-  }
-}
-```
 
 
 ```{r setup, warning=FALSE, message=FALSE}
@@ -115,6 +36,7 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
+reticulate_python3_path = "C:/Program Files/Python38/python.exe"
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -178,7 +100,7 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
 
 # Downsample data to at most n cells per sample (mainly for tests)
 #   NULL to deactivate
-param$downsample_cells_n = NULL
+param$downsample_cells_n = 100
 
 # Path to output directory
 param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
@@ -197,8 +119,8 @@ param$mart_attributes = c(param$annot_main,
                             "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
 param$biomart_mirror = NULL
 
-# Where to store the annotation so that it has to be fetched only one
-# if NULL will be in output_directory/annotation
+# Where to store the annotation so that it has to be fetched only once
+# if NULL, the annotation will be stored in output_directory/annotation
 param$file_annot = NULL
 
 # Prefix for mitochondrial genes 
@@ -405,18 +327,6 @@ if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collap
 ```
 
 # Read data
-The workflow works with pre-processed 10x data, as well as pre-processed SmartSeq-2 and other data that are represented by a simple table for counts per gene and cell. 
-
-<details>
-<summary>Pre-processing of 10x data with Cell Ranger</summary>
-We use the 10x Genomics Cell Ranger software to process 10x sequencing reads. The result is a matrix with counts per feature (rows) and cell (columns). Features can be genes for measuring gene expression or antibodies for measuring protein levels. To save disk space, the matrix is converted into a condensed format and described by the following three files:
-
--	`features.tsv.gz`: A gzipped tabular file with information about the features (feature id, feature symbol and type)
--	`barcodes.tsv.gz`: A gzipped tabular file with the barcode for each cell, i.e. the information about the cells
--	`matrix.mtx`: A sparse version of the count matrix where the first column contains the row number of the feature from the feature table, the second column the row number of the cell from the barcodes table and the third column contains the count.
-
-Cell Ranger also produces a file with mapping statistics, which is printed here.
-</details>
 
 ## Read and print mapping statistics
 We begin by printing mapping statistics that have been produced prior to this workflow. 
@@ -488,15 +398,6 @@ ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname[, symbol], ensemb
 
 # Seurat-compatible unique rowname to ensembl id
 seurat_rowname_to_ensembl = setNames(names(ensembl_to_seurat_rowname), ensembl_to_seurat_rowname)
-
-# Gene symbol to ensembl id: named LIST to account for genes where one symbol translates to multiple Ensembl IDs
-#symbol_to_ensembl = unique(annot_ensembl[, c(ensembl, symbol)])
-#symbol_to_ensembl = split(symbol_to_ensembl[, ensembl], symbol_to_ensembl[, symbol])
-
-# Gene symbol to (seurat compatible unique) gene symbol: named LIST to account for genes with multiple names
-#symbol_to_seurat_rowname = unique(annot_ensembl[, c(ensembl, symbol)])
-#symbol_to_seurat_rowname$seurat_rowname = ensembl_to_seurat_rowname[symbol_to_seurat_rowname[, ensembl]]
-#symbol_to_seurat_rowname = split(symbol_to_seurat_rowname$seurat_rowname, symbol_to_seurat_rowname[, symbol])
 
 # Ensembl to Entrez
 ensembl_to_entrez = unique(annot_ensembl[, c(ensembl, entrez)])
@@ -575,10 +476,10 @@ sc = list()
 
 datasets = param$path_data
 for (i in seq(nrow(datasets))) {
-  name = datasets[i,"name"]
-  type = datasets[i,"type"]
-  path = datasets[i,"path"]
-  suffix = datasets[i,"suffix"]
+  name = datasets[i, "name"]
+  type = datasets[i, "type"]
+  path = datasets[i, "path"]
+  suffix = datasets[i, "suffix"]
   
   # Read 10X or smartseq2
   if (type == "10x") {
@@ -608,7 +509,7 @@ param$col_samples = GenerateColours(num_colours=length(sample_names), names=samp
 sc = purrr::map(sc, ScAddLists, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
 
 # Downsample cells if requested
-if (param$downsample_cells_n > 0) {
+if (!is.null(param$downsample_cells_n)) {
   sc = purrr::map(sc, function(s) {
     cells = ScSampleCells(sc=s, n=param$downsample_cells_n, seed=1)
     return(subset(s, cells=cells))
@@ -1426,7 +1327,7 @@ rownames(tbl_perc) = gsub(rownames(tbl_perc), pattern="_n$", replacement="_perc"
 tbl = rbind(tbl, tbl_perc)
 
 # Add enrichment
-if (length(cell_samples) > 1 & length(cell_clusters)>1) tbl = rbind(tbl, CellsFisher(sc))
+if (length(cell_samples) > 1 & length(cell_clusters) > 1) tbl = rbind(tbl, CellsFisher(sc))
 
 # Sort
 tbl = tbl[order(rownames(tbl)),, drop=FALSE]
@@ -1559,7 +1460,7 @@ Do cells in individual clusters have particularly high counts, detected genes or
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nCount_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
-p1 = LabelClusters(p1, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
 
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
@@ -1578,7 +1479,7 @@ p
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nFeature_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
-p1 = LabelClusters(p1, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -1595,7 +1496,7 @@ p
 ```{r clusterQC_mt_featurePlot, fig.asp=0.4}
 p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col)) + 
   AddStyle(title="Feature plot")
-p1 = LabelClusters(p1, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -1610,7 +1511,7 @@ p
 ```{r clusterQC_ribo_featurePlot, fig.asp=0.4}
 p1 = Seurat::FeaturePlot(sc, features="percent_ribo", cols=c("lightgrey", param$col)) +
   AddStyle(title="Feature plot")
-p1 = LabelClusters(p1, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black", fill="lightgrey")
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_ribo, fill=seurat_clusters, group=seurat_clusters)) +
   geom_violin(scale="width") +
@@ -1696,11 +1597,10 @@ if ((known_markers_n > 0) & any(idx_dotplot)) {
         scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1") +
         AddStyle(title=paste("Known marker genes:", names(known_markers_dotplot)[i]), ylab="Cluster") + 
         theme(axis.text.x=element_text(angle=90, hjust=1, vjust=.5)) +
-        lims(size=c(0,100)) +
-        guides(color = FALSE)
+        lims(size=c(0,100))
       )
   }
-  p = patchwork::wrap_plots(p_list, ncol=1) + patchwork::plot_layout(guides="collect")
+  p = patchwork::wrap_plots(p_list, ncol=1)
   p
 } else if ((known_markers_n > 0) & !any(idx_dotplot)) {
   message("This tab is used for dot plots for up to 50 genes. All provided lists are longer than this, and hence dot plots are skipped.")
@@ -2501,12 +2401,13 @@ if (all(param$path_data$type == "10x")) {
 ```
 
 Result files are:
-  * export/Loupe_projection_(umap|pca|...).csv: Seurat UMAP/PCA/... visualization   
-    Import to Loupe through "Import Projection"   
-  * export/Loupe_metadata.csv: Seurat categorial meta data including clusters and cell cycle phases   
-    Import to Loupe through "Import Categories"   
-  * export/Loupe_genesets.csv: Gene sets such as markers, DEGs, cell cycles   
-    Import to Loupe through "Import Lists"   
+
+  * export
+    * Loupe_projection_(umap|pca|...).csv: Seurat UMAP/PCA/... projections for visualization
+    * Loupe_metadata.csv: Seurat cell meta data including clusters and cell cycle phases
+    * Loupe_genesets.csv: Gene sets such as markers, DEGs, cell cycles 
+
+Projections can be imported in Loupe via "Import Projection", cell meta data via "Import Categories" and gene sets via "Import Lists" 
 
 ## Export to cellxgene browser
 We export the assay data, cell metadata, clustering and visualisation in a format that can be read by the cellxgene browser `r Cite("https://github.com/chanzuckerberg/cellxgene", "citep")`.
@@ -2527,8 +2428,11 @@ adata$write(file.path(param$path_out, "export", "sc.h5ad"), compression='gzip')
 ```
 
 Result files are:
-  * export/sc.h5ad: H5AD object for cellxgene browser   
-    Copy/upload to data  directory of your cellxgene browser
+
+  * export/
+    * sc.h5ad: H5AD object for cellxgene browser   
+
+Copy/upload to data  directory of your cellxgene browser
 
 ## Export to the Cerebro browser
 We export the assay data, clustering, visualisation, marker genes, enriched pathways and degs in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`.
@@ -2542,8 +2446,11 @@ res = ExportToCerebro(sc=sc,
 ```
 
 Result files are:
-  * export/sc.crb: Object for Cerebro browser  
-    Load into Cerebro browser
+
+  * export/
+    * sc.crb: Object for Cerebro browser  
+
+Load into Cerebro browser.
 
 ## Other output files
 ```{r output_files}
@@ -2581,13 +2488,18 @@ openxlsx::write.xlsx(sc[[]][cells_subset, ] %>% as.data.frame() %>% tibble::rown
 ```
 
 Result files are:
-  * data/sc.rds: Seurat object for R
-  * data/counts: Raw counts of the entire dataset as sparse matrix
-  * annotation/gene_annotation.xlsx: Ensembl annotation of the genes used in the Seurat object
-  * data/subset_500_cells_normalised_data.xlsx: Normalised subset of 500 cells (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
-  * data/subset_500_cells_scaled_data.xlsx: Normalised and scaled subset of 500 cells (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
-  * data/subset_500_cells_column_annotations.xlsx.xlsx: Cell annotations for the 500 cells subset (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
 
+  * annotation/
+    * gene_annotation.xlsx: Ensembl annotation of the genes in Excel format
+    * cell_cycle_markers.xlsx: Markers for cell cycle phases in Excel format
+    * species_gene_ensembl.vEnsembl.annot.txt: Raw annotation downloaded from Ensembl as tab-separated file
+  * data/
+    * sc.rds: Seurat object for import into R
+    * cell_metadata.xlsx: Cell metadata in Excel format
+    * counts: Raw counts of the entire dataset as sparse matrix
+    * subset_500_cells_normalised_data.xlsx: Normalised subset of 500 cells in Excel format (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
+    * subset_500_cells_scaled_data.xlsx: Normalised and scaled subset of 500 cells in Excel format (for heatmap plotting with morpheus)
+    * subset_500_cells_column_annotations.xlsx: Cell annotations for the 500 cells subset in Excel format (for heatmap plotting with morpheus)
 
 # Parameters and software versions
 The following parameters were used to run the workflow.  
