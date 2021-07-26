@@ -118,10 +118,6 @@ param$mart_attributes = c(param$annot_main,
                             "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
 param$biomart_mirror = NULL
 
-# Where to store the annotation so that it has to be fetched only once
-# if NULL, the annotation will be stored in output_directory/annotation
-param$file_annot = NULL
-
 # Prefix for mitochondrial genes 
 param$mt = "^MT-"
 
@@ -297,10 +293,10 @@ dir.create(file.path(param$path_out, "export"), recursive=TRUE, showWarnings=FAL
 knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
 
 # Path for annotation
-if (is.null(param$file_annot)) param$file_annot = file.path(param$path_out, "annotation", paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
+param$file_annot = file.path(param$path_out, "annotation", paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
 
 # Path for cell cycle genes file
-param$cc_genes_marker_file = file.path(param$path_out, "annotation", "cell_cycle_markers.xlsx")
+param$file_cc_genes = file.path(param$path_out, "annotation", "cell_cycle_markers.xlsx")
 
 # Do checks
 error_messages = c()
@@ -323,7 +319,7 @@ error_messages = c(error_messages, check_ensembl(biomart="ensembl",
                                                  version=param$annot_version,
                                                  attributes=param$mart_attributes,
                                                  file_annot=param$file_annot,
-                                                 file_cc_markers=param$cc_genes_marker_file))
+                                                 file_cc_markers=param$file_cc_genes))
 
 # Stop here if there are errors
 if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
@@ -421,10 +417,10 @@ rownames(annot_ensembl) = annot_ensembl[, ensembl]
 
 ```{r read_cc_genes}
 # Use biomart to translate human cell cycle genes to the species of interest and save them in a file
-if (file.exists(param$cc_genes_marker_file)) {
+if (file.exists(param$file_cc_genes)) {
   # Load from file
-  genes_s = openxlsx::read.xlsx(param$cc_genes_marker_file, sheet=1)
-  genes_g2m = openxlsx::read.xlsx(param$cc_genes_marker_file, sheet=2)
+  genes_s = openxlsx::read.xlsx(param$file_cc_genes, sheet=1)
+  genes_g2m = openxlsx::read.xlsx(param$file_cc_genes, sheet=2)
   
 } else { 
   # Obtain from Ensembl
@@ -459,7 +455,7 @@ if (file.exists(param$cc_genes_marker_file)) {
   colnames(genes_g2m) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
   
   # Write to file
-  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m),file=param$cc_genes_marker_file)
+  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m),file=param$file_cc_genes)
 }
 
 # Convert Ensembl ID to Seurat-compatible unique rowname
