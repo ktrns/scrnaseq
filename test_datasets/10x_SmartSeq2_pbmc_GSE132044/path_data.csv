@@ -1,0 +1,3 @@
+name,type,path,stats
+pbmc_10x,10x,/mnt/ngsnfs/single_cell_dev/users/glomb/scrnaseq/test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/,NA
+pbmc_smartseq2,smartseq2,/mnt/ngsnfs/single_cell_dev/users/glomb/scrnaseq/test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz,NA
