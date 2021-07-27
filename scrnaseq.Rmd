@@ -1287,9 +1287,9 @@ sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
 p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters") + 
-  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="none", legend_title="Clusters") + 
-  scale_color_manual(values=param$col_clusters, labels=cluster_labels)
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill=param$col_clusters)
+  scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
+  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
 p
 ```
 
@@ -1302,7 +1302,7 @@ cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
 p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", cols=param$col_samples) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
 p
 ```
 
@@ -1413,7 +1413,7 @@ if (any(!is.na(sc$Phase))) {
   p = Seurat::DimPlot(sc, group.by="Phase", pt.size=1, cols=Misc(sc, "colour_lists")[["Phase"]]) + 
     AddStyle(title="UMAP, cells coloured by cell cycle phases", legend_title="Phase")
   p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-  p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
+  p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
   p
 }
 ```
@@ -1423,7 +1423,7 @@ if (any(!is.na(sc$Phase))) {
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
     AddStyle(title="UMAP, cells coloured by S phase")
-  p = LabelClusters(p, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+  p = LabelClusters(p, id="ident", box=TRUE, fill="white")
   p
 }
 ```
@@ -1433,7 +1433,7 @@ if (any(!is.na(sc$Phase))) {
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) + 
     AddStyle(title="UMAP, cells coloured by G2M phase")
-  p = LabelClusters(p, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+  p = LabelClusters(p, id="ident", box=TRUE, fill="white")
   p
 }
 ```
@@ -1443,7 +1443,7 @@ if (any(!is.na(sc$Phase))) {
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="CC.Difference", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
     AddStyle(title="UMAP, cells coloured by CC.Difference")
-  p = LabelClusters(p, id="ident", box=TRUE, segment.color="black", fill="lightgrey")
+  p = LabelClusters(p, id="ident", box=TRUE, fill="white")
   p
 }
 ```
@@ -1456,7 +1456,7 @@ Do cells in individual clusters have particularly high counts, detected genes or
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nCount_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
-p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black")
+p1 = LabelClusters(p1, id="ident", box=FALSE)
 
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nCount_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
@@ -1475,7 +1475,7 @@ p
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features="nFeature_RNA") + 
   AddStyle(title="Feature plot") + 
   scale_colour_gradient(low="lightgrey", high=param$col, trans="log10"))
-p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black")
+p1 = LabelClusters(p1, id="ident", box=FALSE)
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=nFeature_RNA, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -1492,7 +1492,7 @@ p
 ```{r clusterQC_mt_featurePlot}
 p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col)) + 
   AddStyle(title="Feature plot")
-p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black")
+p1 = LabelClusters(p1, id="ident", box=FALSE)
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters, group=seurat_clusters)) + 
   geom_violin(scale="width") + 
@@ -1507,7 +1507,7 @@ p
 ```{r clusterQC_ribo_featurePlot}
 p1 = Seurat::FeaturePlot(sc, features="percent_ribo", cols=c("lightgrey", param$col)) +
   AddStyle(title="Feature plot")
-p1 = LabelClusters(p1, id="ident", box=FALSE, segment.color="black")
+p1 = LabelClusters(p1, id="ident", box=FALSE)
 
 p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_ribo, fill=seurat_clusters, group=seurat_clusters)) +
   geom_violin(scale="width") +
@@ -1733,7 +1733,7 @@ if (markers_found) {
   markers_top$labels = paste0(markers_top$cluster, ": ", markers_top$gene)
 
   # Show table
-  knitr::kable(markers_top, align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
+  knitr::kable(markers_top %>% dplyr::select(-labels), align="l", caption="Up to top 5 marker genes per cell cluster") %>% 
     kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
     kableExtra::scroll_box(width="100%", height="700px") 
 }
