@@ -104,7 +104,7 @@ DotPlotUpdated = function (object, assay = NULL, features, cols = c("lightgrey",
   split.colors <- !is.null(x = split.by) && !any(cols %in% 
                                                    rownames(x = brewer.pal.info))
   scale.func <- switch(EXPR = scale.by, size = scale_size, 
-                       radius = scale_radius, stop("'scale.by' must be either 'size' or 'radius'"))
+                       radius = scale_radius, stop("DotPlotUpdated: 'scale.by' must be either 'size' or 'radius'"))
   feature.groups <- NULL
   if (is.list(features) | any(!is.na(names(features)))) {
     feature.groups <- unlist(x = sapply(X = 1:length(features), 
@@ -136,7 +136,7 @@ DotPlotUpdated = function (object, assay = NULL, features, cols = c("lightgrey",
     splits <- object[[split.by, drop = TRUE]][cells, drop = TRUE]
     if (split.colors) {
       if (length(x = unique(x = splits)) > length(x = cols)) {
-        stop("Not enough colors for the number of groups")
+        stop("DotPlotUpdated: Not enough colors for the number of groups")
       }
       cols <- cols[1:length(x = unique(x = splits))]
       names(x = cols) <- unique(x = splits)
