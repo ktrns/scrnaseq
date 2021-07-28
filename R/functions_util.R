@@ -898,7 +898,7 @@ check_ensembl = function(biomart, dataset, mirror, version, attributes, file_ann
     annot_mart = suppressWarnings(GetBiomaRt(biomart, dataset, mirror, version))
     if (is.null(annot_mart)) {
       if (is.null(mirror)) {
-        return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ," using biomaRt'!"))
+        return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ,"' using biomaRt!"))
       } else {
         return(paste0("Cannot download Ensembl annotation for dataset '",dataset,"', version '",version ,"' at mirror '",mirror,"' using biomaRt!"))
       }
