@@ -232,6 +232,10 @@ param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", 
                                  downsample_cells_n=c(NA, 50, 30),
                                  log2FC=log2(c(1.5, 1.5, 1.5)))
 
+# Enrichr site
+# Available options: "Enrichr", "FlyEnrichr", "WormEnrichr", "YeastEnrichr", "FishEnrichr"
+param$enrichr_site = "Enrichr"
+
 # P-value threshold for functional enrichment tests
 param$enrichr_padj = 0.05
 
@@ -780,11 +784,19 @@ if (length(sc)==1) param$integrate_samples[["method"]] = "single"
 ```{r filter_features}
 # Only RNA assay at the moment
 
-# Iterate over datasets and record a feature if it does not pass the filter
+# Iterate over samples and record a feature if it does not pass the filter
 sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
+  
+  # Make sure the sample contains more cells than the minimum threshold
   if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
+  
+  # Return gene names that do not pass the minimum threshold 
   else return(names(which(sc[[n]][["RNA"]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]])))
 })
+
+# Which genes are to be filtered for all samples?
+# Note: Make sure that no other sample is called "AllSamples"
+sc_features_to_exclude$AllSamples = Reduce(f=intersect, x=sc_features_to_exclude)
 
 # Summarise
 sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>% 
@@ -793,12 +805,12 @@ rownames(sc_features_to_exclude_summary) = c("Genes")
 knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of excluded genes") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 
-# Now filter
+# Now filter those genes that are to be filtered for all samples 
 sc = purrr::map(list_names(sc), function(n) {
   assay_names = Seurat::Assays(sc[[n]])
   features_to_keep = purrr::map(values_to_names(assay_names), function(a) {
     features = rownames(sc[[n]][[a]])
-    keep = features[!features %in% sc_features_to_exclude[[n]]]
+    keep = features[!features %in% sc_features_to_exclude$AllSamples]
     return(keep)
   })
   return(subset(sc[[n]], features=purrr::flatten_chr(features_to_keep)))
@@ -1963,6 +1975,10 @@ To gain first insights into potential functions of cells in a cluster, we test f
 
 We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website `r Cite("https://amp.pharm.mssm.edu/Enrichr/", "citep")`. You can choose to test functional enrichment from a wide range of databases:
 ```{r enrichr_databases}
+# Set Enrichr database
+enrichR::setEnrichrSite(param$enrichr_site)
+
+# List databases
 dbs_all = enrichR::listEnrichrDbs()
 knitr::kable(dbs_all, align="l", caption="Enrichr databases") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
