@@ -78,11 +78,11 @@ DegsUpDisplayTop = function(degs, n=5, column_1="p_val_adj_score", column_2="pct
 #' @param sc Seurat object.
 #' @param genes Gene list for which average data are to be extracted.
 #' @return A table with average RNA counts and data per identity class for each gene.
-DegsAvgDataPerIdentity = function(sc, genes) { 
-  # The standard average log FC is derived from assay="RNA" and slot="data"
+DegsAvgDataPerIdentity = function(sc, genes, assay="RNA") { 
+  # The standard average log FC is derived from assay and slot="data"
   # Add average scaled data per cluster for default assay
   avg_set = list()
-  avg_set[["RNA"]] = "counts"
+  avg_set[[assay]] = "counts"
   avg_set[[DefaultAssay(sc)]] = c(avg_set[[DefaultAssay(sc)]], "data")
   avg_data = matrix(NA+0, nrow=length(genes), ncol=0)
   

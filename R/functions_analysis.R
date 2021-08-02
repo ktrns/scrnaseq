@@ -228,26 +228,39 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
 #' @param exclude_genes A list of genes to exclude by default. Default is empty.
 #' @param scale_factor The scale factor. Default is 10000.
 #' @return A seurat object with normalized counts in the data slot of the assay.
-LogNormalizeCustom = function(sc, assay="RNA", slot="counts", exclude_highly_expressed=FALSE, max_fraction=0.05, exclude_genes=NULL, scale_factor=10000) {
+LogNormalizeCustom = function(sc, assay="RNA", exclude_highly_expressed=FALSE, max_fraction=0.05, exclude_genes=NULL, scale_factor=10000) {
   # Get assay data
-  counts_assay = Seurat::GetAssayData(sc, slot="counts", assay=assay)
+  counts = Seurat::GetAssayData(sc, slot="counts", assay=assay)
   
-  # For each cell: determine highly expressed genes and return the counts sum but excluding highly expressed genes and genes that should be excluded by default
-  total_counts_per_cell_excl_high = apply(counts_assay, 2, function(cell_counts) {
-    is_highly_expressed = exclude_highly_expressed & cell_counts/sum(cell_counts)>max_fraction
-    is_excluded_by_default = names(cell_counts) %in% exclude_genes
-    return(sum(cell_counts[!highly_expressed_genes & !is_excluded_by_default]))
-  })
+  # Determine highly expressed genes
+  if (exclude_highly_expressed) { 
+    
+    # Calculate fractions for genes per cell, as a TRUE/FALSE table
+    is_highly_expressed = Matrix::t(Matrix::t(counts) * (1/Matrix::colSums(counts))) > max_fraction
+    
+    # Which genes are highly expressed in at least one cell, as a TRUE/FALSE vector
+    is_highly_expressed = Matrix::rowSums(is_highly_expressed) > 0
+    
+  } else { 
+    is_highly_expressed = FALSE
+  }
+  
+  # Convert excluded genes into TRUE/FALSE vector
+  is_excluded_by_default = rownames(counts) %in% exclude_genes
+  
+  # For each cell return counts sum excluding genes that are highly expressed or should be excluded anyhow
+  total_counts_per_cell = Matrix::colSums(counts[!is_highly_expressed & !is_excluded_by_default, ])
   
   # Size factors for scaling the counts
-  size_factors = 1/(total_counts_per_cell_excl_high*scale_factor)
+  size_factors = 1 / total_counts_per_cell * scale_factor
   
   # Multiply counts by size factors
   # Use R matrix multiplication for speed: matrix %*% diag(v)
   # To divide, multiply by the inverse
   # Finally log1p
-  sc = Seurat::SetAssayData(sc, slot="data", 
+  sc = Seurat::SetAssayData(sc, 
+                            slot="data", 
                             assay=assay, 
-                            new.data=log1p(Matrix::t(Matrix::t(counts_assay) * size_factors)))
+                            new.data=log1p(Matrix::t(Matrix::t(counts) * size_factors)))
   return(sc)
 }
