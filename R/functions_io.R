@@ -526,12 +526,13 @@ ParsePlateInformation = function(cell_names, pattern='^(\\S+)_(\\d+)_([A-Z])(\\d
 
 #' Exports a Seurat object for visualisation with the cerebroApp (https://github.com/romanhaa/Cerebro).
 #' 
-#' @param sc A Seurat object.
+#' @param sc Seurat object.
 #' @param path File path for export.
-#' @param assay Assay to export ('RNA').
-#' @param delayed_array Use delayed array for large datasets.
+#' @param assay Assay to export; default "RNA".
+#' @param assay_raw Assay containing the raw data; default "RNA";
+#' @param delayed_array Use delayed array for large datasets; default FALSE.
 #' @return TRUE if export was successful otherwise FALSE.
-ExportToCerebro = function(sc, path, assay="RNA", delayed_array=FALSE) {
+ExportToCerebro = function(sc, path, assay="RNA", assay_raw="RNA", delayed_array=FALSE) {
   # Here is an example how the cerebro object is organised 
   #examp_file= system.file('extdata', 'v1.3', 'example.crb', package = 'cerebroApp')
   #examp = readRDS(examp_file)
@@ -545,8 +546,8 @@ ExportToCerebro = function(sc, path, assay="RNA", delayed_array=FALSE) {
                                organism="na",
                                groups=c("orig.ident", "seurat_clusters"),
                                cell_cycle=c("Phase"),
-                               nUMI="nCount_RNA",
-                               nGene="nFeature_RNA",
+                               nUMI=paste0("nCount_", assay_raw), 
+                               nGene=paste0("nFeature_", assay_raw), 
                                add_all_meta_data=TRUE,
                                use_delayed_array=delayed_array,
                                verbose=FALSE)

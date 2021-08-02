@@ -97,7 +97,7 @@ param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
                              path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
                              stats=c(NA, NA))
 
-# Data type ("RNA" or "Spatial")
+# Data type ("RNA", "Spatial")
 param$assay_raw = "RNA"
 
 # Downsample data to at most n cells per sample (mainly for tests)
@@ -183,6 +183,8 @@ param$vars_to_regress = c()
 #   - k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
 #   - k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
 #   - k.score: How many neighbors to use when scoring anchors (default: min(30, minimum number of cells in a sample))
+#
+# Note that if you analyse assay_raw="Spatial", only method="merge" is supported
 param$integrate_samples = list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
 
 # TO DISCUSS from Seurat vignette:
@@ -318,7 +320,7 @@ error_messages = c(error_messages, check_python())
 # Check pandoc
 error_messages = c(error_messages, check_pandoc())
 # Check enrichR
-error_messages = c(error_messages, check_enrichr(param$enrichr_dbs))
+error_messages = c(error_messages, check_enrichr(param$enrichr_dbs, param$enrichr_site))
 # Check ensembl
 error_messages = c(error_messages, check_ensembl(biomart="ensembl", 
                                                  dataset=param$mart_dataset, 
@@ -918,9 +920,9 @@ fig_height_vf = 5 * ceiling(length(names(sc))/2)
 
 ```{r plot_variable_features, warning=FALSE, fig.height=fig_height_vf}
 p_list = purrr::map(list_names(sc), function(n) {
-  top10 = head(Seurat::VariableFeatures(sc[[n]], assay=param$norm), 10)
+  top10 = head(Seurat::VariableFeatures(sc[[n]], assay=ifelse(param$norm=="SCT", param$norm, param$assay_raw)), 10)
   p = Seurat::VariableFeaturePlot(sc[[n]], 
-                                  assay=param$norm, 
+                                  assay=ifelse(param$norm=="SCT", param$norm, param$assay_raw), 
                                   selection.method=ifelse(param$norm=="RNA", "vst", "sct"), 
                                   col=c("grey", param$col)) + 
     AddStyle(title=n) + 
@@ -1023,8 +1025,8 @@ if (param$integrate_samples[["method"]]=="merge") {
     sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000, verbose=FALSE)
    
     # Scale RNA assay
-    # Note: Removing cell cycle effects in "RNA" scaled data can be very slow
-    sc = Seurat::ScaleData(sc, features=rownames(sc[["RNA"]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay="RNA")
+    # Note: Removing cell cycle effects in scaled data can be very slow
+    sc = Seurat::ScaleData(sc, features=rownames(sc[[param$assay_raw]]), vars.to.regress=param$vars_to_regress, verbose=FALSE, assay=param$assay_raw)
   
   } else if (param$norm == "SCT") {
     # Rerun SCTransform
@@ -1108,7 +1110,9 @@ if (param$integrate_samples[["method"]]=="integrate") {
     # We need to re-run SCTransform for the "SCT" assay again, to normalise on the complete dataset
     DefaultAssay(sc) = "SCT"
     min_cells_overall = max(purrr::map_int(param$feature_filter, function(f) as.integer(f[["min_cells"]])))
-    sc = SCTransform(sc, vars.to.regress=param$vars_to_regress, 
+    sc = SCTransform(sc, 
+                     assay=param$assay_raw, 
+                     vars.to.regress=param$vars_to_regress, 
                      min_cells=min_cells_overall,
                      verbose=FALSE,
                      return.only.var.genes=FALSE,
@@ -1176,7 +1180,7 @@ Dependent on the context, this tab refers to different data:
 
 ```{r plot_RLE_norm}
 # Plot normalised data
-p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_subset$rowname), assay=param$norm, slot="data")), 
+p = PlotRLE(as.matrix(GetAssayData(subset(sc, cells=cells_subset$rowname), assay=ifelse(param$norm=="SCT", param$norm, param$assay_raw), slot="data")), 
             id=cells_subset$orig.ident, 
             col=param$col_samples) + 
   labs(title="Normalised data")
@@ -1360,10 +1364,10 @@ p = ggplot(tbl_bar, aes(x=Cluster, y=Percentage, fill=Sample)) +
 p
 ```
 
-The following table shows the number of cells per sample per cluster:   
+The following table shows the number of cells per sample and cluster:   
 
-* n: Number of cells per sample per cluster   
-* perc: Percentage of cells per sample per cluster compared to all other cells of that cluster   
+* n: Number of cells per sample and cluster   
+* perc: Percentage of cells per sample and cluster compared to all other cells of that cluster   
 
 In case the dataset contains 2 or more samples, we also calculate whether or not the number of cells of a sample in a cluster is significantly higher or lower than expected:      
 
@@ -1372,7 +1376,7 @@ In case the dataset contains 2 or more samples, we also calculate whether or not
 
 ```{r cells_per_cluster_table}
 # Print table
-knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %>% 
+knitr::kable(tbl, align="l", caption="Number of cells per sample and cluster") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
   kableExtra::scroll_box(width="100%")
 ```
@@ -1380,7 +1384,7 @@ knitr::kable(tbl, align="l", caption="Number of cells per cluster per sample") %
 ```{r reset_default_assay}
 # Reset default assay, so we won't plot integrated data
 # Note: We need integrated data for UMAP, clusters
-DefaultAssay(sc) = param$norm
+DefaultAssay(sc) = ifelse(param$norm=="SCT", param$norm, param$assay_raw)
 ```
 
 # Cell Cycle Effect {.tabset}
@@ -2466,6 +2470,7 @@ We export the assay data, clustering, visualisation, marker genes, enriched path
 res = ExportToCerebro(sc=sc, 
                       path=file.path(param$path_out, "export", "sc.crb"), 
                       assay=DefaultAssay(sc),
+                      assay_raw=param$assay_raw,
                       delayed_array=FALSE)
 ```
 

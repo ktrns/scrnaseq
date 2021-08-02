@@ -829,7 +829,7 @@ check_pandoc = function() {
 #'
 #' @param databases The enrichR databases to use.
 #' @return Returns a list with error messages.
-check_enrichr = function(databases) {
+check_enrichr = function(databases, site="Enrichr") {
   if(is.null(databases) || length(databases)==0) return(c())
   
   # Is enrichR live
@@ -837,6 +837,9 @@ check_enrichr = function(databases) {
     return("EnrichR is not available or cannot connect to the databases")
   }
   
+  # Set Enrichr site
+  suppressMessages(enrichR::setEnrichrSite(param$enrichr_site))
+
   # Are databases available at all
   available_databases = tryCatch({ enrichR::listEnrichrDbs()[,"libraryName"] }, error=function(e) {return(NULL) })
   if (is.null(available_databases)) return("Could not list databases available at enrichR! Please check the enrichR vignette!")
