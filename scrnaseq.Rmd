@@ -1295,15 +1295,15 @@ Take care not to mis-read a UMAP:
   
 For a nice read to intuitively understand UMAP, see `r Cite("https://pair-code.github.io/understanding-umap/")`. 
 
-## Coloured by cluster
-
 ```{r run_umap}
 # Default UMAP
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot"))
 ```
 
+## Coloured by cluster
+
 ```{r umap_by_cluster}
-# Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
+# Make a UMAP that is coloured by cluster
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
 p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters") + 
@@ -1315,10 +1315,7 @@ p
 
 ## Coloured by sample 
 ```{r umap_by_sample}
-# Add a UMAP that is coloured by sample of origin
-cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% unique() %>% sort()
-
-# Note: This is a hack to colour by sample but label by Cluster
+# Make a UMAP that is coloured by sample of origin
 p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", cols=param$col_samples) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
@@ -1333,7 +1330,7 @@ p
 cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% levels()
 cell_clusters = sc[[]] %>% dplyr::pull(seurat_clusters) %>% levels()
 
-tbl = dplyr::count(sc[[c("orig.ident", "seurat_clusters")]], orig.ident, seurat_clusters) %>% tidyr::pivot_wider(names_from="seurat_clusters", names_prefix="Cl_", values_from=n) %>% as.data.frame()
+tbl = dplyr::count(sc[[c("orig.ident", "seurat_clusters")]], orig.ident, seurat_clusters) %>% tidyr::pivot_wider(names_from="seurat_clusters", names_prefix="Cl_", values_from=n, values_fill=0) %>% as.data.frame()
 rownames(tbl) = paste0(tbl[,"orig.ident"],"_n")
 tbl[,"orig.ident"] = NULL
 
@@ -1487,7 +1484,7 @@ p2 = ggplot(sc[[]], aes_string(x="seurat_clusters", y=qc_feature, fill="seurat_c
   scale_y_log10()
 
 p = p1 | p2 
-p = p + patchwork::plot_annotation(title="Summed raw counts (", qc_feature, ", log10 scale)")
+p = p + patchwork::plot_annotation(title=paste0("Summed raw counts (", qc_feature, ", log10 scale)"))
 p
 ```
 
@@ -1506,7 +1503,7 @@ p2 = ggplot(sc[[]], aes_string(x="seurat_clusters", y=qc_feature, fill="seurat_c
   scale_y_log10()
 
 p = p1 | p2 
-p = p + patchwork::plot_annotation(title="Number of features with raw count > 0 (", qc_feature, ", log10 scale)")
+p = p + patchwork::plot_annotation(title=paste0("Number of features with raw count > 0 (", qc_feature, ", log10 scale)"))
 p
 ```
 
