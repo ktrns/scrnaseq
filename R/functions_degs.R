@@ -532,7 +532,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Do condition_group1
     if (!is.na(contrast[["condition_group1"]])) {
-      condition_group1_values = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator=";")
+      condition_group1_values = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator="+")
       is_in_condition_group1 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group1_values
       is_in_condition_group1 = is_in_condition_group1 & is_in_subset_group
     } else {
@@ -541,7 +541,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Do condition_group2
     if (!is.na(contrast[["condition_group2"]])) {
-      condition_group2_values = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator=";")
+      condition_group2_values = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator="+")
       is_in_condition_group2 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group2_values
       is_in_condition_group2 = is_in_condition_group2 & is_in_subset_group
     } else {
