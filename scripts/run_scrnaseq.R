@@ -1,8 +1,6 @@
 # Rscript scripts/run_scrnaseq.R --project-id=pbmc --path-data-csv=test_datasets/10x_SmartSeq2_pbmc_GSE132044/path_data.csv --path-out=test_datasets/10x_SmartSeq2_pbmc_GSE132044/results --deg-contrasts=test_datasets/10x_SmartSeq2_pbmc_GSE132044/deg_contrasts.xlsx --path-to-git=.
 #!/usr/bin/env Rscript
 
-getwd()
-
 # Get arguments from commandline
 arguments = commandArgs(trailingOnly=FALSE)
 
