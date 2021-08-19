@@ -22,9 +22,9 @@ parser = ArgumentParser(
   epilog="Upon successful completion, the output directory will contain an HTML report, ....")
 
 # Set mutually exclusive groups
-normalizationGroup = parser$add_mutually_exclusive_group(required=FALSE)
-normalizationGroup$add_argument("--standard-RNA", action="store_true", help="Run with logNormalization and standard parameters", required=FALSE)
-normalizationGroup$add_argument("--standard-SCT", action="store_true", help="Run with SCTransform and standard parameters", required=FALSE)
+analysisGroup = parser$add_mutually_exclusive_group(required=FALSE)
+analysisGroup$add_argument("--standard-RNA", action="store_true", help="Run with logNormalization and standard parameters", required=FALSE)
+analysisGroup$add_argument("--standard-SCT", action="store_true", help="Run with SCTransform and standard parameters", required=FALSE)
 
 speciesGroup = parser$add_mutually_exclusive_group(required=FALSE)
 speciesGroup$add_argument("--human", action="store_true", help="Annotation for human", required=FALSE)
