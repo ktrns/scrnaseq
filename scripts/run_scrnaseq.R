@@ -42,7 +42,7 @@ parser$add_argument("--path-out", action="store", help="Path to an output direct
 # Get individual parameters
 parser$add_argument("--file-known-markers", action="store", help="Path to a xlsx file with marker genes based on literature, translated to Ensembl IDs (one list per column, first row as header and Ensembl IDs below); #default if no known marker genes should be plotted", dest="file_known_markers", default=NULL)
 
-parser$add_argument("--mart-dataset", action="store", help="Annotation via biomaRt; Dataset (default: #default)", dest="mart_dataset",default="hsapiens_gene_ensembl")
+parser$add_argument("--mart-dataset", action="store", help="Annotation via biomaRt; Dataset", dest="mart_dataset", required=TRUE)
 parser$add_argument("--annot-version", action="store", help="Annotation via biomaRt; Version (default: #default)", dest="annot_version",type="integer",default=98)
 parser$add_argument("--annot-main", action="store", help="Annotation via biomaRt; Main (default: #default)", dest="annot_main", default="ensembl=ensembl_gene_id,symbol=external_gene_name,entrez=entrezgene_accession")
 parser$add_argument("--mart-attributes", action="store", help="Annotation via biomaRt; Attributes (default: #default)", dest="mart_attributes",default="chromosome_name,start_position,end_position,percentage_gene_gc_content,gene_biotype,strand,description")
