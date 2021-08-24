@@ -128,7 +128,7 @@ if (opt[["human"]]) {
   param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
                                                      "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
   param[["mt"]] = "^MT-"
-  param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human")
+  param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
 }
 
 if (opt[["mouse"]]) {
@@ -138,7 +138,7 @@ if (opt[["mouse"]]) {
   param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
                                                      "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
   param[["mt"]] = "^mt-"
-  param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Mouse", "WikiPathways_2019_Mouse")
+  param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Mouse", "WikiPathways_2019_Mouse", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
 }
 
 if (opt[["zebrafish"]]) {
