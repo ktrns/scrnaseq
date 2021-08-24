@@ -82,7 +82,7 @@ parser$add_argument("--marker-pct", action="store", type="double", help="Thresho
 
 parser$add_argument("--latent-vars", action="store", help="Additional (unwanted) variables to account for in statistical tests (default: #default)", dest="latent_vars", default=NULL)
 
-parser$add_argument("--deg-contrasts", action="store", help="Contrasts to find differentially expressed genes; xlsx file (Required columns: condition_column, condition_group1, condition_group2; Optional columns: subset_column, subset_group, assay, slot, padj, log2FC, min_pct, test, downsample_cells_n, latent_vars)", dest="deg_contrasts", required=TRUE)
+parser$add_argument("--deg-contrasts", action="store", help="Contrasts to find differentially expressed genes; xlsx file (Required columns: condition_column, condition_group1, condition_group2; Optional columns: subset_column, subset_group, assay, slot, padj, log2FC, min_pct, test, downsample_cells_n, latent_vars)", dest="deg_contrasts")
 
 parser$add_argument("--enrichr-padj", action="store", type="double", help="P-value threshold for functional enrichment tests (default: #default)", dest="enrichr_padj", default=0.05)
 
