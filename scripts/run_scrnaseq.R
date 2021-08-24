@@ -29,6 +29,7 @@ analysisGroup$add_argument("--standard-SCT", action="store_true", help="Run with
 speciesGroup = parser$add_mutually_exclusive_group(required=FALSE)
 speciesGroup$add_argument("--human", action="store_true", help="Annotation for human", required=FALSE)
 speciesGroup$add_argument("--mouse", action="store_true", help="Annotation for mouse", required=FALSE)
+speciesGroup$add_argument("--zebrafish", action="store_true", help="Annotation for zebrafish", required=FALSE)
 
 # Get project and sample description
 parser$add_argument("--project-id", action="store", help="Project ID", dest="project_id", required=TRUE)
@@ -140,6 +141,15 @@ if (opt[["mouse"]]) {
   param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Mouse", "WikiPathways_2019_Mouse")
 }
 
+if (opt[["zebrafish"]]) {
+  param[["mart_dataset"]] = "drerio_gene_ensembl"
+  param[["annot_version"]] = 103
+  param[["annot_main"]] = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="external_gene_name")
+  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
+                                                     "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
+  param[["mt"]] = "^mt-"
+  param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
+}
 
 # Write project and sample description
 # Param project id
