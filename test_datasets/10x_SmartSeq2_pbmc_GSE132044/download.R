@@ -89,3 +89,11 @@ write.csv(data.frame(name=c("pbmc_10x", "pbmc_smartseq2"),
           file="path_data.csv",
           row.names=FALSE,
           quote=FALSE)
+
+# write deg_contrasts.xlsx
+openxlsx::write.xlsx(data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
+                                condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
+                                condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
+                                subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
+                                subset_group=c(NA, " ", "1;2")),
+                     "deg_contrasts.xlsx")
