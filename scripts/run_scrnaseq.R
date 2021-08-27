@@ -36,7 +36,7 @@ parser$add_argument("--project-id", action="store", help="Project ID", dest="pro
 
 parser$add_argument("--path-data-csv", action="store", help="CSV file containing the path data of the samples", dest="path_data_csv",required=TRUE)
 
-parser$add_argument("--downsample-cells-n", action="store", type="integer", help="Downsample data to at most N cells (default: #default)", dest="downsample_cells_n", default=0)
+parser$add_argument("--downsample-cells-n", action="store", type="integer", help="Downsample data to at most N cells (default: #default)", dest="downsample_cells_n", default=NULL)
 
 parser$add_argument("--path-out", action="store", help="Path to an output directory", dest="path_out", required=TRUE)
 
