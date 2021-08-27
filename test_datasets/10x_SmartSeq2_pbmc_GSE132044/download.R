@@ -80,3 +80,12 @@ openxlsx::write.xlsx(data.frame(bcell=c("ENSG00000105369", "ENSG00000156738"),
                                 monocytes=c("ENSG00000203747", NA),
                                 dendritic=c("ENSG00000179639", NA)),
                      "known_markers.xlsx")
+
+# write path_data.csv
+write.csv(data.frame(name=c("pbmc_10x", "pbmc_smartseq2"),
+                     type=c("10x", "smartseq2"),
+                     path=c(file.path("counts", "10x"), file.path("counts", "smartseq2", "counts_table.tsv.gz")),
+                     stats=c(NA, NA)),
+          file="path_data.csv",
+          row.names=FALSE,
+          quote=FALSE)
