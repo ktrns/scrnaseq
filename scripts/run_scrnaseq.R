@@ -20,85 +20,370 @@ parser = ArgumentParser(
   add_help=TRUE,
   prog=script_name,
   description="Bioinformatics analysis workflow for single-cell RNA-seq analysis. The workflow is based on Seurat, and contains additional visualisations, tables and documentation to better understand the analysis. The workflow supports RNA sequencing data from one or more samples processed with 10X Genomics and SmartSeq-2.",
-  epilog="Upon successful completion, the output directory will contain an HTML report, ....")
+  epilog="Upon successful completion, the output directory will contain an HTML report, ...."
+)
 
 # Set mutually exclusive groups
 analysisGroup = parser$add_mutually_exclusive_group(required=FALSE)
-analysisGroup$add_argument("--standard-RNA", action="store_true", help="Run with logNormalization and standard parameters", required=FALSE)
-analysisGroup$add_argument("--standard-SCT", action="store_true", help="Run with SCTransform and standard parameters", required=FALSE)
+analysisGroup$add_argument(
+  "--standard-RNA",
+  action="store_true",
+  help="Run with logNormalization and standard parameters",
+  required=FALSE
+)
+analysisGroup$add_argument(
+  "--standard-SCT",
+  action="store_true",
+  help="Run with SCTransform and standard parameters",
+  required=FALSE
+)
 
 speciesGroup = parser$add_mutually_exclusive_group(required=FALSE)
-speciesGroup$add_argument("--human", action="store_true", help="Annotation for human", required=FALSE)
-speciesGroup$add_argument("--mouse", action="store_true", help="Annotation for mouse", required=FALSE)
-speciesGroup$add_argument("--zebrafish", action="store_true", help="Annotation for zebrafish", required=FALSE)
+speciesGroup$add_argument(
+  "--human",
+  action="store_true",
+  help="Annotation for human",
+  required=FALSE
+)
+speciesGroup$add_argument(
+  "--mouse",
+  action="store_true",
+  help="Annotation for mouse",
+  required=FALSE
+)
+speciesGroup$add_argument(
+  "--zebrafish",
+  action="store_true",
+  help="Annotation for zebrafish",
+  required=FALSE
+)
 
 # Get project and sample description
-parser$add_argument("--project-id", action="store", help="Project ID", dest="project_id", required=TRUE)
+parser$add_argument(
+  "--project-id",
+  action="store",
+  help="Project ID",
+  dest="project_id",
+  required=TRUE
+)
 
-parser$add_argument("--path-data-csv", action="store", help="CSV file containing the path data of the samples", dest="path_data_csv",required=TRUE)
+parser$add_argument(
+  "--path-data-csv",
+  action="store",
+  help="CSV file containing the path data of the samples",
+  dest="path_data_csv",
+  required=TRUE
+)
 
-parser$add_argument("--downsample-cells-n", action="store", type="integer", help="Downsample data to at most N cells (default: #default)", dest="downsample_cells_n", default=NULL)
+parser$add_argument(
+  "--downsample-cells-n",
+  action="store",
+  type="integer",
+  help="Downsample data to at most N cells (default: #default)",
+  dest="downsample_cells_n",
+  default=NULL
+)
 
-parser$add_argument("--path-out", action="store", help="Path to an output directory", dest="path_out", required=TRUE)
+parser$add_argument(
+  "--path-out",
+  action="store",
+  help="Path to an output directory",
+  dest="path_out",
+  required=TRUE
+)
 
 # Get individual parameters
-parser$add_argument("--file-known-markers", action="store", help="Path to a xlsx file with marker genes based on literature, translated to Ensembl IDs (one list per column, first row as header and Ensembl IDs below); #default if no known marker genes should be plotted", dest="file_known_markers", default=NULL)
+parser$add_argument(
+  "--file-known-markers",
+  action="store",
+  help="Path to a xlsx file with marker genes based on literature, translated to Ensembl IDs (one list per column, first row as header and Ensembl IDs below); #default if no known marker genes should be plotted",
+  dest="file_known_markers",
+  default=NULL
+)
 
-parser$add_argument("--mart-dataset", action="store", help="Annotation via biomaRt; Dataset", dest="mart_dataset", required=TRUE)
-parser$add_argument("--annot-version", action="store", help="Annotation via biomaRt; Version", dest="annot_version",type="integer", required=TRUE)
-parser$add_argument("--annot-main", action="store", help="Annotation via biomaRt; Main (default: #default)", dest="annot_main", default="ensembl=ensembl_gene_id,symbol=external_gene_name,entrez=entrezgene_accession")
-parser$add_argument("--mart-attributes", action="store", help="Annotation via biomaRt; Attributes (default: #default)", dest="mart_attributes",default="chromosome_name,start_position,end_position,percentage_gene_gc_content,gene_biotype,strand,description")
-parser$add_argument("--biomart-mirror", action="store", help="Annotation via biomaRt; Mirror (default: #default)", dest="biomart_mirror", default=NULL)
+parser$add_argument(
+  "--mart-dataset",
+  action="store",
+  help="Annotation via biomaRt; Dataset",
+  dest="mart_dataset",
+  required=TRUE
+)
+parser$add_argument(
+  "--annot-version",
+  action="store",
+  help="Annotation via biomaRt; Version",
+  dest="annot_version",
+  type="integer",
+  required=TRUE
+)
+parser$add_argument(
+  "--annot-main",
+  action="store",
+  help="Annotation via biomaRt; Main (default: #default)",
+  dest="annot_main",
+  default="ensembl=ensembl_gene_id, symbol=external_gene_name, entrez=entrezgene_accession"
+)
+parser$add_argument(
+  "--mart-attributes",
+  action="store",
+  help="Annotation via biomaRt; Attributes (default: #default)",
+  dest="mart_attributes",
+  default="chromosome_name, start_position, end_position, percentage_gene_gc_content, gene_biotype, strand, description"
+)
+parser$add_argument(
+  "--biomart-mirror",
+  action="store",
+  help="Annotation via biomaRt; Mirror (default: #default)",
+  dest="biomart_mirror",
+  default=NULL
+)
 
-parser$add_argument("--file-annot", action="store", help="Alternatively, read a previously compiled annotation table from file (default: #default)", dest="file_annot", default=NULL)
+parser$add_argument(
+  "--file-annot",
+  action="store",
+  help="Alternatively, read a previously compiled annotation table from file (default: #default)",
+  dest="file_annot",
+  default=NULL
+)
 
-parser$add_argument("--mt", action="store", help="Prefix of mitochondrial genes (default: #default)", dest="mt", default="^MT-")
+parser$add_argument(
+  "--mt",
+  action="store",
+  help="Prefix of mitochondrial genes (default: #default)",
+  dest="mt",
+  default="^MT-"
+)
 
-parser$add_argument("--cell-filter-nFeature-RNA", action="store", help="Filter cells for nFeature_RNA (lower and upper threshold seperated by ',') (default: #default)", dest="cell_filter_nFeature_RNA", default="200, NA")
-parser$add_argument("--cell-filter-percent-mt", action="store", help="Filter cells for percent_mt (lower and upper threshold seperated by ',') (default: #default)", dest="cell_filter_percent_mt", default="NA, 25")
+parser$add_argument(
+  "--cell-filter-nFeature-RNA",
+  action="store",
+  help="Filter cells for nFeature_RNA (lower and upper threshold seperated by ', ') (default: #default)",
+  dest="cell_filter_nFeature_RNA",
+  default="200, NA"
+)
+parser$add_argument(
+  "--cell-filter-percent-mt",
+  action="store",
+  help="Filter cells for percent_mt (lower and upper threshold seperated by ', ') (default: #default)",
+  dest="cell_filter_percent_mt",
+  default="NA, 25"
+)
 
-parser$add_argument("--feature-filter-min-counts", action="store", help="Filter features for min_counts; Minimum count of one feature (default: #default)", type="integer", dest="feature_filter_min_counts", default=1)
-parser$add_argument("--feature-filter-min-cells", action="store", help="Filter features for min_cells; Minimum number of cells in which a feature has to be found (default: #default)", type="integer", dest="feature_filter_min_cells", default=3)
+parser$add_argument(
+  "--feature-filter-min-counts",
+  action="store",
+  help="Filter features for min_counts; Minimum count of one feature (default: #default)",
+  type="integer",
+  dest="feature_filter_min_counts",
+  default=1
+)
+parser$add_argument(
+  "--feature-filter-min-cells",
+  action="store",
+  help="Filter features for min_cells; Minimum number of cells in which a feature has to be found (default: #default)",
+  type="integer",
+  dest="feature_filter_min_cells",
+  default=3
+)
 
-parser$add_argument("--samples-to-drop", action="store", help="Cells from these samples will be dropped after initial QC (name of the datasets_subsamples (e.g. pbmc_NC) seperated by ',') (default: #default)", dest="samples_to_drop", default=NULL)
+parser$add_argument(
+  "--samples-to-drop",
+  action="store",
+  help="Cells from these samples will be dropped after initial QC (name of the datasets_subsamples (e.g. pbmc_NC) seperated by ', ') (default: #default)",
+  dest="samples_to_drop",
+  default=NULL
+)
 
-parser$add_argument("--samples-min-cells", action="store", type="integer", help="Drop samples with too few cells (default: #default)", dest="samples_min_cells", default=10)
+parser$add_argument(
+  "--samples-min-cells",
+  action="store",
+  type="integer",
+  help="Drop samples with too few cells (default: #default)",
+  dest="samples_min_cells",
+  default=10
+)
 
-parser$add_argument("--norm", action="store", help="Use 'RNA' or 'SCT' for normalisation (default: #default)", dest="norm", default="RNA", choices=c("RNA","SCT"))
-parser$add_argument("--cc-remove", action="store_true", help="Remove cell cycle effects (default: #default)", dest="cc_remove", default=FALSE)
-parser$add_argument("--cc-remove-all", action="store_true", help="Remove all cell cycle effects, or (if FALSE) only the difference between profilerating cells (G2M and S phase) (default: #default) (Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation)", dest="cc_remove_all", default=FALSE)
-parser$add_argument("--cc-rescore-after-merge", action="store_true", help="Re-score cell cycle effects after data from different samples have been merged/integrated (default: #default)", dest="cc_rescore_after_merge", default=TRUE)
-parser$add_argument("--vars-to-regress", action="store", help="Additional (unwanted) variables that will be regressed out for visualisation and clustering (default: #default)", dest="vars_to_regress", default=NULL)
+parser$add_argument(
+  "--norm",
+  action="store",
+  help="Use 'RNA' or 'SCT' for normalisation (default: #default)",
+  dest="norm",
+  default="RNA",
+  choices=c("RNA", "SCT")
+)
+parser$add_argument(
+  "--cc-remove",
+  action="store_true",
+  help="Remove cell cycle effects (default: #default)",
+  dest="cc_remove",
+  default=FALSE
+)
+parser$add_argument(
+  "--cc-remove-all",
+  action="store_true",
+  help="Remove all cell cycle effects, or (if FALSE) only the difference between profilerating cells (G2M and S phase) (default: #default) (Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation)",
+  dest="cc_remove_all",
+  default=FALSE
+)
+parser$add_argument(
+  "--cc-rescore-after-merge",
+  action="store_true",
+  help="Re-score cell cycle effects after data from different samples have been merged/integrated (default: #default)",
+  dest="cc_rescore_after_merge",
+  default=TRUE
+)
+parser$add_argument(
+  "--vars-to-regress",
+  action="store",
+  help="Additional (unwanted) variables that will be regressed out for visualisation and clustering (default: #default)",
+  dest="vars_to_regress",
+  default=NULL
+)
 
-parser$add_argument("--integrate-samples-method", action="store", help="Single or multiple datasets and how to combine them (method='single','merge', or 'integrate'); 'single': Default when there is only one dataset after filtering, no integration is needed. 'merge': Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip. 'integrate': Anchors are computed for all pairs of datasets which will give all datasets the same weight during dataset integration but can be computationally intensive. (default: #default)", dest="integrate_samples_method", default="integrate", choices=c("single","merge","integrate"))
-parser$add_argument("--integrate-samples-integrate", action="store", help="Additional options for the 'integrate' method (default: #default); dimensions: Number of dimensions to consider for integration. reference: Use one or more (seperated by ',') datasets as reference and compute anchors for all other datasets (computationally faster but less accurate). use_reciprocal_pca: Compute anchors in PCA space (computationally faster but even less accurate). k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample)). k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample)). k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))", dest="integrate_samples_integrate", default="dimensions=30, reference=NULL, use_reciprocal_pca=FALSE")
+parser$add_argument(
+  "--integrate-samples-method",
+  action="store",
+  help="Single or multiple datasets and how to combine them (method='single', 'merge', or 'integrate'); 'single': Default when there is only one dataset after filtering, no integration is needed. 'merge': Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip. 'integrate': Anchors are computed for all pairs of datasets which will give all datasets the same weight during dataset integration but can be computationally intensive. (default: #default)",
+  dest="integrate_samples_method",
+  default="integrate",
+  choices=c("single", "merge", "integrate")
+)
+parser$add_argument(
+  "--integrate-samples-integrate",
+  action="store",
+  help="Additional options for the 'integrate' method (default: #default); dimensions: Number of dimensions to consider for integration. reference: Use one or more (seperated by ', ') datasets as reference and compute anchors for all other datasets (computationally faster but less accurate). use_reciprocal_pca: Compute anchors in PCA space (computationally faster but even less accurate). k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample)). k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample)). k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))",
+  dest="integrate_samples_integrate",
+  default="dimensions=30, reference=NULL, use_reciprocal_pca=FALSE"
+)
 
-parser$add_argument("--pc-n", action="store", type="integer", help="The number of PCs to use; adjust this parameter based on the Elbowplot (default: #default)", dest="pc_n", default=10)
+parser$add_argument(
+  "--pc-n",
+  action="store",
+  type="integer",
+  help="The number of PCs to use; adjust this parameter based on the Elbowplot (default: #default)",
+  dest="pc_n",
+  default=10
+)
 
-parser$add_argument("--cluster-resolution", action="store", type="double", help="Resolution of clusters; low values will lead to fewer clusters of cells (default: #default)", dest="cluster_resolution", default=0.5)
+parser$add_argument(
+  "--cluster-resolution",
+  action="store",
+  type="double",
+  help="Resolution of clusters; low values will lead to fewer clusters of cells (default: #default)",
+  dest="cluster_resolution",
+  default=0.5
+)
 
-parser$add_argument("--marker-padj", action="store", type="double", help="Thresholds to define marker genes; Adjusted p-value (default: #default)", dest="marker_padj", default=0.05)
-parser$add_argument("--marker-log2FC", action="store", type="double", help="Thresholds to define marker genes; Fold change (default: #default)", dest="marker_log2FC", default=log2(2))
-parser$add_argument("--marker-pct", action="store", type="double", help="Thresholds to define marker genes; Percentage of marker expressing cells (default: #default)", dest="marker_pct", default=0.25)
+parser$add_argument(
+  "--marker-padj",
+  action="store",
+  type="double",
+  help="Thresholds to define marker genes; Adjusted p-value (default: #default)",
+  dest="marker_padj",
+  default=0.05
+)
+parser$add_argument(
+  "--marker-log2FC",
+  action="store",
+  type="double",
+  help="Thresholds to define marker genes; Fold change (default: #default)",
+  dest="marker_log2FC",
+  default=log2(2)
+)
+parser$add_argument(
+  "--marker-pct",
+  action="store",
+  type="double",
+  help="Thresholds to define marker genes; Percentage of marker expressing cells (default: #default)",
+  dest="marker_pct",
+  default=0.25
+)
 
-parser$add_argument("--latent-vars", action="store", help="Additional (unwanted) variables to account for in statistical tests (default: #default)", dest="latent_vars", default=NULL)
+parser$add_argument(
+  "--latent-vars",
+  action="store",
+  help="Additional (unwanted) variables to account for in statistical tests (default: #default)",
+  dest="latent_vars",
+  default=NULL
+)
 
-parser$add_argument("--deg-contrasts", action="store", help="Contrasts to find differentially expressed genes; xlsx file (Required columns: condition_column, condition_group1, condition_group2; Optional columns: subset_column, subset_group, assay, slot, padj, log2FC, min_pct, test, downsample_cells_n, latent_vars)", dest="deg_contrasts")
+parser$add_argument(
+  "--deg-contrasts",
+  action="store",
+  help="Contrasts to find differentially expressed genes; xlsx file (Required columns: condition_column, condition_group1, condition_group2; Optional columns: subset_column, subset_group, assay, slot, padj, log2FC, min_pct, test, downsample_cells_n, latent_vars)",
+  dest="deg_contrasts"
+)
 
-parser$add_argument("--enrichr-padj", action="store", type="double", help="P-value threshold for functional enrichment tests (default: #default)", dest="enrichr_padj", default=0.05)
+parser$add_argument(
+  "--enrichr-padj",
+  action="store",
+  type="double",
+  help="P-value threshold for functional enrichment tests (default: #default)",
+  dest="enrichr_padj",
+  default=0.05
+)
 
-parser$add_argument("--enrichr-dbs", action="store", help="Enrichr databases of interest seperated by ',' (default: #default)", dest="enrichr_dbs", default="GO_Molecular_Function_2018,GO_Biological_Process_2018,GO_Cellular_Component_2018")
+parser$add_argument(
+  "--enrichr-dbs",
+  action="store",
+  help="Enrichr databases of interest seperated by ', ' (default: #default)",
+  dest="enrichr_dbs",
+  default="GO_Molecular_Function_2018, GO_Biological_Process_2018, GO_Cellular_Component_2018"
+)
 
-parser$add_argument("--col", action="store", help="Main colour to use for plots (default: #default)", dest="col", default="palevioletred")
-parser$add_argument("--col-palette-samples", action="store", help="Colour palette and colours used for samples (default: #default)", dest="col_palette_samples", default="ggsci::pal_jama")
-parser$add_argument("--col-palette-clusters", action="store", help="Colour palette and colours used for cluster (default: #default)", dest="col_palette_clusters", default="ggsci::pal_igv")
+parser$add_argument(
+  "--col",
+  action="store",
+  help="Main colour to use for plots (default: #default)",
+  dest="col",
+  default="palevioletred"
+)
+parser$add_argument(
+  "--col-palette-samples",
+  action="store",
+  help="Colour palette and colours used for samples (default: #default)",
+  dest="col_palette_samples",
+  default="ggsci::pal_jama"
+)
+parser$add_argument(
+  "--col-palette-clusters",
+  action="store",
+  help="Colour palette and colours used for cluster (default: #default)",
+  dest="col_palette_clusters",
+  default="ggsci::pal_igv"
+)
 
-parser$add_argument("--path-to-git", action="store", help="Path to the git repository (default: #default)", dest="path_to_git", default=".")
+parser$add_argument(
+  "--path-to-git",
+  action="store",
+  help="Path to the git repository (default: #default)",
+  dest="path_to_git",
+  default="."
+)
 
-parser$add_argument("--debugging-mode", action="store", help="Debugging mode: 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions (default: #default)", dest="debugging_mode", default="print_traceback", choices=c("default_debugging","terminal_debugger","print_traceback"))
+parser$add_argument(
+  "--debugging-mode",
+  action="store",
+  help="Debugging mode: 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions (default: #default)",
+  dest="debugging_mode",
+  default="print_traceback",
+  choices=c("default_debugging", "terminal_debugger", "print_traceback")
+)
 
-parser$add_argument("--report-name",  action="store", help="Name of the HTML report (default: #default)", default="scrnaseq.html", dest="report_name")
-parser$add_argument("--verbose",  action="store_true", help="Be verbose (default: #default)", default=TRUE, dest="verbose")
+parser$add_argument(
+  "--report-name",
+  action="store",
+  help="Name of the HTML report (default: #default)",
+  default="scrnaseq.html",
+  dest="report_name"
+)
+parser$add_argument(
+  "--verbose",
+  action="store_true",
+  help="Be verbose (default: #default)",
+  default=TRUE,
+  dest="verbose"
+)
 
 opt = parser$parse_args()
 
@@ -126,7 +411,7 @@ if (opt[["human"]]) {
   param[["mart_dataset"]] = "hsapiens_gene_ensembl"
   param[["annot_version"]] = 98
   param[["annot_main"]] = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
-  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
+  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position", 
                                                      "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
   param[["mt"]] = "^MT-"
   param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Human", "WikiPathways_2019_Human", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
@@ -136,7 +421,7 @@ if (opt[["mouse"]]) {
   param[["mart_dataset"]] = "mmusculus_gene_ensembl"
   param[["annot_version"]] = 103
   param[["annot_main"]] = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
-  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
+  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position", 
                                                      "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
   param[["mt"]] = "^mt-"
   param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "KEGG_2019_Mouse", "WikiPathways_2019_Mouse", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
@@ -146,7 +431,7 @@ if (opt[["zebrafish"]]) {
   param[["mart_dataset"]] = "drerio_gene_ensembl"
   param[["annot_version"]] = 103
   param[["annot_main"]] = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="external_gene_name")
-  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position",
+  param[["mart_attributes"]] = c(param$annot_main, c("chromosome_name", "start_position", "end_position", 
                                                      "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
   param[["mt"]] = "^mt-"
   param[["enrichr_dbs"]] = c("GO_Biological_Process_2018", "GO_Molecular_Function_2018", "GO_Cellular_Component_2018")
@@ -160,13 +445,13 @@ param[["project_id"]] = as.character(opt[["project_id"]])
 # Read path_data csv file and check values
 if (!file.exists(opt[["path_data_csv"]]))
   stop("Path to a path data definition file specified via --path-data-csv does not exist or is not a file!")
-param[["path_data"]] = read.csv(normalizePath(opt[["path_data_csv"]]), header = TRUE, sep = ",", quote = "\"",
-                                dec = ".", fill = TRUE, comment.char = "")
+param[["path_data"]] = read.csv(normalizePath(opt[["path_data_csv"]]), header=TRUE, sep=",", quote="\"", 
+                                dec=".", fill=TRUE, comment.char="")
 
 if (sum(!names(param$path_data) %in% c("name", "type", "path", "stats")) > 0)
   stop("Need to provide all columns (name, type, path, stats) in path data definition file specified via --path-data-csv!")
 
-if (sum(!param$path_data$type %in% c("10x","smartseq2")) > 0)
+if (sum(!param$path_data$type %in% c("10x", "smartseq2")) > 0)
   stop("Need to provide valid types ('10x' or 'smartseq2') in path-data-csv!")
 
 if (sum(!file.exists(param$path_data$path)) > 0) 
@@ -200,12 +485,12 @@ param[["mart_dataset"]] = opt[["mart_dataset"]]
 param[["annot_version"]] = opt[["annot_version"]]
 
 # Param annot_main
-param[["annot_main"]] = (opt[["annot_main"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(F,T)]
+param[["annot_main"]] = (opt[["annot_main"]] %>% strsplit(", ") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(FALSE, TRUE)]
 
-names(param[["annot_main"]]) = (opt[["annot_main"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(T,F)]
+names(param[["annot_main"]]) = (opt[["annot_main"]] %>% strsplit(", ") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(TRUE, FALSE)]
 
 # Param mart_attributes
-param[["mart_attributes"]] = c(param[["annot_main"]], opt[["mart_attributes"]] %>% strsplit(",") unlist() %>% trimws()) %>% unique()
+param[["mart_attributes"]] = c(param[["annot_main"]], opt[["mart_attributes"]] %>% strsplit(", ") unlist() %>% trimws()) %>% unique()
 
 # Param biomart_mirror
 param[["biomart_mirror"]] = opt[["biomart_mirror"]]
@@ -223,8 +508,8 @@ if (!is.null(opt[["file_annot"]])) {
 param[["mt"]] = opt[["mt"]]
 
 # Param cell_filter
-param[["cell_filter"]][["nFeature_RNA"]] = opt[["cell_filter_nFeature_RNA"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% as.numeric()
-param[["cell_filter"]][["percent_mt"]] = opt[["cell_filter_percent_mt"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% as.numeric()
+param[["cell_filter"]][["nFeature_RNA"]] = opt[["cell_filter_nFeature_RNA"]] %>% strsplit(", ") %>% unlist() %>% trimws() %>% as.numeric()
+param[["cell_filter"]][["percent_mt"]] = opt[["cell_filter_percent_mt"]] %>% strsplit(", ") %>% unlist() %>% trimws() %>% as.numeric()
 
 # Param feature_filter
 param[["feature_filter"]][["min_counts"]] = opt[["feature_filter_min_counts"]]
@@ -232,7 +517,7 @@ param[["feature_filter"]][["min_cells"]] = opt[["feature_filter_min_cells"]]
  
 # Param samples_to_drop
 if (!is.null(opt[["samples_to_drop"]])) {
-  param[["samples_to_drop"]] = opt[["samples_to_drop"]] %>% strsplit(",") %>% unlist() %>% trimws()
+  param[["samples_to_drop"]] = opt[["samples_to_drop"]] %>% strsplit(", ") %>% unlist() %>% trimws()
 } else {
   param[["samples_to_drop"]] = opt[["samples_to_drop"]]
 }
@@ -255,7 +540,7 @@ if ("cc_rescore_after_merge" %in% names(opt))
 
 # Param vars_to_regress
 if (!is.null(opt[["vars_to_regress"]])) { 
-  param[["vars_to_regress"]] = opt[["vars_to_regress"]] %>% strsplit(",") %>% unlist() %>% trimws()
+  param[["vars_to_regress"]] = opt[["vars_to_regress"]] %>% strsplit(", ") %>% unlist() %>% trimws()
 } else {
   param[["vars_to_regress"]] = opt[["vars_to_regress"]]
 }
@@ -263,29 +548,29 @@ if (!is.null(opt[["vars_to_regress"]])) {
 # Param integrate_samples
 if (opt[["integrate_samples_method"]] == "integrate") {
   param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
-  integrate_list = opt[["integrate_samples_integrate"]] %>% strsplit(",") %>% unlist() %>% trimws()
-  if (!is.na(grep("dimensions",integrate_list)[1])) {
-    param[["integrate_samples"]]["dimensions"] = (integrate_list[grep("dimensions",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
+  integrate_list = opt[["integrate_samples_integrate"]] %>% strsplit(", ") %>% unlist() %>% trimws()
+  if (!is.na(grep("dimensions", integrate_list)[1])) {
+    param[["integrate_samples"]]["dimensions"] = (integrate_list[grep("dimensions", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
-  if (!is.na(grep("reference",integrate_list)[1])) {
-	param[["integrate_samples"]]["reference"] = (integrate_list[grep("reference",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2]
+  if (!is.na(grep("reference", integrate_list)[1])) {
+	param[["integrate_samples"]]["reference"] = (integrate_list[grep("reference", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2]
 	if (param[["integrate_samples"]]["reference"] == "NULL") {
 	  param[["integrate_samples"]]["reference"] = NULL
 	} else {
-	  param[["integrate_samples"]]["reference"] = param[["integrate_samples"]]["reference"] %>% strsplit(",") %>% unlist() %>% trimws()
+	  param[["integrate_samples"]]["reference"] = param[["integrate_samples"]]["reference"] %>% strsplit(", ") %>% unlist() %>% trimws()
 	}
   }
-  if (!is.na(grep("use_reciprocal_pca",integrate_list)[1])) {
-    param[["integrate_samples"]]["use_reciprocal_pca"] = (integrate_list[grep("use_reciprocal_pca",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.logical()
+  if (!is.na(grep("use_reciprocal_pca", integrate_list)[1])) {
+    param[["integrate_samples"]]["use_reciprocal_pca"] = (integrate_list[grep("use_reciprocal_pca", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.logical()
   }
-  if (!is.na(grep("k.filter",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.filter"] = (integrate_list[grep("k.filter",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
+  if (!is.na(grep("k.filter", integrate_list)[1])) {
+    param[["integrate_samples"]]["k.filter"] = (integrate_list[grep("k.filter", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
-  if (!is.na(grep("k.weight",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.weight"] = (integrate_list[grep("k.weight",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
+  if (!is.na(grep("k.weight", integrate_list)[1])) {
+    param[["integrate_samples"]]["k.weight"] = (integrate_list[grep("k.weight", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
-  if (!is.na(grep("k.anchor",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.anchor"] = (integrate_list[grep("k.anchor",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
+  if (!is.na(grep("k.anchor", integrate_list)[1])) {
+    param[["integrate_samples"]]["k.anchor"] = (integrate_list[grep("k.anchor", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
 } else {
   param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
@@ -308,7 +593,7 @@ param[["marker_pct"]] = opt[["marker_pct"]]
 
 # Param latent_vars
 if (!is.null(opt[["latent_vars"]])) { 
-  param[["latent_vars"]] = opt[["latent_vars"]] %>% strsplit(",") %>% unlist() %>% trimws()
+  param[["latent_vars"]] = opt[["latent_vars"]] %>% strsplit(", ") %>% unlist() %>% trimws()
 } else {
   param[["latent_vars"]] = opt[["latent_vars"]]
 }
@@ -320,7 +605,7 @@ param[["deg_contrasts"]] = opt[["deg_contrasts"]]
 param[["enrichr_padj"]] = opt[["enrichr_padj"]]
 
 # Param enrichr_dbs
-param[["enrichr_dbs"]] = opt[["enrichr_dbs"]] %>% strsplit(",") %>% unlist() %>% trimws()
+param[["enrichr_dbs"]] = opt[["enrichr_dbs"]] %>% strsplit(", ") %>% unlist() %>% trimws()
 
 # Param col
 if (!opt[["col"]] %in% colours()) {
@@ -357,36 +642,36 @@ script_template = '
 library(knitr)
 
 rmarkdown::render(
-    file.path("{{rmd_dir}}","scrnaseq.Rmd"),
-    output_format="html_document",
-    output_dir="{{output_dir}}",
-    intermediates_dir="{{intermediates_dir}}",
-    output_file="{{output_file}}",
-    knit_root_dir="{{knit_root_dir}}",
-    quiet={{quiet}},
-    params={{params_lst}})
+    file.path("{{rmd_dir}}", "scrnaseq.Rmd"), 
+    output_format = "html_document", 
+    output_dir = "{{output_dir}}", 
+    intermediates_dir = "{{intermediates_dir}}", 
+    output_file = "{{output_file}}", 
+    knit_root_dir = "{{knit_root_dir}}", 
+    quiet = {{quiet}}, 
+    params = {{params_lst}})
 '
 
 # Now fill the script with content
-script_content = knitr::knit_expand(text=script_template,
-                                    rmd_dir=param[["path_to_git"]],
-                                    output_dir=param[["path_out"]],
-                                    intermediates_dir=param[["path_out"]],
-                                    output_file=opt[["report_name"]],
-                                    knit_root_dir=param[["path_out"]],
-                                    quiet=!opt[["verbose"]],
-                                    params_lst=deparse(param, control="all"))
+script_content = knitr::knit_expand(text = script_template, 
+                                    rmd_dir = param[["path_to_git"]], 
+                                    output_dir = param[["path_out"]], 
+                                    intermediates_dir = param[["path_out"]], 
+                                    output_file = opt[["report_name"]], 
+                                    knit_root_dir = param[["path_out"]], 
+                                    quiet = !opt[["verbose"]], 
+                                    params_lst = deparse(param, control="all"))
 
 
 writeLines(script_content, file.path(param[["path_out"]], script_name))
 
 # Now run actual knitr process
 rmarkdown::render(
-    file.path(param[["path_to_git"]],"scrnaseq.Rmd"),
-    output_format="html_document",
-    output_dir=param[["path_out"]],
-    intermediates_dir=param[["path_out"]],
-    output_file=opt[["report_name"]],
-    knit_root_dir=param[["path_out"]],
-    quiet=!opt[["verbose"]],
-    params=param)
+    file.path(param[["path_to_git"]], "scrnaseq.Rmd"), 
+    output_format = "html_document", 
+    output_dir = param[["path_out"]], 
+    intermediates_dir = param[["path_out"]], 
+    output_file = opt[["report_name"]], 
+    knit_root_dir = param[["path_out"]], 
+    quiet = !opt[["verbose"]], 
+    params = param)
