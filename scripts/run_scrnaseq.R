@@ -12,6 +12,7 @@ script_name = basename(sub("--file=", "", arguments[script_index]))
 
 # Which packages are needed
 library(knitr)
+library(magrittr) # %>% operator
 suppressPackageStartupMessages(library("argparse"))
 
 # Prepare parser for arguments
@@ -199,11 +200,12 @@ param[["mart_dataset"]] = opt[["mart_dataset"]]
 param[["annot_version"]] = opt[["annot_version"]]
 
 # Param annot_main
-param[["annot_main"]] = trimws(unlist(strsplit(trimws(unlist(strsplit(opt[["annot_main"]], ","))), "=")))[c(F,T)]
-names(param[["annot_main"]]) = trimws(unlist(strsplit(trimws(unlist(strsplit(opt[["annot_main"]], ","))), "=")))[c(T,F)]
+param[["annot_main"]] = (opt[["annot_main"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(F,T)]
+
+names(param[["annot_main"]]) = (opt[["annot_main"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% strsplit("=") %>% unlist() %>% trimws())[c(T,F)]
 
 # Param mart_attributes
-param[["mart_attributes"]] = unique(c(param[["annot_main"]], trimws(unlist(strsplit(opt[["mart_attributes"]], ",")))))
+param[["mart_attributes"]] = c(param[["annot_main"]], opt[["mart_attributes"]] %>% strsplit(",") unlist() %>% trimws()) %>% unique()
 
 # Param biomart_mirror
 param[["biomart_mirror"]] = opt[["biomart_mirror"]]
@@ -221,8 +223,8 @@ if (!is.null(opt[["file_annot"]])) {
 param[["mt"]] = opt[["mt"]]
 
 # Param cell_filter
-param[["cell_filter"]][["nFeature_RNA"]] = as.numeric(trimws(unlist(strsplit(opt[["cell_filter_nFeature_RNA"]], ","))))
-param[["cell_filter"]][["percent_mt"]] = as.numeric(trimws(unlist(strsplit(opt[["cell_filter_percent_mt"]], ","))))
+param[["cell_filter"]][["nFeature_RNA"]] = opt[["cell_filter_nFeature_RNA"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% as.numeric()
+param[["cell_filter"]][["percent_mt"]] = opt[["cell_filter_percent_mt"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% as.numeric()
 
 # Param feature_filter
 param[["feature_filter"]][["min_counts"]] = opt[["feature_filter_min_counts"]]
@@ -230,7 +232,7 @@ param[["feature_filter"]][["min_cells"]] = opt[["feature_filter_min_cells"]]
  
 # Param samples_to_drop
 if (!is.null(opt[["samples_to_drop"]])) {
-  param[["samples_to_drop"]] = trimws(unlist(strsplit(opt[["samples_to_drop"]], ",")))
+  param[["samples_to_drop"]] = opt[["samples_to_drop"]] %>% strsplit(",") %>% unlist() %>% trimws()
 } else {
   param[["samples_to_drop"]] = opt[["samples_to_drop"]]
 }
@@ -253,7 +255,7 @@ if ("cc_rescore_after_merge" %in% names(opt))
 
 # Param vars_to_regress
 if (!is.null(opt[["vars_to_regress"]])) { 
-  param[["vars_to_regress"]] = trimws(unlist(strsplit(opt[["vars_to_regress"]], ",")))
+  param[["vars_to_regress"]] = opt[["vars_to_regress"]] %>% strsplit(",") %>% unlist() %>% trimws()
 } else {
   param[["vars_to_regress"]] = opt[["vars_to_regress"]]
 }
@@ -261,29 +263,29 @@ if (!is.null(opt[["vars_to_regress"]])) {
 # Param integrate_samples
 if (opt[["integrate_samples_method"]] == "integrate") {
   param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
-  integrate_list = trimws(unlist(strsplit(opt[["integrate_samples_integrate"]], ",")))
+  integrate_list = opt[["integrate_samples_integrate"]] %>% strsplit(",") %>% unlist() %>% trimws()
   if (!is.na(grep("dimensions",integrate_list)[1])) {
-    param[["integrate_samples"]]["dimensions"] = as.numeric(trimws(unlist(strsplit(integrate_list[grep("dimensions",integrate_list)[1]],"=")))[2])
+    param[["integrate_samples"]]["dimensions"] = (integrate_list[grep("dimensions",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
   if (!is.na(grep("reference",integrate_list)[1])) {
-    param[["integrate_samples"]]["reference"] = trimws(unlist(strsplit(integrate_list[grep("reference",integrate_list)[1]],"=")))[2]
+	param[["integrate_samples"]]["reference"] = (integrate_list[grep("reference",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2]
 	if (param[["integrate_samples"]]["reference"] == "NULL") {
 	  param[["integrate_samples"]]["reference"] = NULL
 	} else {
-	  param[["integrate_samples"]]["reference"] = trimws(unlist(strsplit(param[["integrate_samples"]]["reference"], ",")))
+	  param[["integrate_samples"]]["reference"] = param[["integrate_samples"]]["reference"] %>% strsplit(",") %>% unlist() %>% trimws()
 	}
   }
   if (!is.na(grep("use_reciprocal_pca",integrate_list)[1])) {
-    param[["integrate_samples"]]["use_reciprocal_pca"] = as.logical(trimws(unlist(strsplit(integrate_list[grep("use_reciprocal_pca",integrate_list)[1]],"=")))[2])
+    param[["integrate_samples"]]["use_reciprocal_pca"] = (integrate_list[grep("use_reciprocal_pca",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.logical()
   }
   if (!is.na(grep("k.filter",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.filter"] = as.numeric(trimws(unlist(strsplit(integrate_list[grep("k.filter",integrate_list)[1]],"=")))[2])
+    param[["integrate_samples"]]["k.filter"] = (integrate_list[grep("k.filter",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
   if (!is.na(grep("k.weight",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.weight"] = as.numeric(trimws(unlist(strsplit(integrate_list[grep("k.weight",integrate_list)[1]],"=")))[2])
+    param[["integrate_samples"]]["k.weight"] = (integrate_list[grep("k.weight",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
   if (!is.na(grep("k.anchor",integrate_list)[1])) {
-    param[["integrate_samples"]]["k.anchor"] = as.numeric(trimws(unlist(strsplit(integrate_list[grep("k.anchor",integrate_list)[1]],"=")))[2])
+    param[["integrate_samples"]]["k.anchor"] = (integrate_list[grep("k.anchor",integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
 } else {
   param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
@@ -306,7 +308,7 @@ param[["marker_pct"]] = opt[["marker_pct"]]
 
 # Param latent_vars
 if (!is.null(opt[["latent_vars"]])) { 
-  param[["latent_vars"]] = trimws(unlist(strsplit(opt[["latent_vars"]], ",")))
+  param[["latent_vars"]] = opt[["latent_vars"]] %>% strsplit(",") %>% unlist() %>% trimws()
 } else {
   param[["latent_vars"]] = opt[["latent_vars"]]
 }
@@ -318,7 +320,7 @@ param[["deg_contrasts"]] = opt[["deg_contrasts"]]
 param[["enrichr_padj"]] = opt[["enrichr_padj"]]
 
 # Param enrichr_dbs
-param[["enrichr_dbs"]] = trimws(unlist(strsplit(opt[["enrichr_dbs"]], ",")))
+param[["enrichr_dbs"]] = opt[["enrichr_dbs"]] %>% strsplit(",") %>% unlist() %>% trimws()
 
 # Param col
 if (!opt[["col"]] %in% colours()) {
@@ -346,7 +348,7 @@ param[["debugging_mode"]] = opt[["debugging_mode"]]
 # Note: a small R script will be generated so that knitr can be run again if needed
 
 # The name of the script
-script_name = paste0(opt[["report_name"]], ".rerun.r")
+script_name = opt[["report_name"]] %>% paste0(".rerun.r")
 
 # This is the template for the script
 script_template = '
