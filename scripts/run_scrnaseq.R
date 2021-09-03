@@ -241,18 +241,18 @@ parser$add_argument(
 )
 
 parser$add_argument(
-  "--integrate-samples-method",
+  "--combine-samples-method",
   action="store",
   help="Single or multiple datasets and how to combine them (method='single', 'merge', or 'integrate'); 'single': Default when there is only one dataset after filtering, no integration is needed. 'merge': Merge (in other words, concatenate) data when no integration is needed, e.g. when samples were multiplexed on the same chip. 'integrate': Anchors are computed for all pairs of datasets which will give all datasets the same weight during dataset integration but can be computationally intensive. (default: #default)",
-  dest="integrate_samples_method",
+  dest="combine_samples_method",
   default="integrate",
   choices=c("single", "merge", "integrate")
 )
 parser$add_argument(
-  "--integrate-samples-integrate",
+  "--integrate-samples-options",
   action="store",
   help="Additional options for the 'integrate' method (default: #default); dimensions: Number of dimensions to consider for integration. reference: Use one or more (seperated by ', ') datasets as reference and compute anchors for all other datasets (computationally faster but less accurate). use_reciprocal_pca: Compute anchors in PCA space (computationally faster but even less accurate). k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample)). k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample)). k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))",
-  dest="integrate_samples_integrate",
+  dest="integrate_samples_options",
   default="dimensions=30, reference=NULL, use_reciprocal_pca=FALSE"
 )
 
@@ -546,9 +546,9 @@ if (!is.null(opt[["vars_to_regress"]])) {
 }
 
 # Param integrate_samples
-if (opt[["integrate_samples_method"]] == "integrate") {
-  param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
-  integrate_list = opt[["integrate_samples_integrate"]] %>% strsplit(", ") %>% unlist() %>% trimws()
+if (opt[["combine_samples_method"]] == "integrate") {
+  param[["integrate_samples"]] = list(method=opt[["combine_samples_method"]])
+  integrate_list = opt[["integrate_samples_options"]] %>% strsplit(", ") %>% unlist() %>% trimws()
   if (!is.na(grep("dimensions", integrate_list)[1])) {
     param[["integrate_samples"]]["dimensions"] = (integrate_list[grep("dimensions", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
@@ -573,7 +573,7 @@ if (opt[["integrate_samples_method"]] == "integrate") {
     param[["integrate_samples"]]["k.anchor"] = (integrate_list[grep("k.anchor", integrate_list)[1]] %>% strsplit("=") %>% unlist() %>% trimws())[2] %>% as.numeric()
   }
 } else {
-  param[["integrate_samples"]] = list(method=opt[["integrate_samples_method"]])
+  param[["integrate_samples"]] = list(method=opt[["combine_samples_method"]])
 }
 
 # Param pc_n
