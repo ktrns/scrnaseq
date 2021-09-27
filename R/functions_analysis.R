@@ -39,7 +39,7 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
   if (sum(genes_s_exists) >= 10 & sum(genes_s_exists) >= 10){
     
     # Calculate CC scores
-    sc = Seurat::CellCycleScoring(sc, 
+    sc = Seurat::CellCycleScoring(sc,
                                   s.features=genes_s[genes_s_exists],
                                   g2m.features=genes_g2m[genes_g2m_exists], 
                                   set.ident=FALSE, verbose=FALSE)
@@ -50,8 +50,8 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
     sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s[genes_s_exists], CC_G2M_phase=genes_g2m[genes_g2m_exists]), lists_slot="gene_lists")
     
   } else {
-    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = NA
-    sc[["Phase"]] = factor(NA, levels=c("G1", "G2M", "S"))
+    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = as.numeric(NA)
+    sc[["Phase"]] = factor(as.character(NA), levels=c("G1", "G2M", "S"))
     if(name!="") name=paste0(name, " ")
     warning(paste0("There are not enough G2/M and S phase markers in the dataset ", name, "to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle effects is skipped."))
   }
@@ -73,10 +73,11 @@ CCScoring = function(sc, genes_s, genes_g2m, name=""){
 #' @param k_filter How many neighbors to use when filtering anchors. If NULL, automatically set to min(200, minimum number of cells in a sample)).
 #' @param k_weight Number of neighbors to consider when weighting anchors. If NULL, automatically set to min(100, minimum number of cells in a sample)).
 #' @param k_anchor How many neighbors to use when picking anchors. If NULL, automatically set to min(5, minimum number of cells in a sample)).
+#' @param k_score How many neighbors for calculating scores. If NULL, automatically set to min(30, minimum number of cells in a sample)).
 #' @param vars_to_regress For reciprocal PCA: when doing the scaling, which variables should be regressed out when doing the scaling
 #' @param min_cells For reciprocal PCA: when doing the scaling for SCT, the minimum number of cells a gene should be expressed
 #' @return A Seurat object with an integrated assay (RNAintegrated or SCTintegrated) and a merged assay (RNA or SCT)
-RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE, verbose=FALSE, assay="RNA", k_filter=NULL, k_weight=NULL, k_anchor=NULL, vars_to_regress=NULL, min_cells=1) {
+RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE, verbose=FALSE, assay="RNA", k_filter=NULL, k_weight=NULL, k_anchor=NULL, k_score=NULL, vars_to_regress=NULL, min_cells=1) {
   # THIS FUNCTION NEEDS TO BE REVIEWED
   
   # Note: Assay names should only have numbers and letters
@@ -89,6 +90,8 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
   if (is.null(k_weight)) k_weight = min(100, purrr::map_int(sc, ncol))
   # Param k.anchor: How many neighbors to use when picking anchors
   if (is.null(k_anchor)) k_anchor = min(5, purrr::map_int(sc, ncol))
+  # Param k_score: How many neighbors to use fo calculating scores
+  if (is.null(k_score)) k_score = min(30, purrr::map_int(sc, ncol))
   
   # Param ndims: Number of dimensions cannot be larger than number of cells; note: Seurat gives an error that ndims must smaller than the number of cells
   ndims = min(c(ndims, purrr::map_int(sc, ncol)-1))
@@ -139,6 +142,7 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
                                                            anchor.features=integrate_RNA_features, 
                                                            k.filter=k_filter,
                                                            k.anchor=k_anchor, 
+                                                           k.score=k_score,
                                                            reference=reference,
                                                            verbose=verbose,
                                                            reduction=ifelse(use_reciprocal_pca, "rpca", "cca"))
@@ -191,6 +195,7 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
                                                    anchor.features=integrate_SCT_features, 
                                                    k.filter=k_filter,
                                                    k.anchor=k_anchor,
+                                                   k.score=k_score,
                                                    reference=reference,
                                                    verbose=verbose,
                                                    reduction=ifelse(use_reciprocal_pca, "rpca", "cca"))
@@ -223,26 +228,39 @@ RunIntegration = function(sc, ndims=30, reference=NULL, use_reciprocal_pca=FALSE
 #' @param exclude_genes A list of genes to exclude by default. Default is empty.
 #' @param scale_factor The scale factor. Default is 10000.
 #' @return A seurat object with normalized counts in the data slot of the assay.
-LogNormalizeCustom = function(sc, assay="RNA", slot="counts", exclude_highly_expressed=FALSE, max_fraction=0.05, exclude_genes=NULL, scale_factor=10000) {
+LogNormalizeCustom = function(sc, assay="RNA", exclude_highly_expressed=FALSE, max_fraction=0.05, exclude_genes=NULL, scale_factor=10000) {
   # Get assay data
-  counts_assay = Seurat::GetAssayData(sc, slot="counts", assay=assay)
+  counts = Seurat::GetAssayData(sc, slot="counts", assay=assay)
   
-  # For each cell: determine highly expressed genes and return the counts sum but excluding highly expressed genes and genes that should be excluded by default
-  total_counts_per_cell_excl_high = apply(counts_assay, 2, function(cell_counts) {
-    is_highly_expressed = exclude_highly_expressed & cell_counts/sum(cell_counts)>max_fraction
-    is_excluded_by_default = names(cell_counts) %in% exclude_genes
-    return(sum(cell_counts[!highly_expressed_genes & !is_excluded_by_default]))
-  })
+  # Determine highly expressed genes
+  if (exclude_highly_expressed) { 
+    
+    # Calculate fractions for genes per cell, as a TRUE/FALSE table
+    is_highly_expressed = Matrix::t(Matrix::t(counts) * (1/Matrix::colSums(counts))) > max_fraction
+    
+    # Which genes are highly expressed in at least one cell, as a TRUE/FALSE vector
+    is_highly_expressed = Matrix::rowSums(is_highly_expressed) > 0
+    
+  } else { 
+    is_highly_expressed = FALSE
+  }
+  
+  # Convert excluded genes into TRUE/FALSE vector
+  is_excluded_by_default = rownames(counts) %in% exclude_genes
+  
+  # For each cell return counts sum excluding genes that are highly expressed or should be excluded anyhow
+  total_counts_per_cell = Matrix::colSums(counts[!is_highly_expressed & !is_excluded_by_default, ])
   
   # Size factors for scaling the counts
-  size_factors = 1/(total_counts_per_cell_excl_high*scale_factor)
+  size_factors = 1 / total_counts_per_cell * scale_factor
   
   # Multiply counts by size factors
   # Use R matrix multiplication for speed: matrix %*% diag(v)
   # To divide, multiply by the inverse
   # Finally log1p
-  sc = Seurat::SetAssayData(sc, slot="data", 
+  sc = Seurat::SetAssayData(sc, 
+                            slot="data", 
                             assay=assay, 
-                            new.data=log1p(Matrix::t(Matrix::t(counts_assay) * size_factors)))
+                            new.data=log1p(Matrix::t(Matrix::t(counts) * size_factors)))
   return(sc)
 }

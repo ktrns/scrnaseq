@@ -78,11 +78,11 @@ DegsUpDisplayTop = function(degs, n=5, column_1="p_val_adj_score", column_2="pct
 #' @param sc Seurat object.
 #' @param genes Gene list for which average data are to be extracted.
 #' @return A table with average RNA counts and data per identity class for each gene.
-DegsAvgDataPerIdentity = function(sc, genes) { 
-  # The standard average log FC is derived from assay="RNA" and slot="data"
+DegsAvgDataPerIdentity = function(sc, genes, assay="RNA") { 
+  # The standard average log FC is derived from assay and slot="data"
   # Add average scaled data per cluster for default assay
   avg_set = list()
-  avg_set[["RNA"]] = "counts"
+  avg_set[[assay]] = "counts"
   avg_set[[DefaultAssay(sc)]] = c(avg_set[[DefaultAssay(sc)]], "data")
   avg_data = matrix(NA+0, nrow=length(genes), ncol=0)
   
@@ -316,7 +316,7 @@ DegsTestCellSets = function(object, slot="data", cells_1=NULL, cells_2=NULL, is_
     arguments = c(list(object=object, cells.1=cells_1, cells.2=cells_2), additional_arguments)
   }
   
-  deg_results = suppressMessages((do.call(Seurat::FindMarkers, arguments)))
+  deg_results = suppressMessages(do.call(Seurat::FindMarkers, arguments))
   if (nrow(deg_results)==0) return(no_degs_results)
   
   # Fix base 2 for log fold change
@@ -370,7 +370,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       
       # Get condition_group1; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group2 combined
       if (nchar(contrast[["condition_group1"]])==0) {
-        contrast[["condition_group1"]] = NA
+        contrast[["condition_group1"]] = as.character(NA)
       } else {
         
         condition_group1 = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator="+")
@@ -384,7 +384,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
       
       # Get condition_group2; multiple levels can be combined with the plus sign; can be empty string to use all levels not in the condition group1 combined (see the actual DEG functions)
       if (nchar(contrast[["condition_group2"]])==0) {
-        contrast[["condition_group2"]] = NA
+        contrast[["condition_group2"]] = as.character(NA)
       } else {
         
         condition_group2 = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator="+")
@@ -401,8 +401,8 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     }
 
     # Get subset_column and subset_group (if available); subsets cells based on this column prior to testing
-    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = NA
-    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = NA
+    if (!"subset_column" %in% names(contrast)) contrast[["subset_column"]] = as.character(NA)
+    if (!"subset_group" %in% names(contrast)) contrast[["subset_group"]] = as.character(NA)
     
     if (!is.na(contrast[["subset_column"]])) {
       valid = TRUE
@@ -442,12 +442,15 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get padj
     if (!"padj" %in% names(contrast) || is.na(contrast[["padj"]])) contrast[["padj"]] = 0.05
+    contrast[["padj"]] = as.numeric(contrast[["padj"]])
     
     # Get log2FC
     if (!"log2FC" %in% names(contrast) || is.na(contrast[["log2FC"]])) contrast[["log2FC"]] = 0
+    contrast[["log2FC"]] = as.numeric(contrast[["log2FC"]])
     
     # Get min_pct
     if (!"min_pct" %in% names(contrast) || is.na(contrast[["min_pct"]])) contrast[["min_pct"]] = 0.1
+    contrast[["min_pct"]] = as.numeric(contrast[["min_pct"]])
     
     # Get assay
     if (!"assay" %in% names(contrast) || is.na(contrast[["assay"]])) contrast[["assay"]] = "RNA"
@@ -466,9 +469,9 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Get latent_vars
     if (!"latent_vars" %in% names(contrast) || is.na(contrast[["latent_vars"]])) {
-      if (length(latent_vars) > 0) contrast[["latent_vars"]] = latent_vars else contrast[["latent_vars"]] = NULL
+      contrast[["latent_vars"]] = NULL
     } else {
-      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["subset_group"]], first_level_separator=";")
+      contrast[["latent_vars"]] = SplitSpecificationString(contrast[["latent_vars"]], first_level_separator=";")
     }
     
     if (!is.null(contrast[["latent_vars"]]) && length(contrast[["latent_vars"]]) > 0) {
@@ -529,20 +532,20 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
     
     # Do condition_group1
     if (!is.na(contrast[["condition_group1"]])) {
-      condition_group1_values = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator=";")
+      condition_group1_values = SplitSpecificationString(contrast[["condition_group1"]], first_level_separator="+")
       is_in_condition_group1 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group1_values
       is_in_condition_group1 = is_in_condition_group1 & is_in_subset_group
     } else {
-      cells_condition_group1 = NA
+      cells_condition_group1 = as.character(NA)
     }
     
     # Do condition_group2
     if (!is.na(contrast[["condition_group2"]])) {
-      condition_group2_values = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator=";")
+      condition_group2_values = SplitSpecificationString(contrast[["condition_group2"]], first_level_separator="+")
       is_in_condition_group2 = cell_metadata[, contrast[["condition_column"]], drop=TRUE] %in% condition_group2_values
       is_in_condition_group2 = is_in_condition_group2 & is_in_subset_group
     } else {
-      cells_condition_group2 = NA
+      cells_condition_group2 = as.character(NA)
     }    
     
     # If one of the condition groups is NA, set the cell names to the complement of the cells in the other condition group (and potential subset)
