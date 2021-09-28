@@ -339,9 +339,25 @@ if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collap
 ```
 
 # Read data
+The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell. 
 
 ## Read and print mapping statistics
-We begin by printing mapping statistics that have been produced prior to this workflow. 
+Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality. 
+<details>
+  <summary>Pre-processing of 10x data with Cell Ranger</summary>
+
+We use the 10x Genomics Cell Ranger software to map 10x sequencing reads. The result is a count matrix that contains the number of unique transcripts per gene (rows) and cell (columns). To save storage space, the matrix is converted into a condensed format and described by the following 3 files:
+-	“features.tsv.gz”: Tabular file with gene annotation (Ensembl gene ID and the gene symbol) to identify genes
+-	“barcodes.tsv.gz”: File with cell barcodes to identify cells
+- “matrix.mtx.gz”: A condensed version of the count matrix 
+</details>
+
+<details>
+  <summary>Pre-processing of SmartSeq-2 data</summary>
+
+Sequencing reads from SmartSeq-2 (and other) experiments can be mapped with any suitable mapping software as long as a count matrix is generated that contains the number of mapped reads per gene (rows) and cell (columns). The first row of the count matrix should contain cell barcodes or names, the first column of the matrix should contain Ensembl gene IDs. 
+</details>
+
 ```{r mapping_stats, message=TRUE}
 # Are statistics provided?
 if (!all(is.na(param$path_data$stats))) { 
@@ -372,7 +388,7 @@ if (!all(is.na(param$path_data$stats))) {
 ```
 
 ## Read gene annotation
-If not provided already, we read gene annotation from Ensembl and write the resulting table to file. We generate several dictionaries to translate between Ensembl IDs, gene symbols, Entrez Ids, and Seurat names. 
+We read gene annotation from Ensembl and write the resulting table to file. We generate several dictionaries to translate between Ensembl IDs, gene symbols, Entrez Ids, and Seurat gene names. 
 ```{r read_ensembl_annotation}
 # Read annotation from csv or from Ensembl and a tab separated txt will be created
 if (file.exists(param$file_annot)) {
@@ -477,7 +493,14 @@ genes_g2m = data.frame(Human_gene_name=genes_g2m$Human_gene_name, Species_gene_n
 ```
 
 ## Read scRNA-seq data
-We next read the scRNA-seq dataset(s) into Seurat.
+We next read the single-cell RNA-seq data into a Seurat object. 
+<details>
+  <summary>What is Seurat and which information is contained in a Seurat object?</summary>
+
+Seurat is an R-package that is used for the analysis of single-cell RNA-seq data. We read pre-processed data as described above, and convert it to a count matrix in R. In the case of 10x data, the count matrix contains the number of unique RNA molecules (UMIs) per gene and cell. In the case of SmartSeq-2 data, the count matrix contains the number of reads per gene and cell.
+
+In addition to the count matrix, the workflow stores additional information in the Seurat object, including but not limited to the normalized data, dimensionality reduction and cluster results.
+</details>
 
 ```{r read_datasets}
 # List of Seurat objects
@@ -528,7 +551,8 @@ if (!is.null(param$downsample_cells_n)) {
 sc
 ```
 
-The following first table shows metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), or the above mentioned number of unique genes detected ("`r paste0("nFeature_", param$assay_raw)`"). The second table shows metadata (columns) of the first 5 genes (rows). 
+The following first table shows available metadata (columns) of the first 5 cells (rows). These metadata provide additional information about the cells in the dataset, such as the sample a cell belongs to ("orig.ident"), the number of mapped reads (“nCounts_RNA”),  or the above mentioned number of unique genes detected ("`r paste0("nFeature_", param$assay_raw)`"). 
+The second table shows available metadata (columns) of the first 5 genes (rows). 
 
 ```{r metadata}
 # Combine cell metadata of the Seurat objects into one big metadata
@@ -546,8 +570,26 @@ knitr::kable(head(sc[[1]][[param$assay_raw]][[]], 5), align="l", caption="Featur
 ```
 
 # Pre-processing
+The steps below represent a standard pre-processing workflow for single-cell RNA-seq data, including quality control, the respective filtering of cells and genes, data normalization and scaling, and the detection of highly variable genes.
+<details>
+  <summary>Why is pre-processing so important?</summary>
+
+Cells may have been damaged during sample preparation and might be only partially captured in the sequencing. In addition, free-floating mRNA from damaged cells can be encapsulated, adding to the background noise. The low-quality cells and free-floating mRNA interfere with downstream analyses. Therefore, cells and genes are filtered based on defined quality metrics. Data normalization eliminates cell-specific biases such as the absolute number of reads per cell, allowing us to systematically compare cells afterwards. Subsequent scaling corrects for the fact that genes have different lengths, allowing us to compare genes afterwards. Lastly, highly variable genes are determined, reducing computational overhead and noise from genes that are not interesting. 
+</details>
+
 ## Quality control 
 We start the analysis by removing unwanted cells from the dataset(s). Three commonly used QC metrics include the number of unique genes detected in each cell ("`r paste0("nFeature_", param$assay_raw)`"), the total number of molecules detected in each cell ("`r paste0("nCount_", param$assay_raw)`"), and the percentage of counts that map to the mitochrondrial genome ("percent_mt"). If ERCC spike-in controls were used, the percentage of counts mapping to them is also shown ("percent_ercc").
+<details>
+  <summary>Which cells can be considered to be of low quality?</summary>
+
+On the one hand, low-quality cells such as dying, degraded and damaged cells, and empty droplets will often have very few genes ("nFeature_RNA") and low total counts ("nCount_RNA"). On the other hand, cell doublets may show an aberrantly high number of genes. Since the total number of reads detected within a cell typically strongly correlates with the number of unique genes, we can focus on the number of unique genes for filtering. In addition, damaged cells often exhibit high mitochondrial ("percent_mt") or spike-in ("percent_ercc") content. As mitochondria have their own membranes, their RNA is often the last to degrade in damaged cells and can thus be found in high numbers. However, it is important to keep in mind that different cell types and cells isolated from various species may differ in their number of expressed genes and metabolism. For example, stem cells may express a higher number of unique genes, and metabolically active cells may express a higher number of mitochondrial genes. 
+</details>
+
+<details>
+  <summary>Impact of low-quality cells on downstream analyses</summary>
+
+First of all, low-quality cells of different cell types might cluster together due to similarities in their damage-induced gene expression profiles. This leads to artificial intermediate states or trajectories between subpopulations that would otherwise be distinct. Second, low-quality cells might mask relevant gene expression changes. The main differences captured by the first principal components will likely be based on cell quality rather than the underlying biology, reducing the power of dimensionality reduction. Likewise, highly variable genes might just be genes that differ between low- and high-quality cells. Lastly and equally important, the low number of total counts in low-quality cells might lead to artificial upregulation of genes due to wrong scaling effects during the normalisation process. 
+</details>
 
 ```{r qc_criteria_create}
 # If filters were specified globally (i.e. not by sample), this chunk will copy them for each sample such that downstream filtering can work by sample
@@ -677,7 +719,7 @@ p
 ```
 
 ## Genes with highest expression
-We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages. Genes with the highest median percentage of counts are plotted below. 
+We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages in all cells. Genes with the highest median percentage of counts are plotted below. 
 ```{r highest_expression}
 # Plot only samples that we intend to keep 
 sc_names = names(sc)[!(names(sc) %in% param$samples_to_drop)]
@@ -890,12 +932,38 @@ sc
 ## Normalisation
 In this section, we subsequently run a series of Seurat functions for each provided sample:  
 1. We start by running a __standard log normalisation__, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.   
-2. We assign __cell cycle scores__ to each cell based on its normalised expression of G2/M and S phase markers. These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are removed during scaling (step 3).  
-3. Dependent on the normalisation of your choice, we either   
-3a. Run standard functions to select __variable genes__, and __scale__ normalised gene counts. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly in others. To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score).   
-3b. Run __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, variable genes and scaling__). 
+<details>
+  <summary>What do we need normalisation for?</summary>
 
-Note that removing all signal associated to cell cycle can negatively impact downstream analysis. For example, in differentiating processes, stem cells are quiescent and differentiated cells are proliferating (or vice versa), and removing all cell cycle effects can blur the distinction between these cells. As an alternative, we can remove the difference between G2M and S phase scores. This way, signals separating non-cycling and cycling cells will be maintained, while differences amongst proliferating cells will be removed. For a more detailed explanation, see the cell cycle vignette for Seurat `r Cite("https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html")`. Cell cycle effects removed for this report: `r param$cc_remove`; _all_ cell cycle effects removed for this report: `r param$cc_remove_all`.   
+The number of raw sequencing reads per cell is influenced by technical differences in the capture, reverse transcription and sequencing of RNA molecules, particularly due to the difficulty of achieving consistent library preparation with minimal starting material. Thus, comparing gene expression between cells may reveal differences that are solely due to sampling effects. After low-quality cells were removed in the previous step, the primary goal of normalization is to remove technical sampling effects while preserving the true biological signal.
+
+Count depth scaling is the simplest and most commonly used normalization strategy. The underlying idea is that each cell initially contained an equal number of mRNA molecules, and differences arise due to sampling effects. For each cell, the number of reads per gene is divided by a cell-specific “size factor”, which is proportional to the total count depth of the cell. The resulting normalized data add up to 1 per cell, and are then typically multiplied by a factor of 10 (10,000 in this workflow).
+
+Finally, normalized data are log-transformed for three important reasons. First, distances between log-transformed expression data represent log fold changes. Log-transformation emphasizes contributions from genes with strong relative differences, for example a gene that is expressed at an average count of 50 in cell type A and 10 in cell type B rather than a gene that is expressed at an average count of 1100 in A and 1000 in B. Second, log-transformation mitigates the relation between mean and variance in the data. Lastly, log-transformation reduces that skewness of the data as many downstream analyses require the data to be normally distributed. 
+</details>
+
+2. We assign __cell cycle scores__ to each cell based on its normalised expression of G2/M and S phase markers. These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are removed during scaling (step 3). Cell cycle effects removed for this report: `r param$cc_remove`; _all_ cell cycle effects removed for this report: `r param$cc_remove_all`. 
+<details>
+  <summary>How does removal of cell cycle effects affect the data?</summary>
+
+Note that removing all signal associated to cell cycle can negatively impact downstream analysis. For example, in differentiating processes, stem cells are quiescent and differentiated cells are proliferating (or vice versa), and removing all cell cycle effects can blur the distinction between these cells. An alternative approach is to remove the difference between G2M and S phase scores. This way, signals separating non-cycling and cycling cells will be maintained, while differences amongst proliferating cells will be removed. For a more detailed explanation, see the cell cycle vignette for Seurat `r Cite("https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html")`.
+</details>
+
+3. Dependent on the normalisation of your choice, we either   
+3a. Run standard functions to select __variable genes__, and __scale__ normalised gene counts. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly in others. To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score). 
+<details>
+  <summary>What do we need scaling for?</summary>
+
+After normalization, gene expression data can be compared between cells. However, expression of individual genes still cannot be compared. This is because genes have different lengths and, depending on the experimental set up, longer genes can be represented by a higher number of reads. To account for this effect, normalized data are further scaled using a z-transformation, resulting in the average expression of 0 and the variance of 1 for each gene across all. Note that additional unwanted sources of variations can be regressed out during the scaling process, such as cell cycle effects or the percentage of mitochondrial reads. 
+</details>
+
+3b. Run __SCTransform__, a new and more sophisticated normalisation method that replaces the previous functions (__normalisation, variable genes and scaling__). <details>
+  <summary>What is __SCTransform__ special about?</summary>
+
+The standard log-transformation applied in step 1 assumes that count depth influences all genes equally. However, it has been shown that the use of a single size factor will introduce different effects on highly and lowly expressed genes (Hafemeister & Satija 2019). __SCTransform__ is a new statistical approach for the modelling, normalization and variance stabilization of single-cell RNA-seq data, and is an alternative to steps 1 and 3a described above. Note that __SCTransform__ has been developed for UMI count data and can therefore safely be applied to 10x but not SmartSeq-2 data. As for the scaling in step 3a, additional unwanted sources of variations can be regressed out during __SCTransform__. 
+</details>
+
+Normalisation method used for this report: `r param$norm`; with additional sources of variance regressed out: `r param$vars_to_regress`.  
 
 While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space. 
 ```{r part1_normalisation}
@@ -972,9 +1040,13 @@ if (param$norm == "RNA") {
 ```
 
 ## Variable genes
-Experience shows that 1,000-2,000 genes with the highest cell-to-cell variation are often sufficient to describe the global structure of a single cell dataset. For example, cell type-specific genes typically highly vary between cells. Housekeeping genes, on the other hand, are similarly expressed across cells and can be disregarded to differentiate between cells.   
+Experience shows that 1,000-2,000 genes with the highest cell-to-cell variation are often sufficient to describe the global structure of a single cell dataset. For example, cell type-specific genes typically highly vary between cells. Housekeeping genes, on the other hand, are similarly expressed across cells and can be disregarded to differentiate between cells. Highly variable genes are typically the genes with a cell type specific expression profile, and are often the genes of interest in single cell experiments. Housekeeping genes, with similar levels of expression across all cells, or genes with minor expression differences, might add random noise and mask relevant changes during downstream dimensionality reduction and clustering. We therefore aim to select a sensible set of variable genes that includes interesting biological signal and excludes noise. Here, the top 3,000 variable genes are selected and used for downstream analysis.   
+<details>
+  <summary>How are variable genes selected?</summary>
 
-To determine variable genes, we need to separate biological variability from technical variability. Technical variability arises especially for lowly expressed genes, where high variability corresponds to small absolute changes that we are not interested in. Here, we use the variance-stabilizing transformation (vst) method implemented in Seurat (`r Cite("10.1186/s13059-019-1874-1")`). This method first models the technical variability as a relationship between mean gene expression and variance using local polynomial regression. The model is then used to calculate the expected variance based on the observed mean gene expression. The difference between the observed and expected variance is called residual variance and likely reflects biological variability. The top 3,000 variable genes are used for further analysis. 
+To determine variable genes, we need to separate biological variability from technical variability. Technical variability arises especially for lowly expressed genes, where high variability corresponds to small absolute changes that we are not interested in. Here, we use the variance-stabilizing transformation (vst) method implemented in Seurat (`r Cite("10.1186/s13059-019-1874-1")`). This method first models the technical variability as a relationship between mean gene expression and variance using local polynomial regression. The model is then used to calculate the expected variance based on the observed mean gene expression. The difference between the observed and expected variance is called residual variance and likely reflects biological variability.
+</details>
+
 ```{r plot_variable_features_heights}
 fig_height_vf = 5 * ceiling(length(names(sc))/2)
 ```
@@ -1263,9 +1335,16 @@ if (! param$integrate_samples[["method"]] %in% c("single", "merge")) {
 ```
   
 ## Dimensionality reduction
-A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. At this point of the analysis, we have already reduced the dimensionality of the dataset to 3,000 variable genes. The biological manifold however can be described by far fewer dimensions than the number of (variable) genes. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to summarise a dataset, and to visualise a dataset. 
+A single-cell dataset of 20,000 genes and 5,000 cells has 20,000 dimensions. At this point of the analysis, we have already reduced the dimensionality of the dataset to 3,000 variable genes. The biological manifold however can be described by far fewer dimensions than the number of (variable) genes, since expression profiles of different genes are correlated if they are involved in the same biological process. Dimension reduction methods aim to find these dimensions. There are two general purposes for dimension reduction methods: to __summarize__ a dataset, and to __visualize__ a dataset. 
 
-We use Principal Component Analysis (PCA) to summarise a dataset, overcoming noise and reducing the data to its essential components. Each principal component (PC) represents a "metafeature" that combines information across a correlated gene set. Later, we use Uniform Manifold Approximation and Projection (UMAP) to visualise the dataset, placing similar cells together in 2D space, see below. 
+We use Principal Component Analysis (PCA) to __summarize__ a dataset, overcoming noise and reducing the data to its essential components. Later, we use Uniform Manifold Approximation and Projection (UMAP) to __visualize__ the dataset, placing similar cells together in 2D space, see below. 
+<details>
+  <summary>PCA in a nutshell</summary>
+
+Principal Component Analysis is a way to summarize a dataset and to reduce noise by averaging similar gene expression profiles. The information for correlated genes is compressed into single dimensions called principal components (PCs) and the analysis identifies those dimensions that capture the largest amount of variation. This process gives a more precise representation of the patterns inherent to complex and large datasets.
+
+In a PCA, the first PC captures the greatest variance across the whole dataset. The next PC captures the greatest remaining amount of variance, and so on. This way, the top PCs are likely to represent the biological signal where multiple genes are affected by the same biological processes in a coordinated way. In contrast, random technical or biological noise that affects each gene independently are contained in later PCs. Downstream analyses can be restricted to the top PCs to focus on the most relevant biological signal and to reduce noise and unnecessary computational overhead. 
+</details>
 
 To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
 ```{r run_pca}
@@ -1300,7 +1379,12 @@ p
 ```
 
 ## Dimensionality of the dataset
-We next need to decide how many PCs we want to use for our analyses. The following "Elbow plot" is designed to help us make an informed decision.  PCs are ranked based on the percentage of variance they explain. 
+We next need to decide how many PCs we want to use for our analyses. PCs include biological signal as well as noise, and we need to determine the number of PCs with which we include as much biological signal as possible and as little noise as possible. The following "Elbow plot" is designed to help us make an informed decision. It shows PCs ranked based on the percentage of variance they explain.
+<details>
+  <summary>How do we determine the number of PCs for downstream analysis?</summary>
+
+The top PC captures the greatest variance across cells and each subsequent PC represents decreasing levels of variance. By visual inspection of the Elbow plot, we try to find the point at which we can explain most of the variance across cells; after this point the amount of variance is not meaningful anymore to explain variability between cells. Commonly, the top 10 PCs are chosen. It may be helpful to repeat downstream analyses with a different number of PCs, although the results often do not differ dramatically. Note that it is recommended to rather choose too many than too few PCs. 
+</details>
 
 ```{r dimensionality}
 # More approximate technique used to reduce computation time
@@ -1317,9 +1401,16 @@ For the current dataset, `r param$pc_n` PCs were chosen.
 
 # Clustering
 Seurat's clustering method first constructs a graph structure, where nodes are cells and edges are drawn between cells with similar gene expression patterns. Technically speaking, Seurat first constructs a K-nearest neighbor (KNN) graph based on Euclidean distance in PCA space, and refines edge weights between cells based on the shared overlap in their local neighborhoods (Jaccard similarity). To partition the graph into highly interconnected parts, cells are iteratively grouped together using the Leiden algorithm `r Cite("10.1038/s41598-019-41695-z", "citep")`. 
+<details>
+  <summary>Further explanation on clustering</summary>
+
+At this point, we would like to define subpopulations of cells with similar gene expression profiles using unsupervised clustering. Clusters ultimately serve as approximations for biological objects like cell types or cell states.
+
+During the first step of clustering, a K-nearest neighbor (KNN) graph is constructed. In simplified terms this means that cells are connected to their K nearest neighbors based on cell-to-cell expression similarity using the PCs chosen in the previous step. The higher the similarity is, the higher the edge weight becomes. During the second step, the graph is partitioned into highly interconnected communities, whereby each community represents a cluster of cells with similar expression profiles. The separation of the graph into clusters is dependent on the chosen resolution. For scRNA-seq datasets of around 3000 cells, it is recommended to use a resolution value between 0.4 and 1.2. This value can be set even higher for larger datasets. Note that the choice of PCs and cluster resolution is an arbitrary one. Therefore, it is highly recommended to evaluate clusters and re-run the workflow with adapted parameters if needed. 
+</details>
 
 # Visualisation with UMAP {.tabset}
-We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP. 
+We use the non-linear dimensional reduction technique UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP. 
 
 Take care not to mis-read a UMAP:  
 
@@ -1726,7 +1817,7 @@ You provided `r length(known_markers_list)` list(s) of known marker genes. In th
 * Individual feature plots for all genes if there are no more than 100 genes in total  
 
 ## Dot plot(s) 
-A dot plot visualises how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that expresses the gene, while the color encodes the scaled average expression across all cells within the cluster. Per gene, we group cells based on cluster identity, calculate average expression per cluster, subtract the mean of average expression values and divide by the standard deviation. The resulting scores describe how high or low a gene is expressed in a cluster compared to all other clusters. 
+A dot plot visualises how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that expresses the gene, while the color encodes the scaled average expression across all cells within the cluster. Per gene (column), we group cells based on cluster identity (rows), calculate average expression per cluster, subtract the mean of average expression values and divide by the standard deviation. The resulting scores describe how high or low a gene is expressed in a cluster compared to all other clusters. 
 ```{r knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot}
 if ((known_markers_n > 0) & any(idx_dotplot)) {
   known_markers_dotplot = known_markers_list[idx_dotplot]
@@ -1788,7 +1879,17 @@ if ((known_markers_n > 0) & length(known_markers_vect) <= 100) {
 ```
 
 # Marker genes
-We next identify genes that are differentially expressed in one cluster compared to all other clusters, based on raw `r param$assay_raw` data and the method "MAST". Resulting _p_-values are adjusted using the Bonferroni method. However, note that the _p_-values are likely inflated, since both clusters and marker genes were determined based on the same gene expression data, and there ought to be gene expression differences by design. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
+We next identify genes that are differentially expressed in one cluster compared to all other clusters, based on raw `r param$assay_raw` data and the method "MAST". Resulting _p_-values are adjusted using the Bonferroni method. However, note that the _p_-values are likely inflated, since both clusters and marker genes were determined based on the same gene expression data, and there ought to be gene expression differences by design. Nevertheless, _p_-values can be used to sort and prioritize marker genes. We require marker genes to be expressed in at least `r param$marker_pct * 100`% of cells in the respective cluster, with a minimum log2 fold change of `r param$marker_log2FC` and adjusted p-value of at most `r param$marker_padj`. The names of differentially expressed genes per cluster, alongside statistical measures and additional gene annotation are written to file.
+<details>
+  <summary>What are marker genes?</summary>
+
+As described above, cell clusters approximate cell types and states. But how do we know which cell types these are? To characterize cell clusters, we identify marker genes. Good marker genes are genes that are particularly expressed in one cluster, and existing knowledge of these marker genes can be used to extrapolate biological functions for the cluster. A good clustering of cells typically results in good marker genes. Hence, if you cannot find good marker genes you may need to go back to the start of the workflow and adapt your parameters. Note that we also determine genes that are particularly down-regulated in one cluster, even if these are not marker genes in the classical sense.
+
+Good marker genes are highly and possibly even only expressed in one cluster as compared to all other clusters. However, sometimes marker genes are also expressed in other clusters, or are declared as marker genes in these clusters, for example cell lineage markers that are shared by different cell subtypes. To evaluate marker genes, it is essential to visualize their expression patterns.
+
+In addition to detecting marker genes, it might be informative to detect genes that are differentially expressed between one specific cluster and one or several other clusters. This approach allows a more specific distinction of individual clusters and investigation of more subtle differences, see the section “Differentially expressed genes” below. 
+</details>
+
 ```{r markers, warning=FALSE}
 # Find DEGs for every cluster compared to all remaining cells, report positive (=markers) and negative ones
 # min.pct = requires feature to be detected at this minimum percentage in either of the two groups of cells 
