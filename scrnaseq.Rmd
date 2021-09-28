@@ -730,6 +730,13 @@ if (length(feature_filter_lst) > 0) {
 }
 ```
 
+```{r save_orig_numbers}
+orig_feature_number = purrr::map(list_names(sc), function(n) {
+  length(rownames(sc[[n]]))})
+orig_cell_number = purrr::map(list_names(sc), function(n) {
+  length(Cells(sc[[n]]))})
+```
+
 The number of excluded cells and features is as follows: 
 ```{r filter_cells}
 # Iterate over datasets and filters
@@ -771,8 +778,21 @@ sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
   return(as.data.frame(purrr::map(s, length))) 
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
-knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
-  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) 
+
+sc_cells_excluded_nFeature_RNA = sc_cells_to_exclude_summary$nFeature_RNA[] %>% as.data.frame()
+colnames(sc_cells_excluded_nFeature_RNA) = "nFeature_RNA"
+rownames(sc_cells_excluded_nFeature_RNA) = names(list_names(sc))
+
+sc_cells_excluded_percent_mt = sc_cells_to_exclude_summary$percent_mt[] %>% as.data.frame()
+colnames(sc_cells_excluded_percent_mt) = "percent_mt"
+rownames(sc_cells_excluded_percent_mt) = names(list_names(sc))
+
+sc_cells_orig = orig_cell_number %>% as.data.frame()
+rownames(sc_cells_orig) = "Original"
+colnames(sc_cells_orig) = names(list_names(sc))
+sc_cells_orig = as.data.frame(t(sc_cells_orig))
+
+sc_cells_filter_summary = cbind.data.frame(sc_cells_excluded_nFeature_RNA, sc_cells_excluded_percent_mt, sc_cells_orig)
 
 # Now filter, drop the respective colours and adjust integration method
 sc = purrr::map(list_names(sc), function(n) {
@@ -781,6 +801,23 @@ sc = purrr::map(list_names(sc), function(n) {
   if (length(cells_to_keep)==0) return(NULL)
   else return(subset(sc[[n]], cells=cells_to_keep))
 }) %>% purrr::discard(is.null)
+
+filtered_cell_number = purrr::map(list_names(sc), function(n) {
+  length(Cells(sc[[n]]))})
+sc_cells_filtered = filtered_cell_number %>% as.data.frame()
+rownames(sc_cells_filtered) = "Filtered"
+colnames(sc_cells_filtered) = names(list_names(sc))
+sc_cells_filtered = as.data.frame(t(sc_cells_filtered))
+
+sc_cells_filter_summary = cbind.data.frame(sc_cells_filter_summary, sc_cells_filtered)
+
+sc_cells_percent = as.data.frame(sc_cells_filter_summary$Filtered[]/sc_cells_filter_summary$Original[]*100)
+rownames(sc_cells_percent) = names(list_names(sc))
+colnames(sc_cells_percent) = "Percent_remaining"
+sc_cells_filter_summary = cbind.data.frame(sc_cells_filter_summary, sc_cells_percent)
+
+knitr::kable(sc_cells_filter_summary, align="l", caption="Number of excluded cells") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover")) 
 
 if (length(sc)==1) param$integrate_samples[["method"]] = "single"
 ```
@@ -806,8 +843,28 @@ sc_features_to_exclude$AllSamples = Reduce(f=intersect, x=sc_features_to_exclude
 sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>% 
   t() %>% as.data.frame() 
 rownames(sc_features_to_exclude_summary) = c("Genes")
-knitr::kable(sc_features_to_exclude_summary, align="l", caption="Number of excluded genes") %>% 
-  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+
+sc_features_excluded = purrr::map(list_names(sc), function(n) {
+sc_features_to_exclude_summary$Genes[n]
+}
+) %>% as.data.frame()
+rownames(sc_features_excluded) = "Excluded"
+colnames(sc_features_excluded) = names(list_names(sc))
+
+sc_features_orig = orig_feature_number %>% as.data.frame()
+rownames(sc_features_orig) = "Original"
+colnames(sc_features_orig) = names(list_names(sc))
+
+sc_feature_fiter_summary = rbind.data.frame(sc_features_orig, sc_features_excluded)
+sc_feature_fiter_summary = as.data.frame(t(sc_feature_fiter_summary))
+
+sc_features_percent = as.data.frame(100-(sc_feature_fiter_summary$Excluded[]/sc_feature_fiter_summary$Original[]*100))
+rownames(sc_features_percent) = names(list_names(sc))
+colnames(sc_features_percent) = "Percent_remaining"
+sc_feature_fiter_summary = cbind.data.frame(sc_feature_fiter_summary, sc_features_percent)
+
+knitr::kable(sc_feature_fiter_summary, align="l", caption="Number of excluded genes") %>% 
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Now filter those genes that are to be filtered for all samples 
 sc = purrr::map(list_names(sc), function(n) {
