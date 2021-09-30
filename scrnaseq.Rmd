@@ -889,6 +889,7 @@ sc_features_to_exclude$AllSamples = Reduce(f=intersect, x=sc_features_to_exclude
 sc_features_to_exclude_summary = purrr::map(sc_features_to_exclude, length) %>% 
   t() %>% as.data.frame() 
 rownames(sc_features_to_exclude_summary) = c("Genes")
+sc_features_to_exclude_summary = as.data.frame(t(sc_features_to_exclude_summary))
 
 sc_features_excluded = purrr::map(list_names(sc), function(n) {
 sc_features_to_exclude_summary$Genes[n]
