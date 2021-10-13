@@ -749,8 +749,8 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
     }
   })
   
-  filter_result = list()
-  filter_result$fail_filter = filter_result_sep %>% purrr::reduce(.f=intersect)
+  filter_result = list(fail_filter=c())
+  if (length(filter_result_sep) > 0) filter_result[["fail_filter"]] = filter_result_sep %>% purrr::reduce(.f=intersect)
 
   # Samples to drop
   if (n %in% param$samples_to_drop) {
