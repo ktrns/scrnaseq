@@ -736,7 +736,7 @@ The number of excluded cells and features is as follows:
 # Record a cell if it does not pass the filter
 # Also record a cell if it belongs to a sample that should be dropped
 sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { 
-  filter_result = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
+  filter_result_sep = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
     filter = param$cell_filter[[n]][[f]]
     if (is.numeric(filter)) {
       if (is.na(filter[1])) filter[1] = -Inf # Minimum
@@ -748,6 +748,9 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
       return(Cells(sc[[n]])[idx_exclude])
     }
   })
+  
+  filter_result = list()
+  filter_result$fail_filter = filter_result_sep %>% purrr::reduce(.f=intersect)
 
   # Samples to drop
   if (n %in% param$samples_to_drop) {
@@ -1284,16 +1287,16 @@ sc = ScAddLists(sc, lists=list(seurat_clusters=param$col_clusters), lists_slot="
 ```
 
 # Visualisation with UMAP {.tabset}
-We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP. 
+We use a UMAP to visualise and explore a dataset. The goal is to place similar cells together in 2D space, and learn about the biology underlying the data. Cells are color-coded according to the graph-based clustering, and clusters typcially co-localise on the UMAP.
 
-Take care not to mis-read a UMAP:  
+Take care not to mis-read a UMAP:
 
-* Parameters influence the plot (we use defaults here)  
-* Cluster sizes relative to each other mean nothing, since the method has a local notion of distance  
-* Distances between clusters might not mean anything  
-* You may need more than one plot  
-  
-For a nice read to intuitively understand UMAP, see `r Cite("https://pair-code.github.io/understanding-umap/")`. 
+* Parameters influence the plot (we use defaults here)
+* Cluster sizes relative to each other mean nothing, since the method has a local notion of distance
+* Distances between clusters might not mean anything
+* You may need more than one plot
+
+For a nice read to intuitively understand UMAP, see `r Cite("https://pair-code.github.io/understanding-umap/")`.
 
 ```{r run_umap}
 # Default UMAP
@@ -1302,27 +1305,47 @@ sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap
 
 ## Coloured by cluster
 
-```{r umap_by_cluster}
-# Make a UMAP that is coloured by cluster
+```{r umap_by_cluster, fig.asp=0.6}
+# Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
-p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters") + 
+p = Seurat::DimPlot(sc, reduction="umap", label=TRUE, label.box=TRUE) +
+  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters") +
   scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
-  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
+  scale_fill_manual(values=param$col_clusters, labels=cluster_labels) +
+  theme(legend.position="none")
 p
 ```
 
-## Coloured by sample 
-```{r umap_by_sample}
-# Make a UMAP that is coloured by sample of origin
+## Coloured by cluster (per sample)
+```{r umap_by_cluster_separately}
+# Plot all samples separately
+p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size, split.by = "orig.ident", ncol = 2) +
+  scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
+  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE)
+p
+```
+
+## Coloured by sample
+```{r umap_by_sample, fig.asp=0.6}
+# Note: This is a hack to colour by sample but label by Cluster
 p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", cols=param$col_samples) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
 p
 ```
 
+## Coloured by sample (per sample)
+```{r umap_by_sample_separately}
+# Plot all samples separately
+p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", pt.size=param$pt_size, cols=param$col_samples, split.by = "orig.ident", ncol = 2) +
+  AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
+p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
+p
+``` 
 # Distribution of cells in clusters
 
 ```{r cells_per_cluster}
