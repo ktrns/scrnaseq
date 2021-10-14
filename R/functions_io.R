@@ -72,6 +72,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     features_ids_types$feature_type = feature_data[, feature_type_column]
     feature_data[, feature_type_column] = NULL
   }
+  features_ids_types[, "feature_id"]) = make.unique(features_ids_types[, "feature_id"])
   
   # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
   seurat_row_names = setNames(features_ids_types[, "feature_id"],features_ids_types[, "feature_id"])
@@ -234,6 +235,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   if (!file.exists(file.path(path, "features.tsv.gz"))) stop(sprintf("ReadSparseMatrix: Could not find file 'features.tsv.gz' at directory '%s'!", path))
   features_ids_types = read.delim(file.path(path, "features.tsv.gz"), header=FALSE, stringsAsFactors=FALSE)
   colnames(features_ids_types) = c("feature_id", "feature_name", "feature_type")
+  features_ids_types[, row_name_column] = make.unique(features_ids_types[, row_name_column])
   
   if (!file.exists(file.path(path, "matrix.mtx.gz"))) stop(sprintf("ReadSparseMatrix: Could not find file 'matrix.mtx.gz' at directory '%s'!", path))
   
