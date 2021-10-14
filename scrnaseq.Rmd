@@ -611,42 +611,46 @@ sc = purrr::map(list_names(sc), function(n) {
 ```
 
 ```{r qc_plot_cells, fig.height=10}
-# Plot QC metrics for cells
+# QC metrics to plot for cells
 cell_qc_features = c(paste0(c("nFeature_", "nCount_"), param$assay_raw), "percent_mt")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "percent_ercc")
 cell_qc_features = values_to_names(cell_qc_features)
 
+# Get filter thresholds per QC metrics
+cell_qc_thresholds = purrr::map(cell_qc_features, function(m) {
+  tresh = purrr::map_dfr(names(param$cell_filter), function(n) {
+    if (m %in% names(param$cell_filter[[n]])) {
+      t = data.frame(orig.ident=n, min=param$cell_filter[[n]][[m]][1], max=param$cell_filter[[n]][[m]][2]) %>% 
+        tidyr::pivot_longer(cols=2:3, names_to=c("threshold")) %>%
+        dplyr::filter(!is.na(value))
+      t$threshold = factor(t$threshold, levels=c("min", "max"))
+      return(t)
+    }
+  })
+})
+
+# Now create plot per QC metric
 p_list = list()
-for (i in names(cell_qc_features)) {
-  p_list[[i]]= ggplot(sc_cell_metadata[, c("orig.ident", i)], aes_string(x="orig.ident", y=i, fill="orig.ident", group="orig.ident")) +
+for (m in cell_qc_features) {
+  p_list[[m]]= ggplot(sc_cell_metadata[, c("orig.ident", m)], aes_string(x="orig.ident", y=m, fill="orig.ident", group="orig.ident")) +
     geom_violin(scale="width")
 
   # Adds points for samples with less than three cells since geom_violin does not work here
-  p_list[[i]] = p_list[[i]] + 
-    geom_point(data=sc_cell_metadata[, c("orig.ident", i)] %>% dplyr::filter(orig.ident %in% names(which(table(sc_cell_metadata$orig.ident) < 3))), aes_string(x="orig.ident", y=i, fill="orig.ident"), shape=21, size=2)
+  p_list[[m]] = p_list[[m]] + 
+    geom_point(data=sc_cell_metadata[, c("orig.ident", m)] %>% dplyr::filter(orig.ident %in% names(which(table(sc_cell_metadata$orig.ident) < 3))), aes_string(x="orig.ident", y=m, fill="orig.ident"), shape=21, size=2)
   
-  # Now add styles
-  p_list[[i]] = p_list[[i]] + 
-    AddStyle(title=i, legend_position="none", fill=param$col_samples, xlab="") + 
+  # Now add style
+  p_list[[m]] = p_list[[m]] + 
+    AddStyle(title=m, legend_position="none", fill=param$col_samples, xlab="") + 
     theme(axis.text.x=element_text(angle=45, hjust=1))
   
-  # Creates a table with min/max values for filter i for each dataset
-  cell_filter_for_plot = purrr::map_dfr(names(param$cell_filter), function(n) {
-    # If filter i in cell filter of the dataset, then create dataframe with columns orig.ident, threshold and value
-    if (i %in% names(param$cell_filter[[n]])){
-      data.frame(orig.ident=n, threshold=c("min", "max"), value=param$cell_filter[[n]][[i]], stringsAsFactors=FALSE)
-    } 
-  })
-  
-  # Add filters as segments to plot
-  if (nrow(cell_filter_for_plot) > 0) {
-    # Remove entries that are NA
-    cell_filter_for_plot = cell_filter_for_plot %>% dplyr::filter(!is.na(value))
-    p_list[[i]] = p_list[[i]] + geom_segment(data=cell_filter_for_plot, 
+  # Add filter threshold as segments to plot; min threshold lines are dashed and max threshold lines are twodashed
+  if (nrow(cell_qc_thresholds[[m]]) > 0) {
+    p_list[[m]] = p_list[[m]] + geom_segment(data=cell_qc_thresholds[[m]], 
                                              aes(x=as.integer(as.factor(orig.ident))-0.5, 
                                                  xend=as.integer(as.factor(orig.ident))+0.5, 
-                                                 y=value, yend=value), 
-                                             lty=2, col="firebrick")
+                                                 y=value, yend=value, lty=threshold), colour="firebrick") +
+      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
   }
 }
 p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
@@ -656,15 +660,56 @@ p
 ```{r qc_plot_correlation}
 # Correlate QC metrics for cells
 p_list = list()
-p_list[[1]] = ggplot(sc_cell_metadata, aes_string(x=cell_qc_features[2], y=cell_qc_features[1], colour="orig.ident")) +
-  geom_point() + 
-  AddStyle(col=param$col_samples)
-p_list[[2]] = ggplot(sc_cell_metadata, aes_string(x=cell_qc_features[3], y=cell_qc_features[1], colour="orig.ident")) +
-  geom_point() + 
-  AddStyle(col=param$col_samples)
-p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Features plotted against each other")
+sc_cell_metadata_plot_order = sample(1:nrow(sc_cell_metadata))
 
-if (length(sc)==1) {
+# nFeature vs nCount
+m = paste0(c("nCount_", "nFeature_"), param$assay_raw)
+p_list[[1]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
+  geom_point() + 
+  AddStyle(col=param$col_samples)
+if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+}
+if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+}
+  
+
+# nFeature vs percent_mt
+m = c("percent_mt", paste0(c("nFeature_"), param$assay_raw))
+p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
+  geom_point() + 
+  AddStyle(col=param$col_samples)
+if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+}
+if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+}
+
+# nFeature vs percent_ercc (if available)
+if ("percent_ercc" %in% names(cell_qc_features)) {
+  m = c("percent_ercc", paste0(c("nFeature_"), param$assay_raw))
+  p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
+    geom_point() + 
+    AddStyle(col=param$col_samples)
+  if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  }
+  if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
+      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  }
+}
+
+# Combine plots
+p = patchwork::wrap_plots(p_list, ncol=length(p_list)) + patchwork::plot_annotation("Features plotted against each other")
+if (length(p_list) == 1) {
   p = p & theme(legend.position="bottom")
 } else {
   p = p + patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
@@ -736,7 +781,7 @@ The number of excluded cells and features is as follows:
 # Record a cell if it does not pass the filter
 # Also record a cell if it belongs to a sample that should be dropped
 sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) { 
-  filter_result_sep = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
+  filter_result = purrr::map(list_names(param$cell_filter[[n]]), function(f) {
     filter = param$cell_filter[[n]][[f]]
     if (is.numeric(filter)) {
       if (is.na(filter[1])) filter[1] = -Inf # Minimum
@@ -748,9 +793,6 @@ sc_cells_to_exclude  = purrr::map(list_names(sc), function(n) {
       return(Cells(sc[[n]])[idx_exclude])
     }
   })
-  
-  filter_result = list(fail_filter=c())
-  if (length(filter_result_sep) > 0) filter_result[["fail_filter"]] = filter_result_sep %>% purrr::reduce(.f=intersect)
 
   # Samples to drop
   if (n %in% param$samples_to_drop) {
