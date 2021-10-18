@@ -72,7 +72,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     features_ids_types$feature_type = feature_data[, feature_type_column]
     feature_data[, feature_type_column] = NULL
   }
-  features_ids_types[, "feature_id"]) = make.unique(features_ids_types[, "feature_id"])
+  features_ids_types[, "feature_id"] = make.unique(features_ids_types[, "feature_id"])
   
   # Define a named vector for the row names: its names are the feature names in the dataset and its values are the final names in the Seurat object
   seurat_row_names = setNames(features_ids_types[, "feature_id"],features_ids_types[, "feature_id"])
