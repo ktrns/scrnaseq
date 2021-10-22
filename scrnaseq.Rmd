@@ -666,44 +666,42 @@ sc_cell_metadata_plot_order = sample(1:nrow(sc_cell_metadata))
 m = paste0(c("nCount_", "nFeature_"), param$assay_raw)
 p_list[[1]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
   geom_point() + 
+  scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   AddStyle(col=param$col_samples)
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+    
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
 }
   
 
 # nFeature vs percent_mt
 m = c("percent_mt", paste0(c("nFeature_"), param$assay_raw))
 p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
-  geom_point() + 
+  geom_point() +
+  scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   AddStyle(col=param$col_samples)
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
 }
 
 # nFeature vs percent_ercc (if available)
 if ("percent_ercc" %in% names(cell_qc_features)) {
   m = c("percent_ercc", paste0(c("nFeature_"), param$assay_raw))
-  p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
+  p_list[[3]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident")) +
     geom_point() + 
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) + 
     AddStyle(col=param$col_samples)
   if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
   }
   if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE) +
-      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
   }
 }
 
@@ -817,7 +815,10 @@ sc_cells_to_exclude_summary = purrr::map_dfr(sc_cells_to_exclude, function(s) {
   })
 rownames(sc_cells_to_exclude_summary) = names(sc_cells_to_exclude)
 knitr::kable(sc_cells_to_exclude_summary, align="l", caption="Number of excluded cells") %>% 
-  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+
+# Add filter column to sc_cell_metadata for post-filtering QC
+sc_cell_metadata$IS_FILTERED = rownames(sc_cell_metadata) %in% unlist(sc_cells_to_exclude)
 
 # Now filter, drop the respective colours and adjust integration method
 sc = purrr::map(list_names(sc), function(n) {
@@ -869,6 +870,97 @@ sc = purrr::map(list_names(sc), function(n) {
 After filtering, the size of the Seurat object is: 
 ```{r filter_size_after}
 sc
+```
+
+## Quality control post filtering
+The updated QC plots are: 
+```{r qc_plot_cells_afterFiltering, fig.height=10}
+# Now create plot per QC metric after filtering
+p_list = list()
+for (m in cell_qc_features) {
+  p_list[[m]]= ggplot(sc_cell_metadata[, c("orig.ident", m, "IS_FILTERED")] %>% dplyr::filter(!IS_FILTERED), aes_string(x="orig.ident", y=m, fill="orig.ident", group="orig.ident")) +
+    geom_violin(scale="width")
+
+  # Adds points for samples with less than three cells since geom_violin does not work here
+  p_list[[m]] = p_list[[m]] + 
+    geom_point(data=sc_cell_metadata[, c("orig.ident", m, "IS_FILTERED")] %>% dplyr::filter(!IS_FILTERED, orig.ident %in% names(which(table(sc_cell_metadata$orig.ident) < 3))), aes_string(x="orig.ident", y=m, fill="orig.ident"), shape=21, size=2)
+  
+  # Now add style
+  p_list[[m]] = p_list[[m]] + 
+    AddStyle(title=m, legend_position="none", fill=param$col_samples, xlab="") + 
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+  
+  # Add filter threshold as segments to plot; min threshold lines are dashed and max threshold lines are twodashed
+  if (nrow(cell_qc_thresholds[[m]]) > 0) {
+    p_list[[m]] = p_list[[m]] + geom_segment(data=cell_qc_thresholds[[m]], 
+                                             aes(x=as.integer(as.factor(orig.ident))-0.5, 
+                                                 xend=as.integer(as.factor(orig.ident))+0.5, 
+                                                 y=value, yend=value, lty=threshold), colour="firebrick") +
+      scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min")))
+  }
+}
+p = patchwork::wrap_plots(p_list, ncol=2) + patchwork::plot_annotation("Distribution of feature values") 
+p
+```
+
+```{r qc_plot_correlation_afterFiltering}
+# Correlate QC metrics for cells
+p_list = list()
+sc_cell_metadata_plot_order = sample(1:nrow(sc_cell_metadata))
+
+# nFeature vs nCount
+m = paste0(c("nCount_", "nFeature_"), param$assay_raw)
+p_list[[1]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident", alpha="IS_FILTERED")) +
+  geom_point() + 
+  scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
+  scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE))) +
+  AddStyle(col=param$col_samples)
+if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+}
+if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+}
+  
+
+# nFeature vs percent_mt
+m = c("percent_mt", paste0(c("nFeature_"), param$assay_raw))
+p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident", alpha="IS_FILTERED")) +
+  geom_point() +
+  scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
+  scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE))) +
+  AddStyle(col=param$col_samples)
+if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+}
+if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+}
+
+# nFeature vs percent_ercc
+if ("percent_ercc" %in% names(cell_qc_features)) {
+  m = c("percent_ercc", paste0(c("nFeature_"), param$assay_raw))
+  p_list[[3]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident", alpha="IS_FILTERED")) +
+    geom_point() + 
+    scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
+    scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE)), show.legend=FALSE) +
+    AddStyle(col=param$col_samples)
+  if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
+    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  }
+  if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
+    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  }
+}
+
+# Combine plots
+p = patchwork::wrap_plots(p_list, ncol=length(p_list)) + patchwork::plot_annotation("Features plotted against each other")
+if (length(p_list)==1) {
+  p = p & theme(legend.position="bottom")
+} else {
+  p = p + patchwork::plot_layout(guides="collect") & theme(legend.position="bottom")
+}
+p
 ```
 
 ## Normalisation
@@ -1351,11 +1443,11 @@ sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap
 # Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
-p = Seurat::DimPlot(sc, reduction="umap", label=TRUE, label.box=TRUE) +
-  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters") +
+
+p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters") + 
   scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
-  scale_fill_manual(values=param$col_clusters, labels=cluster_labels) +
-  theme(legend.position="none")
+  AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
 p
 ```
 
@@ -1365,27 +1457,32 @@ p
 p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size, split.by = "orig.ident", ncol = 2) +
   scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
   AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
-p = LabelClusters(p, id="seurat_clusters", box=TRUE)
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
 p
 ```
 
 ## Coloured by sample
 ```{r umap_by_sample, fig.asp=0.6}
+sample_cells = table(sc$orig.ident)
+sample_labels = paste0(levels(sc$orig.ident)," (", sample_cells[levels(sc$orig.ident)],")")
+
 # Note: This is a hack to colour by sample but label by Cluster
-p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", cols=param$col_samples) +
+p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident") +
+  scale_color_manual(values=param$col_samples, labels=sample_labels) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="white")
 p
 ```
 
 ## Coloured by sample (per sample)
 ```{r umap_by_sample_separately}
 # Plot all samples separately
-p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", pt.size=param$pt_size, cols=param$col_samples, split.by = "orig.ident", ncol = 2) +
+p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", pt.size=param$pt_size, split.by = "orig.ident", ncol = 2) +
+  scale_color_manual(values=param$col_samples, labels=sample_labels) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="lightgrey")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="white")
 p
 ``` 
 # Distribution of cells in clusters
@@ -1551,6 +1648,14 @@ p2 = ggplot(sc[[]], aes_string(x="seurat_clusters", y=qc_feature, fill="seurat_c
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title=paste0("Summed raw counts (", qc_feature, ", log10 scale)"))
 p
+
+m = paste0(c("nCount_", "nFeature_"), param$assay_raw)
+p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
+  geom_point() + 
+  AddStyle(col=param$col_clusters) +
+  facet_wrap(~seurat_clusters) +
+  theme(legend.position = "none")
+p
 ```
 
 ## Number of features
@@ -1570,6 +1675,14 @@ p2 = ggplot(sc[[]], aes_string(x="seurat_clusters", y=qc_feature, fill="seurat_c
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title=paste0("Number of features with raw count > 0 (", qc_feature, ", log10 scale)"))
 p
+
+m = paste0(c("nFeature_", "nFeature_"), param$assay_raw)
+p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
+  geom_point() + 
+  AddStyle(col=param$col_clusters) +
+  facet_wrap(~seurat_clusters) +
+  theme(legend.position = "none")
+p
 ```
 
 ## Percent mitochondrial reads
@@ -1584,6 +1697,14 @@ p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_mt, fill=seurat_clusters, g
            xlab="Cluster", legend_position="none")
 p = p1 | p2 
 p = p + patchwork::plot_annotation(title="Percent of mitochondrial features (percent_mt)")
+p
+
+m = c("percent_mt", paste0("nFeature_", param$assay_raw))
+p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
+  geom_point() + 
+  AddStyle(col=param$col_clusters) +
+  facet_wrap(~seurat_clusters) +
+  theme(legend.position = "none")
 p
 ```
 
@@ -1600,6 +1721,43 @@ p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_ribo, fill=seurat_clusters,
 p = p1 | p2
 p = p + patchwork::plot_annotation(title="Percent of ribosomal features (percent_ribo)")
 p
+
+m = c("percent_ribo", paste0("nFeature_", param$assay_raw))
+p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
+  geom_point() + 
+  AddStyle(col=param$col_clusters) +
+  facet_wrap(~seurat_clusters) +
+  theme(legend.position = "none")
+p
+
+```
+
+## Percent ERCC
+```{r clusterQC_ercc_featurePlot}
+if ("percent_ercc" %in% colnames(sc[[]])) {
+  p1 = Seurat::FeaturePlot(sc, features="percent_ercc", cols=c("lightgrey", param$col)) +
+    AddStyle(title="Feature plot")
+  p1 = LabelClusters(p1, id="ident", box=FALSE)
+  
+  p2 = ggplot(sc[[]], aes(x=seurat_clusters, y=percent_ercc, fill=seurat_clusters, group=seurat_clusters)) +
+    geom_violin(scale="width") +
+    AddStyle(title="Violin plot", fill=param$col_clusters,
+             xlab="Cluster", legend_position="none")
+  p = p1 | p2
+  p = p + patchwork::plot_annotation(title="Percent of ERCC features (percent_ercc)")
+  p
+  
+  # Plot percent_ribo vs nFeature by cluster
+  m = c("percent_ercc", paste0("nFeature_", param$assay_raw))
+  p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
+    geom_point() + 
+    AddStyle(col=param$col_clusters) +
+    facet_wrap(~seurat_clusters) +
+    theme(legend.position = "none")
+  p
+} else {
+  message("No ERCC controls found.")
+}
 ```
 
 # Known marker genes {.tabset}

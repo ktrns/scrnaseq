@@ -195,6 +195,9 @@ DegsWriteToFile = function(degs, annot_ensembl, gene_to_ensembl, file, additiona
   
   degs_lst = c(list("README"=readme_table), degs_lst)
   
+  # Fix names that are more 31bp (which is too long for Excel)
+  names(degs_lst) = strtrim(names(degs_lst), 31)
+  
   # Output in Excel sheet
   openxlsx::write.xlsx(degs_lst, file=file)
   return(file)
@@ -665,6 +668,9 @@ EnrichrWriteResults = function(enrichr_results, file) {
   readme_table = rbind(readme_table, c("Genes", "Enrichr genes in functional annotation"))
   readme_table = rbind(readme_table, c("Genes.Species", "Species genes in functional annotation (which are translated to Enrichr genes)"))
   enrichr_results = c(list("README"=readme_table), enrichr_results)
+  
+  # Fix names that are more 31bp (which is too long for Excel)
+  names(enrichr_results) = strtrim(names(enrichr_results), 31)
   
   # Output in Excel sheet
   openxlsx::write.xlsx(enrichr_results, file=file)
