@@ -1,8 +1,4 @@
 ---
-title: "Single-cell RNA-seq data analysis"
-author:
-  - "[Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/)"
-  - "[Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics)"
 date: "`r format(Sys.time(), '%B, %Y')`"
 geometry: "margin=2cm"
 output:
@@ -14,12 +10,188 @@ output:
     highlight: "tango"
     theme: "paper"
     css: "css/style.css"
-bibliography: "references.bib"
+params:
+  # Author
+  author: !r Sys.info()[["user"]]
+
+  # Project ID
+  project_id: pbmc
+   
+  # Path to input data
+  path_data: !r data.frame(name=c("pbmc_10x","pbmc_smartseq2"), 
+                           type=c("10x","smartseq2"), 
+                           path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
+                           stats=c(NA, NA))
+
+  # Data type ("RNA", "Spatial")
+  assay_raw: "RNA"
+  
+  # Downsample data to at most n cells per sample (mainly for tests)
+  #   NULL to deactivate
+  downsample_cells_n: 100
+
+  # Path to output directory
+  path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
+
+  # Marker genes based on literature, translated to Ensembl IDs
+  #   xlsx file, one list per column, first row as header and Ensembl IDs below
+  #   NULL if no known marker genes should be plotted
+  file_known_markers: test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx
+   
+  # Annotation via biomaRt
+  mart_dataset: hsapiens_gene_ensembl
+  annot_version: 98
+  annot_main: !r c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
+  mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
+                        c("chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
+  biomart_mirror: NULL
+
+  # Prefix for mitochondrial genes 
+  mt: "^MT-"
+
+  #####################
+  # Filter parameters #
+  #####################
+  # Filter for cells
+  cell_filter: !r list(nFeature_RNA=c(NA, NA), percent_mt=c(NA, NA))
+
+  # Filter for features
+  feature_filter: !r list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
+
+  # Samples to drop
+  # Cells from these samples will be dropped after initial QC
+  # Example: samples_to_drop = c("pbmc_smartseq2_NC", "pbmc_smartseq2_RNA"), 
+  #   where "pbmc_smartseq2" is the name of the dataset, and "NC" and "RNA" are the names of the subsamples
+  samples_to_drop: NULL 
+
+  # Drop samples with too few cells
+  samples_min_cells: 10
+   
+  ############################
+  # Normalisation parameters #
+  ############################
+  # Which normalisation should be used for analysis? ("RNA", "SCT")
+  norm: RNA
+
+  # Whether or not to remove cell cycle effects
+  cc_remove: !r FALSE
+
+  # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
+  # Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
+  cc_remove_all: !r FALSE
+   
+  # Whether or not to re-score cell cycle effects after data
+  #   from different samples have been merged/integrated
+  cc_rescore_after_merge: !r TRUE
+
+  # Additional (unwanted) variables that will be regressed out for visualisation and clustering
+  vars_to_regress: NULL
+
+  # When there are multiple datasets, how to combine them:
+  #   - method:
+  #     - "single": Default when there is only one dataset after filtering, no integration is needed
+  #     - "merge": Merge (in other words, concatenate) data when no integration is needed, 
+  #                e.g. when samples were multiplexed on the same chip.
+  #     - "integrate": Anchors are computed for all pairs of datasets. This will give all datasets the same weight
+  #                   during dataset integration but can be computationally intensive
+  #
+  # Additional options for the "integrate" method:
+  #
+  #   - dimensions: Number of dimensions to consider for integration
+  #   - reference: Use one or more datasets as reference and compute anchors for all other datasets. 
+  #                Separate multiple datasets by comma. This is computationally faster but less accurate.
+  #   - use_reciprocal_pca: Compute anchors in PCA space. Even more computationally faster but again less accurate 
+  #                         Recommended for big datasets.
+  #   - k_filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample))
+  #   - k_weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
+  #   - k_anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
+  #   - k_score: How many neighbors to use when scoring anchors (default: min(30, minimum number of cells in a sample))
+  integrate_samples: !r list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
+
+  # TO DISCUSS from Seurat vignette:
+  # The results show that rpca-based integration is more conservative, and in this case, do not perfectly align a subset of cells (which are naive and memory T cells) across experiments. You can increase the strength of alignment by increasing the k.anchor parameter, which is set to 5 by default. Increasing this parameter to 20 will assist in aligning these populations.
+   
+  # The number of PCs to use; adjust this parameter based on the Elbowplot 
+  pc_n: 10
+
+  # Resolution of clusters; low values will lead to fewer clusters of cells 
+  cluster_resolution: 0.5
+
+  #######################################################
+  # Marker genes and genes with differential expression #
+  #######################################################
+  # Thresholds to define marker genes
+  marker_padj: 0.05
+  marker_log2FC: !r log2(2)
+  marker_pct: 0.25
+   
+  # Additional (unwanted) variables to account for in statistical tests
+  latent_vars: NULL
+      
+  # Contrasts to find differentially expressed genes (R data.frame or Excel file)
+  # Required columns:
+  # condition_column: Categorial column in the cell metadata; specify "orig.ident" for sample and "seurat_clusters" for cluster
+  # condition_group1: Condition levels in group 1, multiple levels concatenated by the plus character
+  #                     Empty string = all levels not in group2 (cannot be used if group2 is empty)
+  # condition_group2: Condition levels in group 2, multiple levels concatenated by the plus character
+  #                     Empty string = all levels not in group1 (cannot be used if group1 is empty)
+  #
+  # Optional columns:
+  # subset_column: Categorial column in the cell metadata to subset before testing (default: NA)
+  #                  Specify "orig.ident" for sample and "seurat_clusters" for cluster 
+  # subset_group: Further subset levels (default: NA)
+  #                 For the individual analysis of multiple levels separate by semicolons
+  #                 For the joint analysis of multiple levels concatenate by the plus character 
+  #                 For the individual analysis of all levels empty string ""
+  # assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: "RNA")
+  # slot: In case assay is a Seurat assay object, which slot to use (default: "data")
+  # padj: Maximum adjusted p-value (default: 0.05)
+  # log2FC: Minimum absolute log2 fold change (default: 0)
+  # min_pct: Minimum percentage of cells expressing a gene to test (default: 0.1)
+  # test: Type of test; "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
+  # downsample_cells_n: Downsample each group to at most n cells to speed up tests (default: NA)
+  # latent_vars: Additional variables to account for; multiple variables need to be concatenated by semicolons; will overwrite the default by param$latent_vars (default: none).
+  deg_contrasts: !r data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
+                               condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
+                               condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
+                               subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
+                               subset_group=c(NA, "", "1;2"),
+                               downsample_cells_n=c(NA, 50, 30))
+
+  # Enrichr site ("Enrichr", "FlyEnrichr", "WormEnrichr", "YeastEnrichr", "FishEnrichr")
+  enrichr_site: "Enrichr"
+  
+  # P-value threshold for functional enrichment tests
+  enrichr_padj: 0.05
+   
+  # Enrichr databases of interest
+  enrichr_dbs: !r c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018", "Azimuth_Cell_Types_2021", "CellMarker_Augmented_2021", "Descartes_Cell_Types_and_Tissue_2021")
+  
+  ######################
+  # General parameters #
+  ######################
+  # Main colour to use for plots
+  col: "palevioletred"
+
+  # Colour palette used for samples
+  col_palette_samples: "ggsci::pal_jama"
+   
+  # Colour palette used for cluster
+  col_palette_clusters: "ggsci::pal_igv"
+   
+  # Path to git repository
+  path_to_git: "."
+   
+  # Debugging mode: 
+  # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+  debugging_mode: "default_debugging"
+bibliography: "`r params$path_out`/references.bib"
+title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
+author: "`r params$author`"
 ---
 
 
 ```{r setup, warning=FALSE, message=FALSE}
-
 # No encoding supplied: defaulting to UTF-8 ?
 
 # R Options
@@ -28,7 +200,7 @@ options(stringsAsFactors=FALSE,
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
         kableExtra_view_html=TRUE,
-        future.globals.maxSize=2000000000, mc.cores=4, 
+        future.globals.maxSize=2000000000, mc.cores=14, 
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
 
@@ -77,198 +249,13 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
 invisible(knitcitations::citep(citation("knitr")))
 ```
 
-# Dataset description
-This section should contain a short description of the experiment and the data.
-
-## Project-specific parameters
-This code chunk contains all parameters that are set specifically for the project. 
-```{r project_parameters}
-param = list()
-
-####################
-# Input parameters #
-####################
-# Project ID
-param$project_id = "pbmc"
-
-# Path to input data
-param$path_data = data.frame(name=c("pbmc_10x","pbmc_smartseq2"),
-                             type=c("10x","smartseq2"),
-                             path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"),  
-                             stats=c(NA, NA))
-
-# Data type ("RNA", "Spatial")
-param$assay_raw = "RNA"
-
-# Downsample data to at most n cells per sample (mainly for tests)
-#   NULL to deactivate
-param$downsample_cells_n = 100
-
-# Path to output directory
-param$path_out = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
-
-# Marker genes based on literature, translated to Ensembl IDs
-#   xlsx file, one list per column, first row as header and Ensembl IDs below
-#   NULL if no known marker genes should be plotted
-param$file_known_markers = "test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx"
-
-# Annotation via biomaRt
-param$mart_dataset = "hsapiens_gene_ensembl"
-param$annot_version = 98
-param$annot_main = c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
-param$mart_attributes = c(param$annot_main, 
-                          c("chromosome_name", "start_position", "end_position", 
-                            "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
-param$biomart_mirror = NULL
-
-# Prefix for mitochondrial genes 
-param$mt = "^MT-"
-
-#####################
-# Filter parameters #
-#####################
-# Filter for cells
-param$cell_filter = list(nFeature_RNA=c(200, NA), percent_mt=c(NA, 20))
-
-# Filter for features
-param$feature_filter = list(min_counts=1, min_cells=3) # feature has to be found by at least one count in one cell
-
-# Samples to drop
-# Cells from these samples will be dropped after initial QC
-# Example: param$samples_to_drop = c("pbmc_smartseq2_NC", "pbmc_smartseq2_RNA"), 
-#   where "pbmc_smartseq2" is the name of the dataset, and "NC" and "RNA" are the names of the subsamples
-param$samples_to_drop = c() 
-
-# Drop samples with too few cells
-param$samples_min_cells = 10
-
-############################
-# Normalisation parameters #
-############################
-# Which normalisation should be used for analysis?
-#   "RNA" or "SCT" for standard single-cell RNA-seq data
-#   "SCT" for spatial data
-param$norm = "RNA"
-
-# Whether or not to remove cell cycle effects
-param$cc_remove = FALSE
-
-# Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
-# Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
-param$cc_remove_all = FALSE
-
-# Whether or not to re-score cell cycle effects after data
-#   from different samples have been merged/integrated
-param$cc_rescore_after_merge = TRUE
-
-# Additional (unwanted) variables that will be regressed out for visualisation and clustering
-param$vars_to_regress = c()
-
-# When there are multiple datasets, how to combine them:
-#   - method:
-#     - "single": Default when there is only one dataset after filtering, no integration is needed
-#     - "merge": Merge (in other words, concatenate) data when no integration is needed, 
-#                       e.g. when samples were multiplexed on the same chip.
-#     - "integrate": Anchors are computed for all pairs of datasets. This will give all datasets the same weight
-#                       during dataset integration but can be computationally intensive
-#
-# Additional options for the "integrate" method:
-#
-#   - dimensions: Number of dimensions to consider for integration
-#   - reference: Use one or more datasets as reference and compute anchors for all other datasets. Separate multiple datasets by comma
-#                           This is computationally faster but less accurate.
-#   - use_reciprocal_pca: Compute anchors in PCA space. Even more computationally faster but again less accurate 
-#                       Recommended for big datasets.
-#   - k.filter: How many neighbors to use when filtering anchors (default: min(200, minimum number of cells in a sample))
-#   - k.weight: Number of neighbors to consider when weighting anchors (default: min(100, minimum number of cells in a sample))
-#   - k.anchor: How many neighbors to use when picking anchors (default: min(5, minimum number of cells in a sample))
-#   - k.score: How many neighbors to use when scoring anchors (default: min(30, minimum number of cells in a sample))
-#
-# Note that if you analyse assay_raw="Spatial", only method="merge" is supported
-param$integrate_samples = list(method="integrate", dimensions=30, reference=NULL, use_reciprocal_pca=FALSE)
-
-# TO DISCUSS from Seurat vignette:
-# The results show that rpca-based integration is more conservative, and in this case, do not perfectly align a subset of cells (which are naive and memory T cells) across experiments. You can increase the strength of alignment by increasing the k.anchor parameter, which is set to 5 by default. Increasing this parameter to 20 will assist in aligning these populations.
-
-# The number of PCs to use; adjust this parameter based on the Elbowplot 
-param$pc_n = 10
-
-# Resolution of clusters; low values will lead to fewer clusters of cells 
-param$cluster_resolution=0.5
-
-#######################################################
-# Marker genes and genes with differential expression #
-#######################################################
-# Thresholds to define marker genes
-param$marker_padj = 0.05
-param$marker_log2FC = log2(2)
-param$marker_pct = 0.25
-
-# Additional (unwanted) variables to account for in statistical tests
-param$latent_vars = c()
-
-# Contrasts to find differentially expressed genes (R data.frame or Excel file)
-# Required columns:
-# condition_column: Categorial column in the cell metadata; specify "orig.ident" for sample and "seurat_clusters" for cluster
-# condition_group1: Condition levels in group 1, multiple levels concatenated by the plus character
-#                     Empty string = all levels not in group2 (cannot be used if group2 is empty)
-# condition_group2: Condition levels in group 2, multiple levels concatenated by the plus character
-#                     Empty string = all levels not in group1 (cannot be used if group1 is empty)
-#
-# Optional columns:
-# subset_column: Categorial column in the cell metadata to subset before testing (default: NA)
-#                  Specify "orig.ident" for sample and "seurat_clusters" for cluster 
-# subset_group: Further subset levels (default: NA)
-#                 For the individual analysis of multiple levels separate by semicolons
-#                 For the joint analysis of multiple levels concatenate by the plus character 
-#                 For the individual analysis of all levels empty string ""
-# assay: Seurat assay to test on; can also be a Seurat dimensionality reduction (default: "RNA")
-# slot: In case assay is a Seurat assay object, which slot to use (default: "data")
-# padj: Maximum adjusted p-value (default: 0.05)
-# log2FC: Minimum absolute log2 fold change (default: 0)
-# min_pct: Minimum percentage of cells expressing a gene to test (default: 0.1)
-# test: Type of test; "wilcox", "bimod", "roc", "t", "negbinom", "poisson", "LR", "MAST", "DESeq2"; (default: "wilcox")
-# downsample_cells_n: Downsample each group to at most n cells to speed up tests (default: NA)
-# latent_vars: Additional variables to account for; multiple variables need to be concatenated by semicolons; will overwrite the default by param$latent_vars (default: none).
-param$deg_contrasts = data.frame(condition_column=c("orig.ident", "orig.ident", "Phase"),
-                                 condition_group1=c("pbmc_10x", "pbmc_10x", "G1"),
-                                 condition_group2=c("pbmc_smartseq2_sample1", "pbmc_smartseq2_sample1", "G2M"),
-                                 subset_column=c(NA, "seurat_clusters", "seurat_clusters"),
-                                 subset_group=c(NA, "", "1;2"),
-                                 downsample_cells_n=c(NA, 50, 30),
-                                 log2FC=log2(c(1.5, 1.5, 1.5)))
-
-# Enrichr site
-# Available options: "Enrichr", "FlyEnrichr", "WormEnrichr", "YeastEnrichr", "FishEnrichr"
-param$enrichr_site = "Enrichr"
-
-# P-value threshold for functional enrichment tests
-param$enrichr_padj = 0.05
-
-# Enrichr databases of interest
-param$enrichr_dbs = c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018")
-
-######################
-# General parameters #
-######################
-# Main colour to use for plots
-param$col = "palevioletred"
-
-# Colour palette used for samples
-param$col_palette_samples = "ggsci::pal_jama"
-
-# Colour palette used for cluster
-param$col_palette_clusters = "ggsci::pal_igv"
-
-# Path to git repository
-param$path_to_git = "."
-
-# Debugging mode: 
-# "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
-param$debugging_mode = "default_debugging"
-```
-
 ```{r preparation_and_initial_checks}
+# Copy input parameters to internal parameter list
+param = params
+if (is.null(param$samples_to_drop )) param$samples_to_drop = c()
+if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
+if (is.null(param$latent_vars)) param$latent_vars = c()
+
 # Git directory and files to source must be done first, then all helper functions can be sourced
 git_files_to_source = c("functions_io.R",
                         "functions_plotting.R",
@@ -300,6 +287,8 @@ dir.create(file.path(param$path_out, "export"), recursive=TRUE, showWarnings=FAL
 
 # Path for figures in png and pdf format (trailing "/" is needed)
 knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
+
+knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
 
 # Path for annotation
 param$file_annot = file.path(param$path_out, "annotation", paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
@@ -395,12 +384,14 @@ ensembl = param$annot_main["ensembl"]
 symbol = param$annot_main["symbol"]
 entrez = param$annot_main["entrez"]
 
-# Ensembl id to gene symbol
+# Ensembl id to gene symbol (new)
 ensembl_to_symbol = unique(annot_ensembl[, c(ensembl, symbol)])
+ensembl_to_symbol[, symbol] = ifelse(nchar(ensembl_to_symbol[, symbol]) == 0, NA, ensembl_to_symbol[, symbol])
 ensembl_to_symbol = setNames(ensembl_to_symbol[, symbol], ensembl_to_symbol[, ensembl])
 
-# Ensembl id to seurat-compatible unique rowname
+# Ensembl id to seurat-compatible unique rowname (new)
 ensembl_to_seurat_rowname = unique(annot_ensembl[, c(ensembl, symbol)])
+ensembl_to_seurat_rowname[, symbol] = ifelse(nchar(ensembl_to_seurat_rowname[, symbol]) == 0, ensembl_to_seurat_rowname[, ensembl], ensembl_to_seurat_rowname[, symbol])
 ensembl_to_seurat_rowname[, symbol] = make.unique(gsub(pattern="_", replacement="-", x=ensembl_to_seurat_rowname[, symbol], fixed=TRUE))
 ensembl_to_seurat_rowname = setNames(ensembl_to_seurat_rowname[, symbol], ensembl_to_seurat_rowname[, ensembl])
 
@@ -464,7 +455,7 @@ if (file.exists(param$file_cc_genes)) {
   colnames(genes_g2m) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
   
   # Write to file
-  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m),file=param$file_cc_genes)
+  openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m), file=param$file_cc_genes)
 }
 
 # Convert Ensembl ID to Seurat-compatible unique rowname
@@ -2715,25 +2706,28 @@ invisible(ExportSeuratAssayData(sc,
                       metadata_prefix=paste0(param$project_id, ".")))
 
 # Metadata
-openxlsx::write.xlsx(x=sc[[]] %>% tibble::rownames_to_column(var="Barcode"), file=file.path(param$path_out, "data", "cell_metadata.xlsx"), row.names=FALSE, col.names=TRUE)
+openxlsx::write.xlsx(x=sc[[]] %>% tibble::rownames_to_column(var="Barcode"), file=file.path(param$path_out, "data", "cell_metadata.xlsx"), rowNames=FALSE, colNames=TRUE)
 
 # Annotation as excel file
 openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)]) %>%
                        dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
                      file=file.path(param$path_out, "annotation", "gene_annotation.xlsx"), 
-                     row.names=FALSE, col.names=TRUE)
+                     rowNames=FALSE, colNames=TRUE)
 
 # Data and annotation for a subset of 500 cells for Morpheus
-cells_subset = ScSampleCells(sc, n=500, seed=1)
-openxlsx::write.xlsx(Seurat::GetAssayData(sc[, cells_subset], slot="data") %>% as.data.frame() %>% tibble::rownames_to_column(var="gene"), 
-                     file=file.path(param$path_out, "data", paste0("subset_", 500, "_cells_normalised_data.xlsx")),
-                     row.names=FALSE, col.names=TRUE)
-openxlsx::write.xlsx(Seurat::GetAssayData(sc[, cells_subset], slot="scale.data") %>% as.data.frame() %>% tibble::rownames_to_column(var="gene"), 
-                     file=file.path(param$path_out, "data", paste0("subset_", 500, "_cells_scaled_data.xlsx")),
-                     row.names=FALSE, col.names=TRUE)
-openxlsx::write.xlsx(sc[[]][cells_subset, ] %>% as.data.frame() %>% tibble::rownames_to_column(var="cell"), 
-           file=file.path(param$path_out, "data",paste0("subset_", 500, "_cells_column_annotations.xlsx")),
-           row.names=FALSE, col.names=TRUE)
+# ERROR: This gives an error with the newest packages, might be related to this: 
+# https://issueexplorer.com/issue/r-lib/cpp11/244
+#  For now, we outcomment this section, since it isn't really needed
+#cells_subset = ScSampleCells(sc, n=500, seed=1)
+#openxlsx::write.xlsx(Seurat::GetAssayData(sc[, cells_subset], slot="data") %>% as.data.frame() %>% tibble::rownames_to_column(var="gene"), 
+#                     file=file.path(param$path_out, "data", paste0("subset_", 500, "_cells_normalised_data.xlsx")),
+#                     rowNames=FALSE, colNames=TRUE)
+#openxlsx::write.xlsx(Seurat::GetAssayData(sc[, cells_subset], slot="scale.data") %>% as.data.frame() %>% #tibble::rownames_to_column(var="gene"), 
+#                     file=file.path(param$path_out, "data", paste0("subset_", 500, "_cells_scaled_data.xlsx")),
+#                     rowNames=FALSE, colNames=TRUE)
+#openxlsx::write.xlsx(sc[[]][cells_subset, ] %>% as.data.frame() %>% tibble::rownames_to_column(var="cell"), 
+#           file=file.path(param$path_out, "data",paste0("subset_", 500, "_cells_column_annotations.xlsx")),
+#           rowNames=FALSE, colNames=TRUE)
 ```
 
 Result files are:
@@ -2758,7 +2752,7 @@ Result files are:
     * degs_contrast_row_[1,2,3,...]_results.xlsx: Results (genes) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
     * degs_contrast_row_[1,2,3,...]_functions.xlsx: Results (enriched functions and pathways) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
 
-# Parameters and software versions
+# Parameter table
 The following parameters were used to run the workflow.  
 ```{r parameters_table}
 out = ScrnaseqParamsInfo(params=param)
@@ -2767,6 +2761,7 @@ knitr::kable(out, align="l") %>%
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"), full_width=FALSE, position="left")
 ```
 
+# Software versions
 This report was created with generated using the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository. Software versions were collected at run time. 
 ```{r versions, message=FALSE}
 out = ScrnaseqSessionInfo(param$path_to_git)
@@ -2775,7 +2770,9 @@ knitr::kable(out, align="l") %>%
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
 ```
 
-# References
+# Credits and References
+This Workflow was developed as part of the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository by Katrin Sameith and Andreas Petzold at the [Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/) (Dresden, Germany), in collaboration with Torsten Glomb, Maike Kosanke and Oliver Dittrich at the [Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics) (Hannover, Germany). The Seurat Vignettes were initially used as templates. 
+
 ```{r bib, message=FALSE}
 # Writes knitcitations references to references.bib file.
 knitcitations::write.bibtex(file="references.bib")

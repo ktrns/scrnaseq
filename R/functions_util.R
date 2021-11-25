@@ -253,7 +253,7 @@ GenerateColours = function(num_colours, names=NULL, palette="ggsci::pal_igv", al
 format_message = function(x, options){
   x = gsub('##', '<br/>', gsub('^## Message:','',x))
   msg = paste(c('\n\n:::{class="alert alert-info alert-dismissible"}',
-                '<style> .alert-info { background-color: #abd9c6; color: black; } </style>', 
+                '<style> .alert-info { background-color: #abd9c6; color: black; word-wrap: break-word; } </style>', 
                 '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
                 '<strong>(Message)</strong>',
                 x,
@@ -280,7 +280,7 @@ Message = function(x, options){
 format_warning = function(x, options){
   x = gsub('##', '<br/>', gsub('^## Warning:','',x))
   warn = paste(c('\n\n:::{class="alert alert-warning alert-dismissible"}',
-                 '<style> .alert-warning { background-color: #fae39c; color: black; } </style>', 
+                 '<style> .alert-warning { background-color: #fae39c; color: black; word-wrap: break-word; } </style>', 
                  '<a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>',
                  '<strong>(Warning)</strong>',
                  x,
@@ -308,7 +308,7 @@ format_error = function(x, options){
   x = gsub('^##','',x)
   x = gsub("Error in eval(expr, envir, enclos):", "", x, fixed = TRUE)
   err = paste(c('\n\n:::{class="alert alert-danger"}',
-                 '<style> .alert-danger { background-color: #ffb6c1; color: black; } </style>', 
+                 '<style> .alert-danger { background-color: #ffb6c1; color: black; word-wrap: break-word; } </style>', 
                  '<strong>(Error)</strong>',
                  x,
                  ':::\n\n'), collapse = '\n')
@@ -427,7 +427,7 @@ check_parameters_scrnaseq = function(param) {
   }
   
   # Check downsample_cells_n ###
-  if ("downsample_cells_n" %in% names(param) && !is.null(param$downsample_cells_n)) {
+  if (("downsample_cells_n" %in% names(param)) & (!is.null(param$downsample_cells_n))) {
     if (!converts_to_number(param$downsample_cells_n)) {
       error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
     } else {
@@ -756,7 +756,7 @@ check_parameters_scrnaseq = function(param) {
       deg_contrasts_table = param$deg_contrasts
     }
     
-    if (!is.data.frame(param$deg_contrasts)) {
+    if (!is.data.frame(deg_contrasts_table)) {
       error_messages = c(error_messages, "The parameter 'deg_contrasts' must be either a data.frame or an existing Excel file with a valid table in the first sheet!")
     } else {
       if (!all(c("condition_column","condition_group1", "condition_group2") %in% colnames(deg_contrasts_table))){
