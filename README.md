@@ -28,7 +28,7 @@
 <a name="news"/>
 
 (2021-12-02)  
-We updated our master code branch, and merged two recent pull requests (see [#92](https://github.com/ktrns/scrnaseq/pull/92) and [#104](https://github.com/ktrns/scrnaseq/pull/104). 
+We updated our master code branch, and merged two recent pull requests (see [#92](https://github.com/ktrns/scrnaseq/pull/92) and [#104](https://github.com/ktrns/scrnaseq/pull/104)). 
 
 The most important changes are: 
 
@@ -87,7 +87,7 @@ Stay tuned, we will soon create our first code release!
 * Parameter table
 * Software versions
 * Credits and References
-* 
+
 
 # Quick start
 <a name="quick_start"/>
