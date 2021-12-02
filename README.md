@@ -27,18 +27,17 @@
 # News
 <a name="news"/>
 
-(2021-03-04)  
-We again updated our master code branch (see [#67](https://github.com/ktrns/scrnaseq/pull/67), [#68](https://github.com/ktrns/scrnaseq/pull/68), and [#76](https://github.com/ktrns/scrnaseq/pull/76)).
+(2021-12-02)  
+We updated our master code branch, and merged two recent pull requests (see [#92](https://github.com/ktrns/scrnaseq/pull/92) and [#104](https://github.com/ktrns/scrnaseq/pull/104). 
 
-The biggest changes are:
+The most important changes are: 
 
-* Introduced possibility to identify differentially expressed genes between any cell sets of interest, followed by functional enrichment analysis ([#45](https://github.com/ktrns/scrnaseq/issues/45))
-* Updated README and improved documentation ([#60](https://github.com/ktrns/scrnaseq/issues/60))
-* Figures are exported to png and pdf ([#62](https://github.com/ktrns/scrnaseq/issues/62))
-* Fixed bugs ([#63](https://github.com/ktrns/scrnaseq/issues/63), [#65](https://github.com/ktrns/scrnaseq/issues/65), and [#69](https://github.com/ktrns/scrnaseq/issues/69))
-* Updated pre-workflow
-* Sorted parameter chunk ([#72](https://github.com/ktrns/scrnaseq/issues/72))
-* Updated color-scheme of dotplots ([#64](https://github.com/ktrns/scrnaseq/issues/64))
+* Introduced the possiblity to run the workflow directly from command-line ([#86](https://github.com/ktrns/scrnaseq/issues/86))
+* Added UMAPs that display samples separately ([#98](https://github.com/ktrns/scrnaseq/issues/98))
+* Added possibility to adapt dot size in UMAPs ([#99](https://github.com/ktrns/scrnaseq/issues/99))
+* Added UMAPs that show the effect of different cluster resolution values ([#97](https://github.com/ktrns/scrnaseq/issues/97))
+* Updated tables that show QC filtering results ([#95](https://github.com/ktrns/scrnaseq/issues/95))
+* Added extensive explanations into the report ([#43](https://github.com/ktrns/scrnaseq/issues/42))
 
 Stay tuned, we will soon create our first code release! 
 
@@ -59,8 +58,6 @@ Stay tuned, we will soon create our first code release!
 * Software versions
 
 ## Workflow: Single-cell RNA-seq analysis 
-* Dataset description
-   * Project-specific parameters
 * Read data
    * Read and print mapping statistics
    * Read gene annotation
@@ -69,27 +66,28 @@ Stay tuned, we will soon create our first code release!
    * Quality control
    * Genes with highest expression
    * Filtering
-   * Normalisation, scaling, variable genes, and cell cycle scoring
+   * Quality control post filtering
+   * Normalisation
    * Combining multiple samples
    * Relative log expression
    * Dimensionality reduction
    * Dimensionality of the dataset
-* Downstream analysis
-   * Clustering
-   * Visualisation with UMAP
-   * Distribution of cells in clusters
-   * Cell Cycle Effect
-   * Cluster QC
-   * Known marker genes
-   * Differentially expressed genes, comparing one cluster against the rest (marker genes)
-* Further analysis with other tools
+* Clustering
+* Visualisation with UMAP
+* Distribution of cells in clusters
+* Cell Cycle Effect
+* Cluster QC
+* Known marker genes
+* Differentially expressed genes
+* Output   
    * Export to Loupe Cell Browser
-   * Export to the Cerebro Browser
-* Output files
+   * Export to cellxgene browser
+   * Export to Cerebro browser
+   * Other output files
 * Parameter table
 * Software versions
-* References
-
+* Credits and References
+* 
 
 # Quick start
 <a name="quick_start"/>
