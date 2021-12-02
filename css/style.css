@@ -6,11 +6,11 @@ The code was written by James Steinbach (October 10, 2018) and made available at
 details {
   margin: 1rem auto;
   padding: 0 1rem;
-  max-width: calc(100% - 2rem);
+  max-width: calc(100% - 0rem);
   position: relative;
-  border: 1px solid #78909C;
+  border: 0px solid #78909C;
   border-radius: 6px;
-  background-color: #ECEFF1;
+  background-color: #E9DAC4;
   color: #263238;
   transition: background-color .15s;
   

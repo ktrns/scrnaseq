@@ -45,9 +45,18 @@ ScrnaseqSessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
   colnames(out) = c("Name", "Version")
   
+  # Git
   repo = GitRepositoryVersion(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
+  # Container
+  if (nchar(Sys.getenv("CONTAINER_GIT_NAME")) > 0) {
+    version_info = rbind(out, c("Container", paste(Sys.getenv("CONTAINER_GIT_NAME"), Sys.getenv("CONTAINER_GIT_COMMIT_ID"), sep=":")))
+  } else {
+    out = rbind(out, c("Container", "NA"))
+  }
+  
+  # System
   info_session = sessionInfo()
   out = rbind(out, c("R", info_session$R.version$version.string))
   out = rbind(out, c("Platform", info_session$platform))
@@ -718,11 +727,21 @@ check_parameters_scrnaseq = function(param) {
   }
 
   # Check cluster_resolution
+  if ("cluster_resolution_test" %in% names(param)) {
+    if (all(purrr::map_lgl(param$cluster_resolution_test, converts_to_number))) {
+      param$cluster_resolution_test = as.numeric(param$cluster_resolution_test)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cluster_resolution_test' does not contain numeric values!")
+    }
+  } else {
+    param$cluster_resolution_test = c()
+  }
+  
   if ("cluster_resolution" %in% names(param)) {
     if (converts_to_number(param$cluster_resolution)) {
       param$cluster_resolution = as.numeric(param$cluster_resolution)
     } else {
-      error_messages = c(error_messages, "The parameter 'cluster_resolution' is not a numeric value!")
+      error_messages = c(error_messages, "The parameter 'cluster_resolution' does not contain a numeric value!")
     }
   } else {
     param$cluster_resolution = 0.5

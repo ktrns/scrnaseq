@@ -539,6 +539,11 @@ ExportToCerebro = function(sc, path, assay="RNA", assay_raw="RNA", delayed_array
   #examp_file= system.file('extdata', 'v1.3', 'example.crb', package = 'cerebroApp')
   #examp = readRDS(examp_file)
   
+  # Cerebro requires that if certain analyses are done based metadata columns , that these columns are in the "groups" argument
+  # For now, this is only neccessary for the trees of the different clustering resolutions
+  tree_names = names(Misc(sc, "trees"))
+  cerebro_groups = c("orig.ident", "seurat_clusters", setdiff(tree_names, c("orig.ident", "seurat_clusters")))
+  
   # Export to cerebro format
   cerebroApp::exportFromSeurat(sc,
                                assay=assay,
@@ -546,7 +551,7 @@ ExportToCerebro = function(sc, path, assay="RNA", assay_raw="RNA", delayed_array
                                file=path,
                                experiment_name="na",
                                organism="na",
-                               groups=c("orig.ident", "seurat_clusters"),
+                               groups=cerebro_groups,
                                cell_cycle=c("Phase"),
                                nUMI=paste0("nCount_", assay_raw), 
                                nGene=paste0("nFeature_", assay_raw), 
