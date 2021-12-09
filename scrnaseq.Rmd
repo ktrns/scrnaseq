@@ -188,7 +188,7 @@ output:
     code_folding: "hide"
     highlight: "tango"
     theme: "paper"
-bibliography: "references.bib"
+bibliography: "`r file.path(params$path_out, 'references.bib')`"
 title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
 author: "`r params$author`"
 ---
