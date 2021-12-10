@@ -180,6 +180,10 @@ params:
   # Debugging mode: 
   # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
   debugging_mode: "default_debugging"
+  
+  # Number of cores to use
+  cores: 4
+  
 output:
   html_document:
     toc: true
@@ -194,17 +198,14 @@ author: "`r params$author`"
 ---
 
 ```{r setup, warning=FALSE, message=FALSE}
-#     css: "`r params$path_to_git`/css/style.css"
-
-# No encoding supplied: defaulting to UTF-8 ?
-
 # R Options
 options(stringsAsFactors=FALSE,
         citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
         kableExtra_view_html=TRUE,
-        future.globals.maxSize=2000000000, mc.cores=4, 
+        future.globals.maxSize=+Inf,
+        mc.cores=params$cores, 
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
 

@@ -197,7 +197,7 @@ parser$add_argument(
   nargs=1,
   help="Filter cells for number of features (lower and upper threshold separated by ', ') (default: %(default)s)",
   dest="cell_filter_nFeature",
-  default=c("200,NA")
+  default=NULL
 )
 
 parser$add_argument(
@@ -206,7 +206,7 @@ parser$add_argument(
   nargs=1,
   help="Filter cells for percent mitochondrial (lower and upper threshold seperated by ', ') (default: %(default)s)",
   dest="cell_filter_percent_mt",
-  default=c("NA,25")
+  default=NULL
 )
 
 parser$add_argument(
@@ -492,8 +492,17 @@ parser$add_argument(
   action="store",
   help="Debugging mode: 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions (default: %(default)s)",
   dest="debugging_mode",
-  default="print_traceback",
+  default="default_debugging",
   choices=c("default_debugging", "terminal_debugger", "print_traceback")
+)
+
+parser$add_argument(
+  "--cores",
+  action="store",
+  type="integer",
+  help="The number of cores to use for parallel computations (default: %(default)s)",
+  dest="cores",
+  default=4
 )
 
 parser$add_argument(
@@ -596,7 +605,12 @@ if (length(not_na) > 0) param$path_data$stats[not_na] = normalizePath(param$path
 
 # Basic parameters
 param[["assay_raw"]] = opt[["assay_raw"]]
-param[["downsample_cells_n"]] = opt[["downsample_cells_n"]]
+if (!is.null(opt[["downsample_cells_n"]])) {
+    param[["downsample_cells_n"]] = opt[["downsample_cells_n"]]
+} else {
+    param["downsample_cells_n"] = list(NULL)
+}
+
 param[["path_out"]] = opt[["path_out"]]
 
 # Known marker genes 
@@ -605,7 +619,7 @@ if (!is.null(opt[["file_known_markers"]])) {
     stop("Path to a known markers file specified via --file-known-markers does not exist or is not a file!")
   param[["file_known_markers"]] = normalizePath(opt[["file_known_markers"]])
 } else {
-  param[["file_known_markers"]] = NULL
+  param["file_known_markers"] = list(NULL)
 }
 
 # Annotation parameters
@@ -615,7 +629,11 @@ annot_main_tbl = mapply(function(x) strsplit(x, split="=", fixed=TRUE)[[1]], opt
 param[["annot_main"]] = annot_main_tbl[2, ]
 names(param[["annot_main"]]) = annot_main_tbl[1, ]
 param[["mart_attributes"]] = c(param[["annot_main"]], opt[["mart_attributes"]]) %>% trimws() %>% unique()
-param[["biomart_mirror"]] = opt[["biomart_mirror"]]
+if (!is.null(opt[["biomart_mirror"]])) {
+    param[["biomart_mirror"]] = opt[["biomart_mirror"]]
+} else {
+    param["biomart_mirror"] = list(NULL)
+}
 param[["mt"]] = opt[["mt"]]
 
 # Filter
@@ -639,7 +657,11 @@ param[["cell_filter"]] = cell_filter
 param[["feature_filter"]][["min_counts"]] = opt[["feature_filter_min_counts"]]
 param[["feature_filter"]][["min_cells"]] = opt[["feature_filter_min_cells"]]
 
-param[["samples_to_drop"]] = opt[["samples_to_drop"]]
+if (!is.null(opt[["samples_to_drop"]])) {
+    param[["samples_to_drop"]] = opt[["samples_to_drop"]]
+} else {
+    param["samples_to_drop"] = list(NULL)
+}
 param[["samples_min_cells"]] = opt[["samples_min_cells"]]
 
 # Pre-processing
@@ -647,7 +669,12 @@ param[["norm"]] = opt[["norm"]]
 param[["cc_remove"]] = opt[["cc_remove"]] 
 param[["cc_remove_all"]] = opt[["cc_remove_all"]]
 if ("cc_rescore_after_merge" %in% names(opt)) param[["cc_rescore_after_merge"]] = opt[["cc_rescore_after_merge"]]
-param[["vars_to_regress"]] = opt[["vars_to_regress"]]
+
+if (!is.null(opt[["vars_to_regress"]])) {
+    param[["vars_to_regress"]] = opt[["vars_to_regress"]]
+} else {
+    param["vars_to_regress"] = list(NULL)
+}
 
 # Integration of multiple samples 
 param[["integrate_samples"]] = list(method=opt[["combine_samples_method"]])
@@ -669,10 +696,19 @@ param[["cluster_resolution"]] = opt[["cluster_resolution"]]
 param[["marker_padj"]] = opt[["marker_padj"]]
 param[["marker_log2FC"]] = opt[["marker_log2FC"]]
 param[["marker_pct"]] = opt[["marker_pct"]]
-param[["latent_vars"]] = opt[["latent_vars"]]
+
+if (!is.null(opt[["latent_vars"]])) {
+    param[["latent_vars"]] = opt[["latent_vars"]]
+} else {
+    param["latent_vars"] = list(NULL)
+}
 
 # Differentially expressed genes
-if (!is.null(opt[["deg_contrasts"]])) param[["deg_contrasts"]] = normalizePath(opt[["deg_contrasts"]])
+if (!is.null(opt[["deg_contrasts"]])) {
+    param[["deg_contrasts"]] = normalizePath(opt[["deg_contrasts"]])
+} else {
+    param["deg_contrasts"] = list(NULL)
+}
 
 # Functional enrichment
 param[["enrichr_padj"]] = opt[["enrichr_padj"]]
@@ -692,7 +728,9 @@ param[["col_palette_clusters"]] = opt[["col_palette_clusters"]]
 # Other parameters
 param[["path_to_git"]] = normalizePath(opt[["path_to_git"]])
 param[["debugging_mode"]] = opt[["debugging_mode"]]
+param[["cores"]] = opt[["cores"]]
 
+# Print parameter for log
 print(param)
 
 #
@@ -708,7 +746,6 @@ dir.create(param[["path_out"]], recursive=TRUE, showWarnings=FALSE)
 param[["path_out"]] = normalizePath(param[["path_out"]])
 
 # This is the template for the script
-print(param)
 script_template = '
 #!/usr/bin/env Rscript
 

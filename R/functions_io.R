@@ -24,7 +24,8 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
   
   # Defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA", 
-                                                                          "Antibody Capture"="ADT", 
+                                                                          "Antibody Capture"="ADT",
+                                                                          "Multiplexing Capture"="HTO",
                                                                           "CRISPR Guide Capture"="Crispr", 
                                                                           "Custom"="Custom", 
                                                                           "ERCC"="ERCC")
@@ -224,6 +225,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   # Defaults
   if (is.null(feature_type_to_assay_name)) feature_type_to_assay_name = c("Gene Expression"="RNA",
                                                                           "Antibody Capture"="ADT",
+                                                                          "Multiplexing Capture"="HTO",
                                                                           "CRISPR Guide Capture"="Crispr",
                                                                           "Custom"="Custom",
                                                                           "ERCC"="ERCC")
@@ -395,7 +397,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   # Defaults
   if (is.null(assay_name_to_feature_type)) assay_name_to_feature_type = c("RNA"="Gene Expression",
                                                                           "ADT"="Antibody Capture",
-                                                                          "HTO"="Antibody Capture",
+                                                                          "HTO"="Multiplexing Capture",
                                                                           "Crispr"="CRISPR Guide Capture",
                                                                           "ERCC"="ERCC",
                                                                           "Custom"="Custom")
