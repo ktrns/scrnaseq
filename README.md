@@ -33,18 +33,6 @@ Stay tuned, we will soon create our first code release!
 # Workflow summary
 <a name="workflow_summary"/>
 
-## Pre-Workflow: Demultiplexing with hashtag oligos
-* Read input data
-* Demutliplexing with hashtag oligos (HTOs)
-   * Normalisation of HTO counts
-   * Classification of cells based on normalised HTO data
-* Visualisation of raw and normalised HTO data
-* Remove cells classified as doublet or negative
-* Preliminary visualisation of demultiplexed RNA data
-   * Visualisation with UMAP
-* Write out demultiplexed data
-* Parameter table
-* Software versions
 
 ## Workflow: Single-cell RNA-seq analysis 
 * Read data
@@ -78,6 +66,20 @@ Stay tuned, we will soon create our first code release!
 * Credits and References
 
 
+## Pre-Workflow: Demultiplexing with hashtag oligos
+* Read input data
+* Demutliplexing with hashtag oligos (HTOs)
+   * Normalisation of HTO counts
+   * Classification of cells based on normalised HTO data
+* Visualisation of raw and normalised HTO data
+* Remove cells classified as doublet or negative
+* Preliminary visualisation of demultiplexed RNA data
+   * Visualisation with UMAP
+* Write out demultiplexed data
+* Parameter table
+* Software versions
+
+
 # Quick start
 <a name="quick_start"/>
 
@@ -90,17 +92,16 @@ The repository provides several other useful test data that you can use to get t
 <a name="documentation"/>
 
 The scrnaseq workflow comes with a good amount of documentation, found in the `docs/` directory:
-
-1. [Running the pre-workflow] (docs/usage_preworkflow.md)
-2. [Running the workflow] (docs/usage_workflow.md)
-
+ 
+[Running the workflow](docs/usage_workflow.md)   
+[Running the pre-workflow](docs/usage_preworkflow.md)
 
 # Credits
 <a name="credits"/>
 
 The [Seurat Vignettes](https://satijalab.org/seurat/vignettes.html) were initially used as templates for this workflow. 
 
-The workflow was developed by [Katrin Sameith](https://github.com/ktrns) and [Andreas Petzold](https://github.com/andpet0101) at the [Dresden-concept Genome Center (Dresden, Germany)](https://genomecenter.tu-dresden.de/about-us). Through collaboration with the [Research Core Unit Genomics (Hannover, Germany)](https://www.mhh.de/genomics) the workflow has grown substantially and has been standardised. Many thanks to all who have contributed along the way, including (but not limited to): [Dimitra Alexopoulou](https://github.com/dimialex), [Mathias Lesche](https://github.com/mlesche), [Oliver Dittrich](https://github.com/Oliver-D-B), [Fabian Friedrich](https://github.com/Colorstorm), [Colin Davenport](https://github.com/colindaven), [Torsten Glomb](https://github.com/tglomb), and [Marius Rueve](https://github.com/mariusrueve).
+The workflow was developed by [Katrin Sameith](https://github.com/ktrns) and [Andreas Petzold](https://github.com/andpet0101) at the [Dresden-concept Genome Center (Dresden, Germany)](https://genomecenter.tu-dresden.de/about-us). Through collaboration with the [Research Core Unit Genomics (Hannover, Germany)](https://www.mhh.de/genomics) the workflow has grown substantially and has been standardised. Many thanks to all who have contributed along the way, including (but not limited to): [Oliver Dittrich](https://github.com/Oliver-D-B), [Torsten Glomb](https://github.com/tglomb), [Maike Kosanke](https://github.com/kosankem), [Dimitra Alexopoulou](https://github.com/dimialex), [Mathias Lesche](https://github.com/mlesche), [Fabian Friedrich](https://github.com/Colorstorm), [Colin Davenport](https://github.com/colindaven), and [Marius Rueve](https://github.com/mariusrueve).
 
 # Citation
 <a name="citation"/>
