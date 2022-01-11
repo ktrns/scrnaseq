@@ -335,7 +335,7 @@ if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collap
 # Read data
 The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell. 
 
-## Read and print mapping statistics
+## Read and print general metrics
 Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality. 
 
 <details>
@@ -355,29 +355,28 @@ We use the 10x Genomics Cell Ranger software to map 10x sequencing reads. The re
 Sequencing reads from SmartSeq-2 (and other) experiments can be mapped with any suitable mapping software as long as a count matrix is generated that contains the number of mapped reads per gene (rows) and cell (columns). The first row of the count matrix should contain cell barcodes or names, the first column of the matrix should contain Ensembl gene IDs. 
 </details>
 
-```{r mapping_stats, message=TRUE}
-# Are statistics provided?
+```{r general_metrics, message=TRUE}
+# Are metrics provided?
 if (!all(is.na(param$path_data$stats))) { 
-  
-  # Loop through all samples and read mapping stats
+
+  # Loop through all samples and read metrics
   mapping_stats_list = list()
   for (i in 1:nrow(param$path_data)) {  
     if (!is.na(param$path_data$stats[i])) { 
-      mapping_stats_list[[param$path_data$name[i]]] = read.delim(param$path_data$stats[i], 
-                                                                 sep=",", header=FALSE, check.names=FALSE) %>%
-        t() %>% as.data.frame()
+      mapping_stats_list[[param$path_data$name[i]]] = Read10XMetrics(param$path_data$stats[i])
     } 
   }
   
   # Join all mapping stats tables
-  mapping_stats = mapping_stats_list %>% purrr::reduce(dplyr::full_join, by="V1")
-  rownames(mapping_stats) = mapping_stats[["V1"]]
-  mapping_stats = mapping_stats %>% dplyr::select(-V1)
+  mapping_stats = mapping_stats_list %>% purrr::reduce(dplyr::full_join, by="metric")
+  rownames(mapping_stats) = mapping_stats[["metric"]]
+  mapping_stats = mapping_stats %>% dplyr::select(-metric)
   colnames(mapping_stats) = names(mapping_stats_list)
  
   # Print table to HTML 
-  knitr::kable(mapping_stats, align="l", caption="Mapping statistics") %>% 
-  kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))
+  knitr::kable(mapping_stats, align="l", caption="General metrics") %>% 
+  kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>%
+  kableExtra::scroll_box(width="100%", fixed_thead=TRUE)
  
 } else { 
   message("Mapping statistics cannot be shown. No valid file provided.")
@@ -1617,10 +1616,11 @@ p
 ## Coloured by cluster (per sample)
 ```{r umap_by_cluster_separately}
 # Plot all samples separately
+# Repel will be deactivated if there are more than six samples; otherwise the plot may crash
 p = Seurat::DimPlot(sc, reduction="umap", group.by="seurat_clusters", pt.size=param$pt_size, split.by = "orig.ident", ncol = 2) +
   scale_color_manual(values=param$col_clusters, labels=cluster_labels) +
   AddStyle(title="UMAP, cells coloured by cluster identity", legend_position="bottom", legend_title="Clusters")
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, fill="white", repel=ifelse(length(unique(sc$orig.ident)) <= 5, TRUE, FALSE))
 p
 ```
 
@@ -1640,11 +1640,12 @@ p
 ## Coloured by sample (per sample)
 ```{r umap_by_sample_separately}
 # Plot all samples separately
+# Repel will be deactivated if there are more than six samples; otherwise the plot may crash
 p = Seurat::DimPlot(sc, reduction="umap", group.by="orig.ident", pt.size=param$pt_size, split.by = "orig.ident", ncol = 2) +
   scale_color_manual(values=param$col_samples, labels=sample_labels) +
   AddStyle(title="UMAP, cells coloured by sample of origin", legend_position="bottom")
 p$data$seurat_clusters = sc[["seurat_clusters"]][rownames(p$data), ]
-p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="white")
+p = LabelClusters(p, id="seurat_clusters", box=TRUE, segment.color="black", fill="white", repel=ifelse(length(unique(sc$orig.ident)) <= 5, TRUE, FALSE))
 p
 ``` 
 
@@ -1699,7 +1700,7 @@ In case the dataset contains 2 or more samples, we also calculate whether or not
 # Print table
 knitr::kable(tbl, align="l", caption="Number of cells per sample and cluster") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover")) %>% 
-  kableExtra::scroll_box(width="100%")
+  kableExtra::scroll_box(width="100%", fixed_thead=TRUE)
 ```
 
 ```{r reset_default_assay}
