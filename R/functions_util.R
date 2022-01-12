@@ -51,7 +51,7 @@ ScrnaseqSessionInfo = function(path_to_git=".") {
   
   # Container
   if (nchar(Sys.getenv("CONTAINER_GIT_NAME")) > 0) {
-    version_info = rbind(out, c("Container", paste(Sys.getenv("CONTAINER_GIT_NAME"), Sys.getenv("CONTAINER_GIT_COMMIT_ID"), sep=":")))
+    version_info = rbind(out, c("Container", paste(Sys.getenv("CONTAINER_GIT_NAME"), Sys.getenv("CONTAINER_GIT_COMMIT_ID"), Sys.getenv("CONTAINER_BUILD_DATE"), sep=", ")))
   } else {
     out = rbind(out, c("Container", "NA"))
   }
