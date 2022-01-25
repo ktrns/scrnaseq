@@ -27,14 +27,26 @@ first_n_elements_to_string = function(x, n=5, sep=",") {
   return(s)
 }
 
-#' Get git repository version
+#' Get scrnaseq git repository version
 #' 
 #' @param path_to_git: Path to git repository.
 #' @return The git repository version.
 GitRepositoryVersion = function(path_to_git) {
   repo = tryCatch({system(paste0("git --git-dir=", path_to_git, "/.git rev-parse HEAD"), intern=TRUE)},
-                  warning = function(war) {return("Unknown")})
+                  warning = function(war) {return("NA")})
   return(repo)
+}
+
+#' Get container information (if available)
+#' 
+#' @return A string with container git name, container git commit id and container build date.
+ContainerVersion = function(path_to_git) {
+  if (nchar(Sys.getenv("CONTAINER_GIT_NAME")) > 0) {
+    container_info = paste(Sys.getenv("CONTAINER_GIT_NAME"), Sys.getenv("CONTAINER_GIT_COMMIT_ID"), Sys.getenv("CONTAINER_BUILD_DATE"), sep=", ")
+  } else {
+    container_info = c("NA")
+  }
+  return(container_info)
 }
 
 #' Report session info in a table
@@ -43,24 +55,25 @@ GitRepositoryVersion = function(path_to_git) {
 #' @return The session info as table.
 ScrnaseqSessionInfo = function(path_to_git=".") {
   out = matrix(NA, nrow=0, ncol=2)
-  colnames(out) = c("Name", "Version")
+  colnames(out) = c("Name", "Value")
+  
+  # Run on
+  out = rbind(out, c("Run on:", format(Sys.time(), "%a %b %d %X %Y")))
   
   # Git
   repo = GitRepositoryVersion(path_to_git)
   out = rbind(out, c("ktrns/scrnaseq", repo))
   
-  # Container
-  if (nchar(Sys.getenv("CONTAINER_GIT_NAME")) > 0) {
-    version_info = rbind(out, c("Container", paste(Sys.getenv("CONTAINER_GIT_NAME"), Sys.getenv("CONTAINER_GIT_COMMIT_ID"), Sys.getenv("CONTAINER_BUILD_DATE"), sep=", ")))
-  } else {
-    out = rbind(out, c("Container", "NA"))
-  }
+  # Container (if available)
+  out = rbind(out, c("Container", ContainerVersion()))
   
   # System
   info_session = sessionInfo()
   out = rbind(out, c("R", info_session$R.version$version.string))
   out = rbind(out, c("Platform", info_session$platform))
   out = rbind(out, c("Operating system", info_session$running))
+  out = rbind(out, c("Host name", unname(Sys.info()["nodename"])))
+  out = rbind(out, c("Host OS", paste0(unname(Sys.info()["version"]), " (", unname(Sys.info()["release"]), ") ")))
   
   info_pkgs = sessioninfo::package_info()
   out = rbind(out, c("Packages", paste(paste(info_pkgs$package, info_pkgs$loadedversion, sep=""), collapse=", ")))

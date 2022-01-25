@@ -53,7 +53,7 @@ params:
   # Cells from these samples will be dropped after initial QC
   # Example: samples_to_drop = c("pbmc_smartseq2_NC", "pbmc_smartseq2_RNA"), 
   #   where "pbmc_smartseq2" is the name of the dataset, and "NC" and "RNA" are the names of the subsamples
-  samples_to_drop: NULL 
+  samples_to_drop: NULL
 
   # Drop samples with too few cells
   samples_min_cells: 10
@@ -297,8 +297,6 @@ dir.create(file.path(param$path_out, "export"), recursive=TRUE, showWarnings=FAL
 # Path for figures in png and pdf format (trailing "/" is needed)
 knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
 
-knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
-
 # Path for annotation
 param$file_annot = file.path(param$path_out, "annotation", paste0(param$mart_dataset, ".v", param$annot_version, ".annot.txt"))
 
@@ -470,6 +468,7 @@ if (file.exists(param$file_cc_genes)) {
                           martL=mart_myspecies, 
                           uniqueRows=TRUE)
   colnames(genes_s) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
+  genes_s = genes_s %>% dplyr::arrange(Human_gene_name)
   
   # G2/M marker
   genes_g2m = biomaRt::getLDS(attributes=c("ensembl_gene_id", "external_gene_name"), 
@@ -480,6 +479,7 @@ if (file.exists(param$file_cc_genes)) {
                             martL=mart_myspecies, 
                             uniqueRows=TRUE)
   colnames(genes_g2m) = c("Human_ensembl_id", "Human_gene_name", "Species_ensembl_id", "Species_gene_name")
+  genes_g2m = genes_g2m %>% dplyr::arrange(Human_gene_name)
   
   # Write to file
   openxlsx::write.xlsx(list(S_phase=genes_s,G2M_phase=genes_g2m), file=param$file_cc_genes)
@@ -715,11 +715,11 @@ p_list[[1]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE]
   scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   AddStyle(col=param$col_samples)
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
     
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
 }
   
 
@@ -730,10 +730,10 @@ p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE]
   scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   AddStyle(col=param$col_samples)
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
 }
 
 # nFeature vs percent_ercc (if available)
@@ -744,10 +744,10 @@ if ("percent_ercc" %in% names(cell_qc_features)) {
     scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) + 
     AddStyle(col=param$col_samples)
   if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
   }
   if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
   }
 }
 
@@ -935,7 +935,7 @@ The updated QC plots are:
 # Now create plot per QC metric after filtering
 p_list = list()
 for (m in cell_qc_features) {
-  p_list[[m]]= ggplot(sc_cell_metadata[, c("orig.ident", m, "IS_FILTERED")] %>% dplyr::filter(!IS_FILTERED), aes_string(x="orig.ident", y=m, fill="orig.ident", group="orig.ident")) +
+  p_list[[m]] = ggplot(sc_cell_metadata[, c("orig.ident", m, "IS_FILTERED")] %>% dplyr::filter(!IS_FILTERED), aes_string(x="orig.ident", y=m, fill="orig.ident", group="orig.ident")) +
     geom_violin(scale="width")
 
   # Adds points for samples with less than three cells since geom_violin does not work here
@@ -949,7 +949,8 @@ for (m in cell_qc_features) {
   
   # Add filter threshold as segments to plot; min threshold lines are dashed and max threshold lines are twodashed
   if (nrow(cell_qc_thresholds[[m]]) > 0) {
-    p_list[[m]] = p_list[[m]] + geom_segment(data=cell_qc_thresholds[[m]], 
+    sample_names = sc_cell_metadata[, c("orig.ident", m, "IS_FILTERED")] %>% dplyr::filter(!IS_FILTERED) %>% dplyr::pull(orig.ident) %>% unique()
+    p_list[[m]] = p_list[[m]] + geom_segment(data=cell_qc_thresholds[[m]] %>% dplyr::filter(orig.ident %in% sample_names), 
                                              aes(x=as.integer(as.factor(orig.ident))-0.5, 
                                                  xend=as.integer(as.factor(orig.ident))+0.5, 
                                                  y=value, yend=value, lty=threshold), colour="firebrick") +
@@ -971,12 +972,13 @@ p_list[[1]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE]
   geom_point() + 
   scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE))) +
-  AddStyle(col=param$col_samples)
+  AddStyle(col=param$col_samples) +
+  guides(alpha = "none")
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[1]] = p_list[[1]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
 }
   
 
@@ -986,12 +988,13 @@ p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE]
   geom_point() +
   scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
   scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE))) +
-  AddStyle(col=param$col_samples)
+  AddStyle(col=param$col_samples) +
+  guides(alpha = "none")
 if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[2]] = p_list[[2]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
 }
 if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+  p_list[[2]] = p_list[[2]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
 }
 
 # nFeature vs percent_ercc
@@ -1001,12 +1004,13 @@ if ("percent_ercc" %in% names(cell_qc_features)) {
     geom_point() + 
     scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
     scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE)), show.legend=FALSE) +
-    AddStyle(col=param$col_samples)
+    AddStyle(col=param$col_samples) +
+    guides(alpha = "none")
   if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+    p_list[[3]] = p_list[[3]] + geom_vline(data=cell_qc_thresholds[[m[1]]], aes(xintercept=value, lty=threshold), colour="firebrick")
   }
   if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
-    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick", show.legend=FALSE)
+    p_list[[3]] = p_list[[3]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
   }
 }
 
@@ -1019,6 +1023,23 @@ if (length(p_list)==1) {
 }
 p
 ```
+
+```{r cleanup_metadata}
+# Remove filtered cells from meta data
+sc_cell_metadata = sc_cell_metadata %>% dplyr::filter(IS_FILTERED==FALSE)
+
+# Update levels but make sure level order stays the same
+idx.factors = sapply(sc_cell_metadata, is.factor) %>% which()
+for (n in colnames(sc_cell_metadata[idx.factors])) {
+  levels_old = sc_cell_metadata %>% dplyr::pull(n) %>% levels()
+  levels_new = sc_cell_metadata %>% dplyr::pull(n) %>% as.character() %>% unique()
+  sc_cell_metadata[[n]] = factor(sc_cell_metadata[[n]], levels=levels_old[levels_old %in% levels_new])
+}
+
+# Update actual colors as well, as they will appear in the plots otherwise
+param$col_samples = param$col_samples[names(param$col_samples) %in% names(sc)]
+```
+
 
 ## Normalisation
 In this section, we subsequently run a series of Seurat functions for each provided sample:  
@@ -1511,7 +1532,7 @@ At this point, we would like to define subpopulations of cells with similar gene
 During the first step of clustering, a K-nearest neighbor (KNN) graph is constructed. In simplified terms this means that cells are connected to their K nearest neighbors based on cell-to-cell expression similarity using the PCs chosen in the previous step. The higher the similarity is, the higher the edge weight becomes. During the second step, the graph is partitioned into highly interconnected communities, whereby each community represents a cluster of cells with similar expression profiles. The separation of the graph into clusters is dependent on the chosen resolution. For scRNA-seq datasets of around 3000 cells, it is recommended to use a resolution value between 0.4 and 1.2. This value can be set even higher for larger datasets. Note that the choice of PCs and cluster resolution is an arbitrary one. Therefore, it is highly recommended to evaluate clusters and re-run the workflow with adapted parameters if needed. 
 </details>
 
-To get a first idea about how different cluster resolution values influence the clustering, we run and visualize the clustering multiple times, see below. For this report, you chose the resolution value `r params$cluster_resolution` as the final value for further analyses. 
+To get a first idea about how different cluster resolution values influence the clustering, we run and visualize the clustering multiple times, see below. For this report, you chose the resolution value `r param$cluster_resolution` as the final value for further analyses. 
 
 ```{r clustering}
 cluster_resolutions = sort(unique(c(param$cluster_resolution, param$cluster_resolution_test)))
@@ -1949,14 +1970,14 @@ if ("percent_ercc" %in% colnames(sc[[]])) {
   p = p + patchwork::plot_annotation(title="Percent of ERCC features (percent_ercc)")
   p
   
-  # Plot percent_ribo vs nFeature by cluster
+  # Plot percent_ercc vs nFeature by cluster
   m = c("percent_ercc", paste0("nFeature_", param$assay_raw))
   p = ggplot(sc[[c(m, "seurat_clusters")]], aes_string(x=m[1], y=m[2], colour="seurat_clusters")) + 
     geom_point() + 
     AddStyle(col=param$col_clusters) +
     facet_wrap(~seurat_clusters) +
     theme(legend.position = "none")
-  p
+  print(p)
 } else {
   message("No ERCC controls found.")
 }
@@ -2160,7 +2181,8 @@ p = DegsPlotNumbers(markers_filt$all,
 Seurat::Misc(sc, "markers") = list(condition_column="seurat_clusters", test="MAST", padj=param$marker_padj, 
                                    log2FC=param$marker_log2FC, min_pct=param$marker_pct, assay=param$assay_raw, slot="data",
                                    latent_vars=param$latent_vars,
-                                   results=markers_filt$all)
+                                   results=markers_filt$all,
+                                   enrichr=EmptyEnrichrDf(overlap_split=TRUE))
 
 # Add marker lists to seurat object
 marker_genesets_up = split(markers_filt$up$gene, markers_filt$up$cluster)
@@ -2694,6 +2716,10 @@ Misc(sc, "degs") = degs
 ```{r degs_plots}
 for (i in seq(degs)) { 
   for (j in seq(degs[[i]])) {
+    # If there are errors, skip
+    if (length(degs[[i]][[j]]$error_messages) > 0) {
+      next
+    }
 
     # Average expression of all genes
     x = subset(sc, cells=degs[[i]][[j]]$cells_group2_idx) %>% GetAssayData(slot="data")
@@ -2803,6 +2829,8 @@ for (i in seq(degs)) {
   
   # Print plots per contrast
   for (contrast in seq(degs_subsets)) {
+    if (!"plot_scatter" %in% names(degs_subsets[[contrast]]) | !"plot_feature" %in% names(degs_subsets[[contrast]])) next
+      
     p = degs_subsets[[contrast]]$plot_scatter | degs_subsets[[contrast]]$plot_feature
     title = "Scatterplot and feature plots"
     if (!is.na(degs_subsets[[contrast]]$subset_column)) {
@@ -2830,11 +2858,8 @@ Seurat::Misc(sc, "experiment") = list(project_id=param$project_id, date=Sys.Date
 # Add parameter
 Seurat::Misc(sc, "parameters") = param
 
-# Add technical output
-session_info = suppressMessages(sessioninfo::session_info())
-Seurat::Misc(sc, "technical") = list(scrnaseq_git=GitRepositoryVersion(param$path_to_git),
-                                     R=session_info$platform$version,
-                                     packages=as.data.frame(session_info$packages)[, c("package", "ondiskversion", "loadedversion", "date")])
+# Add technical output (note: cannot use Misc function here)
+sc@misc$technical = data.frame(ScrnaseqSessionInfo(param$path_to_git))
 ```
 
 ## Export to Loupe Cell Browser

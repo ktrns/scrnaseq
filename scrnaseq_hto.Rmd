@@ -136,7 +136,7 @@ if (!file.exists(params$path_out)) dir.create(params$path_out, recursive=TRUE, s
 # Do checks
 error_messages = c()
 # Check installed packages
-error_messages = c(error_messages, check_installed_packages())
+#error_messages = c(error_messages, check_installed_packages())
 # Check parameters TODO
 #error_messages = c(error_messages, check_parameters(param))
 ```

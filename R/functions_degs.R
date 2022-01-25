@@ -589,6 +589,19 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
   return(contrasts_list)
 }
 
+#' Returns an empty Enrichr results table.
+# '
+# '
+#' @param overlap_split: If TRUE, then table will contain the two columns 'In.List' and 'In.Annotation' (which result from splitting 'Overlap') instead of the column 'Overlap'.
+#' @return An empty Enrichr results dataframe.
+EmptyEnrichrDf = function(overlap_split=FALSE) {
+  if (overlap_split) {
+    return(data.frame(Term=as.character(), In.List=as.numeric(), In.Annotation=as.numeric(), P.value=as.numeric(), Adjusted.P.value=as.numeric(), Odds.Ratio=as.numeric(), Combined.Score=as.numeric(), Genes=as.character())) 
+  } else {
+    return(data.frame(Term=as.character(), Overlap=as.character(), P.value=as.numeric(), Adjusted.P.value=as.numeric(), Odds.Ratio=as.numeric(), Combined.Score=as.numeric(), Genes=as.character())) 
+  }
+}
+
 #' Tests a list of entrez gene symbols for functional enrichment via Enrichr.
 # '
 #' @param genes: A vector of entrez gene symbols.
@@ -596,10 +609,7 @@ DegsSetupContrastsList = function(sc, contrasts_table, latent_vars=NULL) {
 #' @param padj: Maximum adjusted p-value (0.05).
 #' @return The path to the data directory.
 EnrichrTest = function(genes, databases, padj=0.05) {
-  empty_enrichr_df = data.frame(Term=as.character(), Overlap=as.character(), P.value=as.numeric(), Adjusted.P.value=as.numeric(),
-                                Old.P.value=as.numeric(), Old.Adjusted.P.value=as.numeric(), Odds.Ratio=as.numeric(), 
-                                Combined.Score=as.numeric(), Genes=as.character())
-  
+  empty_enrichr_df = EmptyEnrichrDf()
   
   # Run enrichr
   if (length(genes) >= 3 & length(databases) > 0) {
@@ -621,6 +631,31 @@ EnrichrTest = function(genes, databases, padj=0.05) {
     }
   })
   
+  # Drop Old.P.value and Old.Adjusted.P.value columns if they exist
+  enrichr_results = purrr::map(enrichr_results, function(df) {
+    df[["Old.P.value"]] = NULL
+    df[["Old.Adjusted.P.value"]] = NULL
+    return(df)
+  })
+  
+  # Some enrichr server do not return all columns - add missing columns and set them to NA
+  enrichr_results = purrr::map(enrichr_results, function(df) {
+    character_cols = c("Term", "Overlap", "Genes")
+    missing = !character_cols %in% colnames(df)
+    if (any(missing)) {
+      for (c in character_cols[missing]) df[[c]] = as.character(NA)
+    }
+    
+    numeric_cols = c("P.value", "Adjusted.P.value", "Odds.Ratio", "Combined.Score")
+    missing = !numeric_cols %in% colnames(df)
+    if (any(missing)) {
+      for (c in numeric_cols[missing]) df[[c]] = as.numeric(NA)
+    }
+    
+    df = df %>% dplyr::select(Term, Overlap, P.value, Adjusted.P.value, Odds.Ratio, Combined.Score, Genes)
+    return(df)
+  })
+  
   # Filter by adjusted p-value
   enrichr_results = purrr::map(enrichr_results, dplyr::filter, Adjusted.P.value < padj)
   
@@ -639,13 +674,6 @@ EnrichrTest = function(genes, databases, padj=0.05) {
       return(df)
     })
   }
-  
-  # Drop Old.P.value and Old.Adjusted.P.value columns
-  enrichr_results = purrr::map(enrichr_results, function(df) {
-    df[["Old.P.value"]] = NULL
-    df[["Old.Adjusted.P.value"]] = NULL
-    return(df)
-  })
   
   return(enrichr_results)
 }
