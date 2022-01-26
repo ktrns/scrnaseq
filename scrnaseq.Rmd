@@ -1010,7 +1010,7 @@ if ("percent_ercc" %in% names(cell_qc_features)) {
   p_list[[3]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident", alpha="IS_FILTERED")) +
     geom_point() + 
     scale_linetype_manual(values=setNames(c("dashed", "F1"), c("max", "min"))) +
-    scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE)), show.legend=FALSE) +
+    scale_alpha_manual(values=setNames(c(1, 0.1), c(FALSE, TRUE))) +
     AddStyle(col=param$col_samples) +
     guides(alpha = "none")
   if (nrow(cell_qc_thresholds[[m[1]]]) > 0) {
@@ -1591,9 +1591,14 @@ if (length(levels(sc$seurat_clusters)) > 1) {
 # Set up colors for default clustering
 sc = ScAddLists(sc, lists=list(seurat_clusters=Misc(sc, "colour_lists")[[n]]), lists_slot="colour_lists")
 param$col_clusters = Misc(sc, "colour_lists")[["seurat_clusters"]]
+
+# Define height of test clusters
+height_per_row = 3
+nr_rows = ceiling(length(cluster_resolutions)/2)
+fig_height_test_clusters = nr_rows * height_per_row
 ```
 
-```{r run_umap_test}
+```{r run_umap_test, fig.height=fig_height_test_clusters}
 # Default UMAP
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot", n.neighbors=param$umap_k))
 
@@ -1607,11 +1612,10 @@ if (length(cluster_resolutions) > 1) {
     cluster_cells = table(sc[[n, drop=TRUE]])
     cluster_labels = paste0(names(cluster_cells)," (", cluster_cells,")")
     
-    p_list[[r]] = Seurat::DimPlot(sc, reduction="umap", group.by=n, pt.size=param$pt_size) + 
+    p_list[[r]] = Seurat::DimPlot(sc, reduction="umap", group.by=n, pt.size=param$pt_size, label=TRUE) + 
       scale_color_manual(values=Seurat::Misc(sc, "colour_lists")[[n]], labels=cluster_labels) +
       AddStyle(title=r, legend_position="bottom", legend_title="Clusters") +
       FontSize(x.text = 10, y.text = 10, x.title = 13, y.title = 13, main = 15)
-    p_list[[r]] = LabelClusters(p_list[[r]], id=n, box=TRUE, fill="white")
   }
   
   p = patchwork::wrap_plots(p_list, ncol=3) + patchwork::plot_annotation(title="UMAP, cells coloured by cluster identity for different resolution values")
@@ -1975,7 +1979,7 @@ if ("percent_ercc" %in% colnames(sc[[]])) {
              xlab="Cluster", legend_position="none")
   p = p1 | p2
   p = p + patchwork::plot_annotation(title="Percent of ERCC features (percent_ercc)")
-  p
+  print(p)
   
   # Plot percent_ercc vs nFeature by cluster
   m = c("percent_ercc", paste0("nFeature_", param$assay_raw))
