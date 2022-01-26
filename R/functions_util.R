@@ -718,7 +718,6 @@ check_parameters_scrnaseq = function(param) {
     param$integrate_samples = list(method="merge")
   }
 
-  
   # Check norm (normalisation)
   if ("norm" %in% names(param)) {
     if (!param$norm %in% c("RNA", "SCT")) {
@@ -738,7 +737,40 @@ check_parameters_scrnaseq = function(param) {
   } else {
     param$pc_n = 10
   }
-
+  
+  # Check cluster_k
+  if ("cluster_k" %in% names(param)) {
+    if (converts_to_number(param$cluster_k)) {
+      param$cluster_k = as.numeric(param$cluster_k)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cluster_k' is not a numeric value!")
+    }
+  } else {
+    param$cluster_k = 20
+  }
+  
+  # Check umap_k
+  if ("umap_k" %in% names(param)) {
+    if (converts_to_number(param$umap_k)) {
+      param$umap_k = as.numeric(param$umap_k)
+    } else {
+      error_messages = c(error_messages, "The parameter 'umap_k' is not a numeric value!")
+    }
+  } else {
+    param$umap_k = 30
+  }
+  
+  # Check cluster_resolution_test
+  if ("cluster_resolution_test" %in% names(param)) {
+    if (all(purrr::map_lgl(param$cluster_resolution_test, converts_to_number))) {
+      param$cluster_resolution_test = as.numeric(param$cluster_resolution_test)
+    } else {
+      error_messages = c(error_messages, "The parameter 'cluster_resolution_test' does not contain numeric values!")
+    }
+  } else {
+    param$cluster_resolution_test = c()
+  }
+  
   # Check cluster_resolution
   if ("cluster_resolution_test" %in% names(param)) {
     if (all(purrr::map_lgl(param$cluster_resolution_test, converts_to_number))) {

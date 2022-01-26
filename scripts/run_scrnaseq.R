@@ -377,12 +377,40 @@ parser$add_argument(
 )
 
 parser$add_argument(
+  "--cluster-k",
+  action="store",
+  type="integer",
+  help="The number of k nearest neighbors to find clusters (default: %(default)s)",
+  dest="cluster_k",
+  default=20
+)
+
+parser$add_argument(
+  "--umap-k",
+  action="store",
+  type="integer",
+  help="The number of k nearest neighbors to construct the UMAP (default: %(default)s)",
+  dest="umap_k",
+  default=30
+)
+
+parser$add_argument(
   "--cluster-resolution",
   action="store",
   type="double",
   help="Resolution of clusters; low values will lead to fewer clusters of cells (default: %(default)s)",
   dest="cluster_resolution",
-  default=0.5
+  default=1
+)
+
+parser$add_argument(
+  "--cluster-resolution-test",
+  nargs="*",
+  action="store",
+  type="double",
+  help="Other clusters resolutions to test; will not be used for further analysis (default: %(default)s)",
+  dest="cluster_resolution_test",
+  default=NULL
 )
 
 parser$add_argument(
@@ -690,7 +718,14 @@ if (param[["integrate_samples"]] == "integrate") {
 
 # Analysis
 param[["pc_n"]] = opt[["pc_n"]]
+param[["cluster_k"]] = opt[["cluster_k"]]
+param[["umap_k"]] = opt[["umap_k"]]
 param[["cluster_resolution"]] = opt[["cluster_resolution"]]
+if (!is.null(opt[["cluster_resolution_test"]])) {
+  param[["cluster_resolution_test"]] = opt[["cluster_resolution_test"]]
+} else {
+  param["cluster_resolution_test"] = list(NULL)
+}
 
 # Marker genes
 param[["marker_padj"]] = opt[["marker_padj"]]

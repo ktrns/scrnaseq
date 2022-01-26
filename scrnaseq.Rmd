@@ -104,6 +104,13 @@ params:
    
   # The number of PCs to use; adjust this parameter based on the Elbowplot 
   pc_n: 10
+  
+  # k nearest neighbors to find clusters
+  # k nearest neighbors to construct the UMAP
+  # Scanpy uses 15 for both by default
+  # Seurat uses 20 for cluster_k, and 30 for umap_k by default
+  cluster_k: 20
+  umap_k: 30
 
   # Cluster resolutions to compute; lower values will lead to fewer clusters of cells; can be multiple values;
   # Empty vector if not needed
@@ -1545,7 +1552,7 @@ if (length(levels(sc$orig.ident)) > 1) {
 
 # The number of clusters can be optimized by tuning "resolution" -> based on feedback from the client whether or not clusters make sense
 # Choose the number of PCs to use for clustering
-sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE)
+sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE, k.param=param$cluster_k)
 
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
 # But we can run multiple resolutions if requested
@@ -1588,7 +1595,7 @@ param$col_clusters = Misc(sc, "colour_lists")[["seurat_clusters"]]
 
 ```{r run_umap_test}
 # Default UMAP
-sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot"))
+sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot", n.neighbors=param$umap_k))
 
 # If there are any test resolutions other than the default, go ahead
 if (length(cluster_resolutions) > 1) {
