@@ -2214,7 +2214,7 @@ if (markers_found) {
 
 We use the term "marker genes" to specifically describe genes that are up-regulated in cells of one cluster compared to the rest.
 
-```{r degs_table, eval=markers_found}
+```{r markers_table, eval=markers_found}
 if (markers_found) {
   markers_top = DegsUpDisplayTop(markers_filt$up, n=5)
   
