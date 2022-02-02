@@ -2783,6 +2783,7 @@ General configuration:
 * minimum absolute log2 foldchange: {{log2FC}}
 * minimum percentage of cells: {{min_pct}}
 * latent vars: {{latent_vars}}
+* output files: degs_contrast_row_{{row}}_results.xlsx, degs_contrast_row_{{row}}_functions.xlsx
 
 Subset on column: \'{{subset_column}}\'"
 
@@ -2796,6 +2797,7 @@ for (i in seq(degs)) {
   # Create header
   cat(
     knitr::knit_expand(text=knitr_header_string,
+                      row=i,
                      condition_column=first_contrast[["condition_column"]],
                      condition_group1=first_contrast[["condition_group1"]],
                      condition_group2=first_contrast[["condition_group2"]],
