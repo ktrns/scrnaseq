@@ -117,7 +117,7 @@ params:
   cluster_resolution_test: !r c(0.3, 0.7)
   
   # Cluster resolution to use for analysis
-  cluster_resolution: 1
+  cluster_resolution: 0.5
   
   #######################################################
   # Marker genes and genes with differential expression #
