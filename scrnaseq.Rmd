@@ -2842,7 +2842,7 @@ for (i in seq(degs)) {
   
   # Print plots per contrast
   for (contrast in seq(degs_subsets)) {
-    if (!"plot_scatter" %in% names(degs_subsets[[contrast]]) | !"plot_feature" %in% names(degs_subsets[[contrast]])) next
+    if (!"plot_scatter" %in% names(degs_subsets[[contrast]]) & !"plot_feature" %in% names(degs_subsets[[contrast]])) next
       
     p = degs_subsets[[contrast]]$plot_scatter | degs_subsets[[contrast]]$plot_feature
     title = "Scatterplot and feature plots"
