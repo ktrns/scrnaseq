@@ -5,6 +5,7 @@
 * [Quick start](#quick_start)
 * [Documentation](#documentation)
 * [Credits](#credits)
+* [Contributions and support](contributions_and_support)
 * [Citation](#citation)
 
 # Introduction
@@ -102,6 +103,11 @@ The scrnaseq workflow comes with a good amount of documentation, found in the `d
 The [Seurat Vignettes](https://satijalab.org/seurat/vignettes.html) were initially used as templates for this workflow. 
 
 The workflow was developed by [Katrin Sameith](https://github.com/ktrns) and [Andreas Petzold](https://github.com/andpet0101) at the [Dresden-concept Genome Center (Dresden, Germany)](https://genomecenter.tu-dresden.de/about-us). Through collaboration with the [Research Core Unit Genomics (Hannover, Germany)](https://www.mhh.de/genomics) the workflow has grown substantially and has been standardised. Many thanks to all who have contributed along the way, including (but not limited to): [Oliver Dittrich](https://github.com/Oliver-D-B), [Torsten Glomb](https://github.com/tglomb), [Maike Kosanke](https://github.com/kosankem), [Dimitra Alexopoulou](https://github.com/dimialex), [Mathias Lesche](https://github.com/mlesche), [Fabian Friedrich](https://github.com/Colorstorm), [Colin Davenport](https://github.com/colindaven), and [Marius Rueve](https://github.com/mariusrueve).
+
+# Contributions and Support
+<a name="contributions_and_support"/>
+
+If you would like to contribute to this workflow, please first create your own fork of the GitHub repository. You can then work on your master branch, or create feature branches for developement that you later merge into your master branch. Once your code is finalised and working, you can create a pull request. 
 
 # Citation
 <a name="citation"/>
