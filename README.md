@@ -15,6 +15,8 @@
 
 The workflow generates an extensive HTML report. Are you curious about what that looks like and if it would be useful for your own data? If so, you can  download the GitHub repository and open `scrnaseq.html`. This report generated for test data as mentioned [below](#quick_start). 
 
+If you are a researcher, and you would like to start analysing your own data, the workflow can be your starting point. If you work in a *bioinformatics core facility* and frequently support other researchers with bioinformatics analyses, the workflow can be run in a standardised fashion both interactively in `Rstudio` and on command line. We typically first run the workflow with default parameters, and communicate with our collaborators. We then optimise the parameters in further rounds to improve the results. 
+
 # News
 <a name="news"/>
 
