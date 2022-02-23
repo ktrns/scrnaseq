@@ -13,6 +13,7 @@
 
 **scrnaseq** is a bioinformatics analysis workflow for single-cell RNA-seq analysis. The workflow is based on Seurat, and contains additional visualisations, tables and documentation to better understand the analysis. The workflow supports RNA sequencing data from one or more samples processed with 10X Genomics and SmartSeq-2. 
 
+The workflow generates an extensive HTML report. Are you curious about what that looks like and if it would be useful for your own data? If so, you can  download the GitHub repository and open `scrnaseq.html`. This report generated for test data as mentioned [below](#quick_start). 
 
 # News
 <a name="news"/>
