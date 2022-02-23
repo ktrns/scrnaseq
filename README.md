@@ -5,7 +5,7 @@
 * [Quick start](#quick_start)
 * [Documentation](#documentation)
 * [Credits](#credits)
-* [Contributions and support](contributions_and_support)
+* [Contributions and support](#contributions_and_support)
 * [Citation](#citation)
 
 # Introduction
