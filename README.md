@@ -96,7 +96,7 @@ The scrnaseq workflow comes with a good amount of documentation, found in the `d
  
 [Installation](docs/installation.md)   
 [Running the workflow](docs/usage_workflow.md)   
-[Running the pre-workflow](docs/usage_preworkflow.md)
+[Running the pre-workflow](docs/usage_preworkflow.md)   
 [Output and how to interpret the results](docs/output.md)
 
 # Credits
