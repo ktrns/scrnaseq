@@ -94,8 +94,10 @@ The repository provides several other useful test data that you can use to get t
 
 The scrnaseq workflow comes with a good amount of documentation, found in the `docs/` directory:
  
+[Installation](docs/installation.md)   
 [Running the workflow](docs/usage_workflow.md)   
 [Running the pre-workflow](docs/usage_preworkflow.md)
+[Output and how to interpret the results](docs/output.md)
 
 # Credits
 <a name="credits"/>
