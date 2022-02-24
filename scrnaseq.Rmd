@@ -17,9 +17,14 @@ params:
   # Data type ("RNA", "Spatial")
   assay_raw: "RNA"
   
-  # Downsample data to at most n cells per sample (mainly for tests)
+  # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
   #   NULL to deactivate
-  downsample_cells_n: 100
+  downsample_cells_n: NULL
+  
+  # Downsample all samples equally according to the smallest sample
+  #   TRUE/FALSE
+  #   Overwritten by downsample_cells_n
+  downsample_cells_equally: TRUE
 
   # Path to output directory
   path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
@@ -390,6 +395,7 @@ if (!all(is.na(param$path_data$stats))) {
 
 ## Read gene annotation
 We read gene annotation from Ensembl and write the resulting table to file. We generate several dictionaries to translate between Ensembl IDs, gene symbols, Entrez Ids, and Seurat gene names. 
+
 ```{r read_ensembl_annotation}
 # Read annotation from csv or from Ensembl and a tab separated txt will be created
 if (file.exists(param$file_annot)) {
@@ -544,14 +550,6 @@ sample_names = purrr::flatten_chr(purrr::map(sc, function(s) {
 }))
 param$col_samples = GenerateColours(num_colours=length(sample_names), names=sample_names, palette=param$col_palette_samples, alphas=1)
 sc = purrr::map(sc, ScAddLists, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
-
-# Downsample cells if requested
-if (!is.null(param$downsample_cells_n)) {
-  sc = purrr::map(sc, function(s) {
-    cells = ScSampleCells(sc=s, n=param$downsample_cells_n, seed=1)
-    return(subset(s, cells=cells))
-  })
-}
 
 sc
 ```
@@ -770,7 +768,8 @@ p
 
 ## Genes with highest expression
 We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages in all cells. Genes with the highest median percentage of counts are plotted below. 
-```{r highest_expression}
+
+```{r plot_highest_expression}
 # Plot only samples that we intend to keep 
 sc_names = names(sc)[!(names(sc) %in% param$samples_to_drop)]
 genes_highestExpr = lapply(sc_names, function(i) {
@@ -798,6 +797,7 @@ p
 
 ## Filtering
 Cells and genes are filtered based on the following thresholds: 
+
 ```{r filter_print_cutoffs}
 cell_filter_lst = param$cell_filter %>% unlist(recursive=FALSE)
 is_numeric_filter = purrr::map_lgl(cell_filter_lst, function(f) return(is.numeric(f) & length(f)==2))
@@ -826,6 +826,7 @@ if (length(feature_filter_lst) > 0) {
 ```
 
 The number of excluded cells and features is as follows: 
+
 ```{r filter_cells}
 # Iterate over datasets and filters
 # Record a cell if it does not pass the filter
@@ -932,12 +933,14 @@ sc = purrr::map(list_names(sc), function(n) {
 ```
 
 After filtering, the size of the Seurat object is: 
+
 ```{r filter_size_after}
 sc
 ```
 
 ## Quality control post filtering
 The updated QC plots are: 
+
 ```{r qc_plot_cells_afterFiltering, fig.height=10}
 # Now create plot per QC metric after filtering
 p_list = list()
@@ -988,7 +991,6 @@ if (nrow(cell_qc_thresholds[[m[2]]]) > 0) {
   p_list[[1]] = p_list[[1]] + geom_hline(data=cell_qc_thresholds[[m[2]]], aes(yintercept=value, lty=threshold), colour="firebrick")
 }
   
-
 # nFeature vs percent_mt
 m = c("percent_mt", paste0(c("nFeature_"), param$assay_raw))
 p_list[[2]] = ggplot(sc_cell_metadata[sc_cell_metadata_plot_order, , drop=FALSE], aes_string(x=m[1], y=m[2], colour="orig.ident", alpha="IS_FILTERED")) +
@@ -1030,9 +1032,31 @@ if (length(p_list)==1) {
 }
 p
 ```
+```{r downsampling}
+# If requested, determine number of cells for downsampling
+if (is.null(param$downsample_cells_n) & param$downsample_cells_equally) {
+  n = purrr::map_int(sc, ncol) %>% min()  
+} else if (!is.null(param$downsample_cells_n)) {
+  n = param$downsample_cells_n
+}
+
+# Actual downsampling
+if (!is.null(param$downsample_cells_n) | param$downsample_cells_equally) {
+  sc = purrr::map(sc, function(s) {
+    cells = ScSampleCells(sc=s, n=n, seed=1)
+    return(subset(s, cells=cells))
+  })
+  
+  # Adjust combined metadata accordingly
+  sc_cell_metadata = sc_cell_metadata[unlist(purrr::map(sc, Cells)), ]
+  
+  message("Your data has been downsampled.")
+  print(sc)
+}
+```
 
 ```{r cleanup_metadata}
-# Remove filtered cells from meta data
+# Remove filtered cells from metadata
 sc_cell_metadata = sc_cell_metadata %>% dplyr::filter(IS_FILTERED==FALSE)
 
 # Update levels but make sure level order stays the same
@@ -1046,7 +1070,6 @@ for (n in colnames(sc_cell_metadata[idx.factors])) {
 # Update actual colors as well, as they will appear in the plots otherwise
 param$col_samples = param$col_samples[names(param$col_samples) %in% names(sc)]
 ```
-
 
 ## Normalisation
 In this section, we subsequently run a series of Seurat functions for each provided sample:  
@@ -1196,6 +1219,7 @@ p
 ```
 
 ## Combining multiple samples
+
 ```{r multi_dataset_integration_single, eval=(param$integrate_samples[["method"]]=="single"), include=(param$integrate_samples[["method"]]=="single")}
 # Called when there is only a single sample and no integration needed
 # Default assay is set automatically
@@ -1315,7 +1339,6 @@ if (param$integrate_samples[["method"]]=="merge") {
   # Add sample/dataset colours again to misc slot
   sc = ScAddLists(sc, lists=list(orig.ident=param$col_samples), lists_slot="colour_lists")
   
-
   message("Data values for all samples have been merged. This means that data values have been concatenated, not integrated.")
   print(sc)
 }
@@ -1406,6 +1429,7 @@ if (param$integrate_samples[["method"]]=="integrate") {
 ```
 
 ## Relative log expression {.tabset}
+
 ```{r plot_RLE_prep}
 n_cells_rle_plot = 100
 
@@ -1422,6 +1446,7 @@ To better understand the efficiency of the applied normalisation procedures, we 
 For each gene, we calculate its median expression across all cells, and then calculate the deviation from this median for each cell. For each cell, we plot the median expression (black), the interquartile range (<span style="color:lightgrey;font-weight:bold">lightgrey</span>), whiskers defined as 1.5 times the interquartile range (<span style="color:darkgrey;font-weight:bold">darkgrey</span>), and outliers (`r paste0('<span style="color:', param$col_samples, ';font-weight:bold">', param$col_samples, '</span>', collapse=', ')`)
 
 ### Raw counts
+
 ```{r plot_RLE_raw}
 # Plot raw data
 p = PlotRLE(as.matrix(log2(GetAssayData(subset(sc, cells=cells_subset$rowname), assay=param$assay_raw, slot="counts") + 1)), 
@@ -1448,6 +1473,7 @@ p
 ```
 
 ### Integrated data
+
 ```{r plot_RLE_integrated}
 if (! param$integrate_samples[["method"]] %in% c("single", "merge")) {
   # Plot integrated data
@@ -1475,6 +1501,7 @@ In a PCA, the first PC captures the greatest variance across the whole dataset. 
 </details>
 
 To decide how many PCs to include in downstream analyses, we visualise the cells and genes that define the PCA.
+
 ```{r run_pca}
 # Run PCA for default normalisation
 sc = Seurat::RunPCA(sc, features=Seurat::VariableFeatures(object=sc), verbose=FALSE, npcs=min(50, ncol(sc)))
@@ -1492,7 +1519,6 @@ p = Seurat::DimPlot(sc, reduction="pca", cols=param$col_samples) +
   AddStyle(title="Cells arranged by the first two PCs", legend_position="bottom")
 p
 ```
-
 
 ```{r pca_heatmaps, fig.height=20}
 p_list = Seurat::DimHeatmap(sc, dims=1:min(20, ncol(sc)), cells=min(500, ncol(sc)), balanced=TRUE, fast=FALSE, combine=FALSE)
@@ -1594,7 +1620,8 @@ param$col_clusters = Misc(sc, "colour_lists")[["seurat_clusters"]]
 
 # Define height of test clusters
 height_per_row = 3
-nr_rows = ceiling(length(cluster_resolutions)/2)
+nr_cols = 3
+nr_rows = ceiling(length(cluster_resolutions)/nr_cols)
 fig_height_test_clusters = nr_rows * height_per_row
 ```
 
@@ -1614,11 +1641,11 @@ if (length(cluster_resolutions) > 1) {
     
     p_list[[r]] = Seurat::DimPlot(sc, reduction="umap", group.by=n, pt.size=param$pt_size, label=TRUE) + 
       scale_color_manual(values=Seurat::Misc(sc, "colour_lists")[[n]], labels=cluster_labels) +
-      AddStyle(title=r, legend_position="bottom", legend_title="Clusters") +
+      AddStyle(title=r, legend_position="none") +
       FontSize(x.text = 10, y.text = 10, x.title = 13, y.title = 13, main = 15)
   }
   
-  p = patchwork::wrap_plots(p_list, ncol=3) + patchwork::plot_annotation(title="UMAP, cells coloured by cluster identity for different resolution values")
+  p = patchwork::wrap_plots(p_list, ncol=nr_cols) + patchwork::plot_annotation(title="UMAP, cells coloured by cluster identity for different resolution values")
   print(p)
 }
 ```
@@ -1636,7 +1663,8 @@ Take care not to mis-read a UMAP:
 For a nice read to intuitively understand UMAP, see `r Cite("https://pair-code.github.io/understanding-umap/")`.
 
 ## Coloured by cluster
-```{r umap_by_cluster, fig.asp=0.6}
+
+```{r umap_by_cluster}
 # Note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
 cluster_cells = table(sc@active.ident)
 cluster_labels = paste0(levels(sc@active.ident)," (", cluster_cells[levels(sc@active.ident)],")")
@@ -1648,6 +1676,7 @@ p
 ```
 
 ## Coloured by cluster (per sample)
+
 ```{r umap_by_cluster_separately}
 # Plot all samples separately
 # Repel will be deactivated if there are more than six samples; otherwise the plot may crash
@@ -1659,7 +1688,8 @@ p
 ```
 
 ## Coloured by sample
-```{r umap_by_sample, fig.asp=0.6}
+
+```{r umap_by_sample}
 sample_cells = table(sc$orig.ident)
 sample_labels = paste0(levels(sc$orig.ident)," (", sample_cells[levels(sc$orig.ident)],")")
 # Note: This is a hack to colour by sample but label by Cluster
@@ -1672,6 +1702,7 @@ p
 ```
 
 ## Coloured by sample (per sample)
+
 ```{r umap_by_sample_separately}
 # Plot all samples separately
 # Repel will be deactivated if there are more than six samples; otherwise the plot may crash
@@ -1694,6 +1725,7 @@ sc$seurat_clusters_original = sc$seurat_clusters
 ```
 
 ## Cluster 10
+
 ```{r subclustering_10, eval=FALSE}
 # Run subclustering
 sc = Seurat::FindSubCluster(object=sc,
@@ -1721,6 +1753,7 @@ Idents(sc) = "seurat_clusters"
 -->
 
 # Distribution of cells in clusters
+
 ```{r cells_per_cluster}
 # Count cells per cluster per sample 
 cell_samples = sc[[]] %>% dplyr::pull(orig.ident) %>% levels()
@@ -1802,7 +1835,8 @@ p2 = ggplot(sc@meta.data %>%
   geom_bar(stat="identity", position="fill") + 
   scale_x_discrete("Seurat clusters") + 
   scale_y_continuous("Fraction of cells") + 
-  AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]])
+  AddStyle(fill=Misc(sc, "colour_lists")[["Phase"]]) + 
+  theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1)) 
 
 p3 = ggplot(sc[[]] %>% 
               dplyr::group_by(orig.ident, Phase) %>% 
@@ -1819,6 +1853,7 @@ p
 ```
 
 ## UMAP coloured by cell cycle phases
+
 ```{r cellCycleEffect_umap_phases}
 if (any(!is.na(sc$Phase))) {
   # UMAP with phases superimposed
@@ -1832,6 +1867,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by S phase
+
 ```{r cellCycleEffect_umap_s}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="S.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
@@ -1842,6 +1878,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by G2/M phase
+
 ```{r cellCycleEffect_umap_g2m}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="G2M.Score", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) + 
@@ -1852,6 +1889,7 @@ if (any(!is.na(sc$Phase))) {
 ```
 
 ## UMAP coloured by the difference between S and G2/M phase
+
 ```{r cellCycleEffect_umap_ccdiff}
 if (any(!is.na(sc$Phase))) {
   p = Seurat::FeaturePlot(sc, features="CC.Difference", pt.size=1, min.cutoff="q1", max.cutoff="q99", cols=c("lightgrey", param$col)) +
@@ -1865,6 +1903,7 @@ if (any(!is.na(sc$Phase))) {
 Do cells in individual clusters have particularly high counts, detected genes or mitochondrial content?
 
 ## Number of counts 
+
 ```{r clusterQC_nCount_featurePlot}
 qc_feature = paste0("nCount_", param$assay_raw)
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features=qc_feature) + 
@@ -1893,6 +1932,7 @@ p
 ```
 
 ## Number of features
+
 ```{r clusterQC_nFeature_featurePlot}
 qc_feature = paste0("nFeature_", param$assay_raw)
 p1 = suppressMessages(Seurat::FeaturePlot(sc, features=qc_feature) + 
@@ -1920,6 +1960,7 @@ p
 ```
 
 ## Percent mitochondrial reads
+
 ```{r clusterQC_mt_featurePlot}
 p1 = Seurat::FeaturePlot(sc, features="percent_mt", cols=c("lightgrey", param$col)) + 
   AddStyle(title="Feature plot")
@@ -1943,6 +1984,7 @@ p
 ```
 
 ## Percent ribosomal reads
+
 ```{r clusterQC_ribo_featurePlot}
 p1 = Seurat::FeaturePlot(sc, features="percent_ribo", cols=c("lightgrey", param$col)) +
   AddStyle(title="Feature plot")
@@ -1967,6 +2009,7 @@ p
 ```
 
 ## Percent ERCC
+
 ```{r clusterQC_ercc_featurePlot}
 if ("percent_ercc" %in% colnames(sc[[]])) {
   p1 = Seurat::FeaturePlot(sc, features="percent_ercc", cols=c("lightgrey", param$col)) +
@@ -1996,6 +2039,7 @@ if ("percent_ercc" %in% colnames(sc[[]])) {
 
 # Known marker genes {.tabset}
 Do cells in individual clusters express provided known marker genes? 
+
 ```{r knownMarkers_read}
 known_markers_list=c()
 
@@ -2058,6 +2102,7 @@ You provided `r length(known_markers_list)` list(s) of known marker genes. In th
 
 ## Dot plot(s) 
 A dot plot visualises how gene expression changes across different clusters. The size of a dot encodes the percentage of cells in a cluster that expresses the gene, while the color encodes the scaled average expression across all cells within the cluster. Per gene (column), we group cells based on cluster identity (rows), calculate average expression per cluster, subtract the mean of average expression values and divide by the standard deviation. The resulting scores describe how high or low a gene is expressed in a cluster compared to all other clusters. 
+
 ```{r knownMarkers_dotplot, fig.height=fig_height_knownMarkers_dotplot}
 if ((known_markers_n > 0) & any(idx_dotplot)) {
   known_markers_dotplot = known_markers_list[idx_dotplot]
@@ -2084,6 +2129,7 @@ if ((known_markers_n > 0) & any(idx_dotplot)) {
 
 ## Average feature plot(s)
 An average feature plot visualises the average gene expression of each gene list on a single-cell level, subtracted by the aggregated expression of control feature sets. The color of the plot encodes the calculated scores, whereat positive scores suggest that genes are expressed more highly than expected. 
+
 ```{r knownMarkers_umap, fig.height=fig_height_knownMarkers_avgplot}
 if ((known_markers_n > 0) & any(idx_avgplot)) {
   known_markers_avgplot = known_markers_list[idx_avgplot]
@@ -2105,6 +2151,7 @@ if ((known_markers_n > 0) & any(idx_avgplot)) {
 
 ## Individual feature plots
 An individual feature plot colours single cells on the UMAP according to their normalised gene expression. 
+
 ```{r knownMarkers_all, fig.height=fig_height_knownMarkers_vect}
 if ((known_markers_n > 0) & length(known_markers_vect) <= 100) {
   p_list = Seurat::FeaturePlot(sc, features=known_markers_vect, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
@@ -2209,14 +2256,12 @@ if (markers_found) {
 }
 ```
 
-
 ## Table of top marker genes
-
 We use the term "marker genes" to specifically describe genes that are up-regulated in cells of one cluster compared to the rest.
 
 ```{r markers_table, eval=markers_found}
 if (markers_found) {
-  markers_top = DegsUpDisplayTop(markers_filt$up, n=5)
+  markers_top = DegsUpDisplayTop(markers_filt$up, n=6)
   
   # Add labels
   markers_top$labels = paste0(markers_top$cluster, ": ", markers_top$gene)
@@ -2228,7 +2273,6 @@ if (markers_found) {
 }
 ```
 
-
 ## Visualisation of top marker genes {.tabset}
 The following plots visualise the top marker genes for each cluster, respectively. Clear marker genes indicate good clusters that represent cell types. 
 
@@ -2239,25 +2283,26 @@ if (markers_found) {
   # The height of feature and violin plots is independent of the number of clusters
   # The height of dotplots is dependent on the number of clusters
   height_per_row = 3
-  height_per_row_variable = max(2, 0.3 * length(levels(sc$seurat_clusters)))
+  height_per_row_variable = max(3, 0.3 * length(levels(sc$seurat_clusters)))
 
-  # Feature plots and violin plots: each row contains 5 plots
-  #   The plot has 5 columns and 1 row per cluster, hence the layout works nicely if we find 
-  #     at least 5 markers per cluster
-  nr_rows_5cols = ceiling(nrow(markers_top)/5)
-  fig_height_5cols = height_per_row * nr_rows_5cols
+  # Feature plots and violin plots: each row contains 3 plots
+  #   The plot has 3 columns and 2 rows per cluster, hence the layout works nicely if we find 
+  #     at least 6 markers per cluster
+  nr_rows_3cols = ceiling(nrow(markers_top)/3)
+  fig_height_3cols = height_per_row * nr_rows_3cols
   
   # Dotplots: each row contains 2 plots
   nr_rows_dp_2cols = ceiling(length(levels(sc$seurat_clusters))/2)
   fig_height_dp_2cols = height_per_row_variable * nr_rows_dp_2cols %>% min(100)
   
 } else {
-  fig_height_5cols = fig_height_dp_2cols = 7 
+  fig_height_3cols = fig_height_dp_2cols = 7 
 }
 ```
 
 ### Feature plots
-```{r markers_plot_umap, eval=markers_found, fig.height=fig_height_5cols}
+
+```{r markers_plot_umap, eval=markers_found, fig.height=fig_height_3cols}
 if (markers_found) {
   # Plot each marker one by one, and then combine them all at the end
   p_list = list()
@@ -2271,29 +2316,32 @@ if (markers_found) {
   }
   
   # Combine all plots
-  p = patchwork::wrap_plots(p_list, ncol=5) + 
+  p = patchwork::wrap_plots(p_list, ncol=3) + 
     patchwork::plot_annotation(title="UMAP, cells coloured by normalised gene expression data, top marker genes per cluster")
   p
 }
 ```
 
 ### Violin plots (normalised)
-```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_5cols}
+
+```{r markers_plot_violin_raw, eval=markers_found, fig.height=fig_height_3cols}
 if (markers_found) {
   # Plot violin plots per marker gene, and combine it all at the end
-  # This layout works out nicely if there are 5 marker genes per cluster
+  # This layout works out nicely if there are 4 marker genes per cluster
   p_list = list()
   for(i in 1:nrow(markers_top)) { 
     p_list[[i]] = Seurat::VlnPlot(sc, features=markers_top$gene[i], assay=param$assay_raw, pt.size=0, cols=param$col_clusters) + 
-      AddStyle(title=markers_top$labels[i], xlab="")
+      AddStyle(title=markers_top$labels[i], xlab="") + 
+      theme(axis.text.x = element_text(angle=45, hjust=1, vjust=1)) 
   }
-  p = patchwork::wrap_plots(p_list, ncol=5) + 
+  p = patchwork::wrap_plots(p_list, ncol=3) + 
     patchwork::plot_annotation(title="Violin plot of for normalised gene expression data, top marker genes per cluster") & theme(legend.position="none")
   p
 }
 ```
 
 ### Dot plot (scaled)
+
 ```{r markers_plot_dot_scaled, eval=markers_found, fig.height=fig_height_dp_2cols}
 if (markers_found) {
   # Visualises how feature expression changes across different clusters
@@ -2314,6 +2362,7 @@ if (markers_found) {
 ```
 
 ### Dot plot (non-scaled)
+
 ```{r markers_plot_dot_nonscaled, eval=markers_found, fig.height=fig_height_dp_2cols}
 if (markers_found) {
   # Visualises how feature expression changes across different clusters
@@ -2335,6 +2384,7 @@ if (markers_found) {
 
 ## Expression per cluster per sample {.tabset}
 If the dataset contains multiple samples, we can visualise the expression of a gene that is up-regulated in a cluster separately for each sample. For each cluster, we extract up-regulated genes, and visualise expression of these genes in all cells in that cluster, split by their sample of origin. 
+
 ```{r markers_plot_dotplotpercl_height}
 fig_height_degs_per_cl = max(5, 
                              max(2, 0.3 * (sc$orig.ident %>% unique() %>% length())) * length(levels(sc$seurat_clusters)) * 2) # We multiply by 2, as the legend requires quite some space
@@ -2342,6 +2392,7 @@ fig_height_degs_per_cl = max(5,
 
 ### Scaled dotplots
 First, we plot scaled expression as explained above (see section Known marker genes). This plot allows us to judge whether the expression of a gene is increased in one sample as compared to the other samples.
+
 ```{r markers_plot_dotplotpercl_scaled, fig.height=fig_height_degs_per_cl, eval=markers_found}
 if (markers_found) {
   p_list = list()
@@ -2366,6 +2417,7 @@ if (markers_found) {
 
 ### Non-scaled dotplots
 Second, we plot normalised expression with no further scaling. This plot helps to get an impression of the total expression of a gene. 
+
 ```{r markers_plot_dotplotpercl_unscaled, fig.height=fig_height_degs_per_cl, eval=markers_found}
 if (markers_found) {
   n_genes_max_dotplot = 50
@@ -2390,6 +2442,7 @@ if (markers_found) {
 
 ## Heatmaps {.tabset}
 ### All up- and down-regulated genes
+
 ```{r markers_heatmap_all, eval=markers_found, fig.height=20}
 if (markers_found) {
   # This will sample 500 cells; the number of cells per seurat_cluster will be proportional
@@ -2405,6 +2458,7 @@ if (markers_found) {
 ```
 
 ### Top 300 up-regulated genes
+
 ```{r markers_heatmap_top_up, eval=markers_found, fig.height=20}
 if (markers_found) {
   # This will sample 500 cells; the number of cells per seurat_cluster will be proportional
@@ -2428,6 +2482,7 @@ if (markers_found) {
 ```
 
 ### Top 300 down-regulated genes
+
 ```{r markers_heatmap_top_down, eval=markers_found, fig.height=20}
 if (markers_found) {
   # This will sample 500 cells; the number of cells per seurat_cluster will be proportional
@@ -2454,6 +2509,7 @@ if (markers_found) {
 To gain first insights into potential functions of cells in a cluster, we test for over-representation of functional terms amongst up- and down-regulated genes of each cluster. Over-represented terms are written to file.  
 
 We first translate gene symbols of up- and down-regulated genes per cluster into Entrez gene symbols, and then use the "enrichR" R-package to access the "Enrichr" website `r Cite("https://amp.pharm.mssm.edu/Enrichr/", "citep")`. You can choose to test functional enrichment from a wide range of databases:
+
 ```{r enrichr_databases}
 # Set Enrichr database
 enrichR::setEnrichrSite(param$enrichr_site)
@@ -2759,7 +2815,7 @@ for (i in seq(degs)) {
     # Feature plot of top 4 genes, sorted by the p-value
     degs_top = degs[[i]][[j]]$results %>% dplyr::top_n(n=-4, wt=p_val) %>% dplyr::top_n(n=-4, wt=avg_log2FC) %>% dplyr::pull(gene)
     if (length(degs_top) > 0) {
-      p_list = Seurat::FeaturePlot(sc, features=degs_top, cols=c("lightgrey", param$col), combine=FALSE, label=TRUE)
+      p_list = Seurat::FeaturePlot(sc, features=degs_top, cols=c("lightgrey", param$col), combine=FALSE, label=FALSE)
       for (p in seq(p_list)) p_list[[p]] = p_list[[p]] + AddStyle(legend_position="bottom", xlab="", ylab="")
       degs[[i]][[j]]$plot_feature = patchwork::wrap_plots(p_list, ncol=ifelse(length(degs_top) > 1, 2, 1))
     } else {
@@ -2769,7 +2825,7 @@ for (i in seq(degs)) {
 }
 ```
 
-```{r deg_print_summary_to_html, fig.show="asis", results="asis"}
+```{r degs_print_summary_to_html, fig.show="asis", results="asis"}
 knitr_header_string = "
 
 ## {{condition_column}}: {{condition_group1}} vs {{condition_group2}}
@@ -2860,6 +2916,7 @@ for (i in seq(degs)) {
 ```
 
 # Output
+
 ```{r postprocess_sc, warning=FALSE, results="hide"}
 # Add colour lists for orig.dataset
 col = GenerateColours(num_colours=length(levels(sc$orig.dataset)), names=levels(sc$orig.dataset), palette=param$col_palette_samples, alphas=1)
@@ -2877,6 +2934,7 @@ sc@misc$technical = data.frame(ScrnaseqSessionInfo(param$path_to_git))
 
 ## Export to Loupe Cell Browser
 If all provided datasets are of type "10x", we export the UMAP 2D visualisation, metadata such as the cell clusters, and lists of differentially expressed genes, so you can open and work with these in the Loupe Cell Browser `r Cite("https://support.10xgenomics.com/single-cell-gene-expression/software/visualization/latest/what-is-loupe-cell-browser", "citep")`.  
+
 ```{r loupe_export, warning=FALSE, results="hide"}
 if (all(param$path_data$type == "10x")) { 
   
@@ -2938,7 +2996,7 @@ Result files are:
 
 Copy/upload to data  directory of your cellxgene browser
 
-## Export to the Cerebro browser
+## Export to Cerebro browser
 We export the assay data, clustering, visualisation, marker genes, enriched pathways and degs in a format that can be read by the Cerebro Browser `r Cite("https://github.com/romanhaa/cerebroApp/", "citep")`.
 
 ```{r cerebro_export, message=FALSE, warning=FALSE}
@@ -2958,6 +3016,7 @@ Result files are:
 Load into Cerebro browser.
 
 ## Other output files
+
 ```{r output_files}
 # Seurat object
 saveRDS(sc, file=file.path(param$path_out, "data", "sc.rds"))
@@ -2974,7 +3033,7 @@ invisible(ExportSeuratAssayData(sc,
 openxlsx::write.xlsx(x=sc[[]] %>% tibble::rownames_to_column(var="Barcode"), file=file.path(param$path_out, "data", "cell_metadata.xlsx"), rowNames=FALSE, colNames=TRUE)
 
 # Annotation as excel file
-openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)]) %>%
+openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)], row.names=rownames(sc)) %>%
                        dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
                      file=file.path(param$path_out, "annotation", "gene_annotation.xlsx"), 
                      rowNames=FALSE, colNames=TRUE)
@@ -2998,24 +3057,24 @@ openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat
 Result files are:
 
   * annotation/
-    * gene_annotation.xlsx: Ensembl annotation of the genes in Excel format
-    * cell_cycle_markers.xlsx: Markers for cell cycle phases in Excel format
-    * species_gene_ensembl.vEnsembl.annot.txt: Raw annotation downloaded from Ensembl as tab-separated file
+    * gene_annotation.xlsx: Ensembl annotation of the genes (Excel format)
+    * cell_cycle_markers.xlsx: Markers for cell cycle phases (Excel format)
+    * species_gene_ensembl.vEnsembl.annot.txt: Raw annotation downloaded from Ensembl (tab-separated file)
   * data/
     * sc.rds: Seurat object for import into R
-    * cell_metadata.xlsx: Cell metadata in Excel format
-    * counts: Raw counts of the entire dataset as sparse matrix
-    * subset_500_cells_normalised_data.xlsx: Normalised subset of 500 cells in Excel format (for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/))
-    * subset_500_cells_scaled_data.xlsx: Normalised and scaled subset of 500 cells in Excel format (for heatmap plotting with morpheus)
-    * subset_500_cells_column_annotations.xlsx: Cell annotations for the 500 cells subset in Excel format (for heatmap plotting with morpheus)
+    * cell_metadata.xlsx: Cell metadata (Excel format)
+    * counts: Raw counts of the entire dataset (sparse matrix)
+    * subset_500_cells_normalised_data.xlsx: Normalised subset of 500 cells for heatmap plotting with morpheus (https://software.broadinstitute.org/morpheus/) (Excel format)
+    * subset_500_cells_scaled_data.xlsx: Normalised and scaled subset of 500 cells for heatmap plotting with morpheus (Excel format)
+    * subset_500_cells_column_annotations.xlsx: Cell annotations for the 500 cells subset (Excel format)
   * figures/
-    * all plots of the HTML report in PNG and PDF format
+    * all plots of the HTML report (PNG and PDF format)
   * marker_degs/
-    * markers_cluster_vs_rest.xslx: Marker genes for each cluster in Excel format
-    * functions_marker_up_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the up-regulated markers for cluster 1,2,3,... in Excel format
-    * functions_marker_down_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the down-regulated markers for cluster 1,2,3,... in Excel format
-    * degs_contrast_row_[1,2,3,...]_results.xlsx: Results (genes) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
-    * degs_contrast_row_[1,2,3,...]_functions.xlsx: Results (enriched functions and pathways) of the DEG analysis specified in the first,second,third,... row of the configuration parameter (Excel format)
+    * markers_cluster_vs_rest.xslx: Marker genes for each cluster (Excel format)
+    * functions_marker_up_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the up-regulated markers for cluster 1, 2, 3, ... (Excel format)
+    * functions_marker_down_cluster_[1,2,3,...]_vs_rest.xslx: Biological functions and pathways that were found enriched in the down-regulated markers for cluster 1, 2, 3, ... (Excel format)
+    * degs_contrast_row_[1,2,3,...]_results.xlsx: Results (genes) of the DEG analysis specified in the first, second, third, ... row of the configuration parameter (Excel format)
+    * degs_contrast_row_[1,2,3,...]_functions.xlsx: Results (enriched functions and pathways) of the DEG analysis specified in the first, second, third, ... row of the configuration parameter (Excel format)
 
 # Parameter table
 The following parameters were used to run the workflow.  
@@ -3038,7 +3097,7 @@ knitr::kable(out, align="l") %>%
 ```
 
 # Credits and References
-This Workflow was developed as part of the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository by Katrin Sameith and Andreas Petzold at the [Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/) (Dresden, Germany), in collaboration with Torsten Glomb, Maike Kosanke and Oliver Dittrich at the [Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics) (Hannover, Germany). The Seurat Vignettes were initially used as templates. 
+This Workflow was developed as part of the [scrnaseq](https://github.com/ktrns/scrnaseq) GitHub repository by Katrin Sameith and Andreas Petzold at the [Dresden-concept Genome Center, TU Dresden](https://genomecenter.tu-dresden.de/) (Dresden, Germany), in collaboration with Torsten Glomb, Maike Kosanke and Oliver Dittrich at the [Research Core Unit Genomics, Hannover Medical School](https://www.mhh.de/genomics) (Hannover, Germany). Seurat Vignettes were initially used as templates. 
 
 ```{r bib, message=FALSE}
 # Writes knitcitations references to references.bib file.
