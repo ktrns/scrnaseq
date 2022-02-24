@@ -21,7 +21,7 @@ params:
   #   NULL to deactivate
   downsample_cells_n: NULL
   
-  # Downsample all samples equally according to the smalles sample
+  # Downsample all samples equally according to the smallest sample
   #   TRUE/FALSE
   #   Overwritten by downsample_cells_n
   downsample_cells_equally: TRUE
