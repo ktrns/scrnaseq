@@ -30,6 +30,9 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
                                                                           "Custom"="Custom", 
                                                                           "ERCC"="ERCC")
   
+  # Setting this is neccessary for big tables
+  Sys.setenv("VROOM_CONNECTION_SIZE" = 131072*10)
+  
   # Read counts data
   if (!file.exists(counts_table)) stop(sprintf("ReadCountsTable: The counts file %s does not exist!",counts_table))
   feature_data = readr::read_delim(counts_table, delim=sep, col_names=TRUE, comment="#", progress=FALSE, col_types = readr::cols())

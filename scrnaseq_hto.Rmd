@@ -1,26 +1,18 @@
 ---
 date: "`r format(Sys.time(), '%B, %Y')`"
 geometry: margin=2cm
-output:
-   html_document:
-    toc: true
-    toc_depth: 4
-    toc_float: true
-    code_folding: hide
-    highlight: tango
-    theme: paper
 params:
   # Author
   author: !r Sys.info()[["user"]]
 
   # Project ID
-  project_id: HTO_testDataset 
+  project_id: "HTO_testDataset "
    
   # Input directory
-  path_data: test_datasets/10x_pbmc_hto_GSE108313/counts
+  path_data: "test_datasets/10x_pbmc_hto_GSE108313/counts"
   
   # Metrics summary
-  stats:
+  stats: NULL
    
   # Output directory
   path_out: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
@@ -57,32 +49,59 @@ params:
   # Debugging mode: 
   # "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
   debugging_mode: "default_debugging"
-title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
-subtitle: "Demultiplexing with hashtag oligos"
+  
+  # Number of cores to use
+  cores: 4
+  
+output:
+   html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: "hide"
+    highlight: "tango"
+    theme: "paper"
+    
+bibliography: "`r file.path(params$path_out, 'references.bib')`"
+title: "Demultiplexing of 10x single-cell data using hashtag oligos"
+subtitle: "project `r params$project_id`"
 author: "`r params$author`"
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
 # R Options
 options(stringsAsFactors=FALSE,
-        "citation_format"="pandoc", 
+        citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
-        future.globals.maxSize=2000000000, mc.cores=4, 
+        kableExtra_view_html=TRUE,
+        future.globals.maxSize=+Inf,
+        mc.cores=params$cores, 
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
+
+# Python3 needed for clustering, umap, other python packages
+# Path to binary will be automatically found
+# Set manually if it does not work
+reticulate_python3_path = unname(Sys.which("python3"))
+Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
 library(magrittr) # %>% operator
+library(reticulate) # required for "leiden" clustering
+library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr
-# Tables: kableExtra
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
+# Tables: kableExtra, DT
 # Plots: ggsci
+# IO: openxlsx, readr, R.utils
+# Other: sessioninfo, ROpenSci/bibtex, knitcitations
+
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE,                     # output code
@@ -99,9 +118,15 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       fig.retina=2                   # retina multiplier for HTML output (note: final = dpi*fig.retina)
                                      
 )
+
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
+invisible(knitcitations::citep(citation("knitr")))
 ```
 
 ```{r preparation_and_initial_checks}
+# The params object should not be modified because R/knitr seem load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
+param = params
+
 # Path for figures in png and pdf format
 knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
 

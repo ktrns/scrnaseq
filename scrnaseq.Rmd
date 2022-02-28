@@ -6,7 +6,7 @@ params:
   author: !r Sys.info()[["user"]]
 
   # Project ID
-  project_id: pbmc
+  project_id: "pbmc"
    
   # Path to input data
   path_data: !r data.frame(name=c("pbmc_10x","pbmc_smartseq2"), 
@@ -17,21 +17,22 @@ params:
   # Data type ("RNA", "Spatial")
   assay_raw: "RNA"
   
-  # Downsample data to at most n cells per sample (mainly for tests)
+  # Downsample data to at most n cells per sample
   #   NULL to deactivate
-  downsample_cells_n: 100
+  downsample_cells_n: NULL
 
-  # Path to output directory
-  path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
+  # Path to output directory and whether existing results should be overwritten (true/false)
+  path_out: "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
+  overwrite: true
 
   # Marker genes based on literature, translated to Ensembl IDs
   #   xlsx file, one list per column, first row as header and Ensembl IDs below
   #   NULL if no known marker genes should be plotted
-  file_known_markers: test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx
+  file_known_markers: "test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx"
    
   # Annotation via biomaRt
-  mart_dataset: hsapiens_gene_ensembl
-  annot_version: 98
+  mart_dataset: "hsapiens_gene_ensembl"
+  annot_version: "98"
   annot_main: !r c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
   mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
                         c("chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
@@ -62,7 +63,7 @@ params:
   # Normalisation parameters #
   ############################
   # Which normalisation should be used for analysis? ("RNA", "SCT")
-  norm: RNA
+  norm: "RNA"
 
   # Whether or not to remove cell cycle effects
   cc_remove: !r FALSE
@@ -117,7 +118,7 @@ params:
   cluster_resolution_test: !r c(0.3, 0.7)
   
   # Cluster resolution to use for analysis
-  cluster_resolution: 0.5
+  cluster_resolution: 1.5
   
   #######################################################
   # Marker genes and genes with differential expression #
@@ -186,7 +187,7 @@ params:
    
   # Debugging mode: 
   # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
-  debugging_mode: "default_debugging"
+  debugging_mode: "print_traceback"
   
   # Number of cores to use
   cores: 4
@@ -199,8 +200,10 @@ output:
     code_folding: "hide"
     highlight: "tango"
     theme: "paper"
+    
 bibliography: "`r file.path(params$path_out, 'references.bib')`"
-title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
+title: "Single-cell RNA-seq data analysis"
+subtitle: "project `r params$project_id`"
 author: "`r params$author`"
 ---
 
@@ -210,10 +213,10 @@ options(stringsAsFactors=FALSE,
         citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
-        kableExtra_view_html=TRUE,
+        kableExtra_view_html=interactive(),
         future.globals.maxSize=+Inf,
         mc.cores=params$cores, 
-        future.fork.enable=TRUE, future.plan="multicore",
+        #future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
 
 # Python3 needed for clustering, umap, other python packages
@@ -266,13 +269,10 @@ cat(paste0('<link rel="stylesheet" href="', params$path_to_git, '/css/style.css"
 ```
 
 ```{r preparation_and_initial_checks}
-# Copy input parameters to internal parameter list
+# The params object should not be modified because R/knitr seem load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
 param = params
-if (is.null(param$samples_to_drop )) param$samples_to_drop = c()
-if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
-if (is.null(param$latent_vars)) param$latent_vars = c()
 
-# Git directory and files to source must be done first, then all helper functions can be sourced
+# Source additional R functions from the git directory
 git_files_to_source = c("functions_io.R",
                         "functions_plotting.R",
                         "functions_analysis.R",
@@ -280,10 +280,10 @@ git_files_to_source = c("functions_io.R",
                         "functions_util.R")
 git_files_to_source = file.path(param$path_to_git, "R", git_files_to_source)
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
-if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
+if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please make sure that the parameter 'path_to_git' points to the git directory!"))
 invisible(purrr::map(git_files_to_source, source))
 
-# Debugging mode: 
+# Debugging mode
 switch (param$debugging_mode, 
         default_debugging=on_error_default_debugging(), 
         terminal_debugger=on_error_start_terminal_debugger(),
@@ -293,13 +293,22 @@ switch (param$debugging_mode,
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
 
-# Create output directories
-if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "figures"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "marker_degs"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "annotation"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "data"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "export"), recursive=TRUE, showWarnings=FALSE)
+# Create output directories and remove content if overwrite is TRUE (except for annotation where we want to keep/re-use the files)
+param$path_out = gsub("/$", "", param$path_out)
+dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
+for(d in c("figures", "marker_degs", "annotation", "data", "export")) {
+  d = file.path(param$path_out, d)
+  dir.create(d, recursive=TRUE, showWarnings=FALSE)
+  
+  if (length(list.files(d)) > 0 & d != "annotation") {
+    if (param$overwrite) {
+      unlink(d, recursive=TRUE)
+      dir.create(d, recursive=TRUE, showWarnings=FALSE)
+    } else {
+      stop(paste("Output directory", d, "already exists but is not empty and parameter 'overwrite' is set to false. Please either delete all files in this directory or set parameter 'overwrite' to true so that the script will delete the files."))
+    }
+  }
+}
 
 # Path for figures in png and pdf format (trailing "/" is needed)
 knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
@@ -314,7 +323,12 @@ param$file_cc_genes = file.path(param$path_out, "annotation", "cell_cycle_marker
 error_messages = c()
 
 # Check parameters and parse entries (e.g. numbers) so that they are valid
-param = check_parameters_scrnaseq(param)
+param = check_parameters_scrnaseq(parameter=param)
+if (is.null(param$samples_to_drop)) param$samples_to_drop = c()
+if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
+if (is.null(param$latent_vars)) param$latent_vars = c()
+if (is.null(param$cluster_resolution_test)) param$cluster_resolution_test = c()
+
 error_messages = c(error_messages, param[["error_messages"]])
 # Check installed packages
 error_messages = c(error_messages, check_installed_packages_scrnaseq())
@@ -323,7 +337,7 @@ error_messages = c(error_messages, check_python())
 # Check pandoc
 error_messages = c(error_messages, check_pandoc())
 # Check enrichR
-error_messages = c(error_messages, check_enrichr(param$enrichr_dbs, param$enrichr_site))
+error_messages = c(error_messages, check_enrichr(databases=param$enrichr_dbs, site=param$enrichr_site))
 # Check ensembl
 error_messages = c(error_messages, check_ensembl(biomart="ensembl", 
                                                  dataset=param$mart_dataset, 
@@ -785,7 +799,7 @@ genes_highestExpr_counts$gene = genes_highestExpr
 genes_highestExpr_counts = genes_highestExpr_counts %>% tidyr::pivot_longer(cols=all_of(sc_names))
 genes_highestExpr_counts$name = factor(genes_highestExpr_counts$name, levels=sc_names)
 
-col =  GenerateColours(num_colours=length(genes_highestExpr), names=genes_highestExpr, palette="ggsci::pal_simpsons")
+col =  GenerateColours(num_colours=length(genes_highestExpr), names=genes_highestExpr, palette="ggsci::pal_simpsons", alphas=1)
 p = ggplot(genes_highestExpr_counts, aes(x=name, y=value, col=gene, group=gene)) + 
   geom_point() + 
   AddStyle(title="Top 10 highest expressed genes per sample, added into one list", 
@@ -1206,7 +1220,7 @@ if (param$integrate_samples[["method"]]=="single") {
 ```
 
 ```{r multi_dataset_integration_preparation, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
-if (param$integrate_samples[["method"]]!="single") {
+if (param$integrate_samples[["method"]] != "single") {
   
   # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay except for SCT and add again afterwards
   # Note: not sure whether this is still needed - discuss
@@ -1264,7 +1278,7 @@ if (param$integrate_samples[["method"]]!="single") {
 ```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge")}
 # Data for different samples can be merged if no integration is needed, 
 #   for example, when samples were multiplexed on the same chip
-if (param$integrate_samples[["method"]]=="merge") {
+if (param$integrate_samples[["method"]] == "merge") {
   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project_id)
 
   # Re-score cell cycle effects after merge
@@ -1323,7 +1337,7 @@ if (param$integrate_samples[["method"]]=="merge") {
 
 ```{r multi_dataset_integration_integrate, eval=(param$integrate_samples[["method"]]=="integrate"), include=(param$integrate_samples[["method"]]=="integrate"), warning=FALSE}
 # Standard method for integrating multiple samples. Best performance but computationally intensive.
-if (param$integrate_samples[["method"]]=="integrate") {
+if (param$integrate_samples[["method"]] == "integrate") {
   if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) param$integrate_samples[["use_reciprocal_pca"]] = FALSE
 
   # Run integration
@@ -1349,6 +1363,7 @@ if (param$integrate_samples[["method"]]=="integrate") {
       param$latent_vars = setdiff(param$latent_vars, c("S.Score", "G2M.Score", "CC.Difference"))
     }
   }
+  
   
   # (Re-)Run scaling
   if (param$norm == "RNA") {
@@ -2396,11 +2411,12 @@ if (markers_found) {
   cells_subset = ScSampleCells(sc, n=500, group="seurat_clusters", group_proportional=TRUE, seed=1)
     
   # Heatmap of all differentially expressed genes
-  p = Seurat::DoHeatmap(sc, features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
+  p = Seurat::DoHeatmap(sc, features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) +
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, all genes differentially expressed between a cluster and the rest")
-  p
+  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
+  
+  suppressWarnings(print(p))
 }
 ```
 
@@ -2420,9 +2436,10 @@ if (markers_found) {
   
   # Heatmap of top up-regulated genes
   p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
+  
+  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
   p
 }
 ```
@@ -2443,9 +2460,10 @@ if (markers_found) {
   
   # Heatmap of top down-regulated genes
   p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
+  
+  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
   p
 }
 ```
