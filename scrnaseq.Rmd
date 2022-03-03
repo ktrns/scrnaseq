@@ -796,10 +796,14 @@ genes_highestExpr = lapply(sc_names, function(i) {
 
 genes_highestExpr_counts = purrr::map_dfc(sc[sc_names], .f=function(s) s[[param$assay_raw]][["counts_median"]][genes_highestExpr, ]) 
 genes_highestExpr_counts$gene = genes_highestExpr
-genes_highestExpr_counts = genes_highestExpr_counts %>% tidyr::pivot_longer(cols=all_of(sc_names))
-genes_highestExpr_counts$name = factor(genes_highestExpr_counts$name, levels=sc_names)
+genes_highestExpr_counts$mean = genes_highestExpr_counts %>% dplyr::select(-gene) %>% rowMeans()
+genes_highestExpr_counts = genes_highestExpr_counts %>% dplyr::slice_max(mean, n=10) %>% tidyr::pivot_longer(cols=all_of(sc_names))
+genes_highestExpr = unique(genes_highestExpr_counts$gene)
 
-col =  GenerateColours(num_colours=length(genes_highestExpr), names=genes_highestExpr, palette="ggsci::pal_simpsons", alphas=1)
+genes_highestExpr_counts$gene = factor(genes_highestExpr_counts$gene, levels=genes_highestExpr)
+genes_highestExpr_counts$name = factor(genes_highestExpr_counts$name, levels=sc_names)
+col =  GenerateColours(num_colours=length(genes_highestExpr), names=genes_highestExpr, palette="ggsci::pal_simpsons")
+
 p = ggplot(genes_highestExpr_counts, aes(x=name, y=value, col=gene, group=gene)) + 
   geom_point() + 
   AddStyle(title="Top 10 highest expressed genes per sample, added into one list", 

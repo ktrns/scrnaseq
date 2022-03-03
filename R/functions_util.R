@@ -456,7 +456,7 @@ check_parameters_scrnaseq = function(parameter) {
   
   # Check assay_raw (type of input)
   if ("assay_raw" %in% names(parameter)) {
-    if (!parameter$norm %in% c("RNA", "Spatial")) {
+    if (!parameter$assay_raw %in% c("RNA", "Spatial")) {
       error_messages = c(error_messages, "The parameter 'assay_raw' (type of input) must be one of: 'RNA', 'Spatial'!")
     }
   } else {
