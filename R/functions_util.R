@@ -466,7 +466,7 @@ check_parameters_scrnaseq = function(parameter) {
   # Check downsample_cells_n ###
   if (("downsample_cells_n" %in% names(parameter)) & (!is.null(parameter$downsample_cells_n))) {
     if (!converts_to_number(parameter$downsample_cells_n)) {
-      error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
+      error_messages = c(error_messages, "The parameter 'downsample_cells_n' is not a number!")
     } else {
       parameter$downsample_cells_n = as.numeric(parameter$downsample_cells_n)
     }
@@ -482,7 +482,13 @@ check_parameters_scrnaseq = function(parameter) {
   }
   
   # Check overwrite ###
-  if (!"overwrite" %in% names(parameter)) {
+  if ("overwrite" %in% names(parameter)) {
+    if (converts_to_logical(parameter$overwrite)) {
+      parameter$overwrite = as.logical(parameter$overwrite)
+    } else {
+      error_messages = c(error_messages, "The parameter 'overwrite' is not a logical value!")
+    }
+  } else {
     parameter$overwrite = FALSE
   }
   
@@ -869,7 +875,7 @@ check_parameters_scrnaseq = function(parameter) {
 
   # Check col  ###
   if ("col" %in% names(parameter)) {
-    if (!parameter$col %in% colors() & any(!grepl("#[A-F0-9]", "#1234", ignore.case=TRUE))) {
+    if (!parameter$col %in% colors() & any(!grepl("#[A-F0-9]+", parameter$col, ignore.case=TRUE))) {
       error_messages = c(error_messages, "The parameter 'col' is missing or not a valid colour! Specify either a valid R color name or a color in hex color code.")
     }
   } else {
@@ -884,6 +890,106 @@ check_parameters_scrnaseq = function(parameter) {
   # Check col_palette_clusters  ###
   if (!"col_palette_clusters" %in% names(parameter)) {
     error_messages = c(error_messages, "The parameter 'col_palette_clusters' is missing!")
+  }
+  
+  # Check debugging_mode   ###
+  if ("debugging_mode" %in% names(parameter)) {
+    if (!parameter$debugging_mode %in% c("default_debugging", "terminal_debugger", "print_traceback")) {
+      error_messages = c(error_messages, "The parameter 'debugging_mode' must be one of: 'default_debugging', 'terminal_debugger', 'print_traceback'!")
+    }
+  } else {
+    parameter$debugging_mode = "default_debugging"
+  }
+  
+  # Add to param object and return
+  parameter["error_messages"] = list(NULL)
+  if (length(error_messages) > 0) parameter[["error_messages"]] = error_messages
+  return(parameter)
+}
+
+# Checks if the parameters of the scrnaseq hto workflow are valid and converts them if needed.
+#'
+#' @param parameter The parameter list used by the scrnaseq_hto script.
+#' @return Returns a list with error messages.
+check_parameters_scrnaseq_hto = function(parameter) {
+  error_messages = c()
+  
+  # Check author ###
+  if (!"author" %in% names(parameter)) {
+    error_messages = c(error_messages, "The parameter 'author' is missing!")
+  } else {
+    parameter$author = as.character(parameter$author)
+  }
+  
+  # Check project_id ###
+  if (!"project_id" %in% names(parameter)) {
+    error_messages = c(error_messages, "The parameter 'project_id' is missing!")
+  } else {
+    parameter$project_id = as.character(parameter$project_id)
+  }
+  
+  # Check path_data ###
+  if (!"path_data" %in% names(parameter) | !is.character(parameter$path_data) | !dir.exists(parameter$path_data)) {
+    error_messages = c(error_messages, "The parameter 'path_data' is missing or not a valid path for 10x counts matrix directory!")
+  } else {
+    parameter$path_data = file.path(parameter$path_data)
+  }
+  
+  # Check stats ###
+  if ("stats" %in% names(parameter)) {
+    if (!is.character(parameter$stats) | !file.exists(parameter$stats)) {
+      error_messages = c(error_messages, "The parameter 'stats' is not a valid path for a 10x metrics summary file!")
+    } else {
+      parameter$stats = file.path(parameter$stats)
+    }
+  }
+  
+  # Check path_out ###
+  if (!"path_out" %in% names(parameter)) {
+    error_messages = c(error_messages, "The parameter 'path_out' (path for output) is missing!")
+  } else {
+    parameter$path_out = file.path(parameter$path_out)
+  }
+  
+  
+  # Check downsample_cells_n ###
+  if (("downsample_cells_n" %in% names(parameter)) & (!is.null(parameter$downsample_cells_n))) {
+    if (!converts_to_number(parameter$downsample_cells_n)) {
+      error_messages = c(error_messages, "The parameter 'downsample_cells_n' is not a number!")
+    } else {
+      parameter$downsample_cells_n = as.numeric(parameter$downsample_cells_n)
+    }
+  } else {
+    parameter["downsample_cells_n"] = list(NULL)
+  }
+  
+  # Check overwrite ###
+  if ("overwrite" %in% names(parameter)) {
+    if (converts_to_logical(parameter$overwrite)) {
+      parameter$overwrite = as.logical(parameter$overwrite)
+    } else {
+      error_messages = c(error_messages, "The parameter 'overwrite' is not a logical value!")
+    }
+  } else {
+    parameter$overwrite = FALSE
+  }
+  
+  # Check norm (normalisation)  ###
+  if ("norm" %in% names(parameter)) {
+    if (!parameter$norm %in% c("CLR", "LogNormalize")) {
+      error_messages = c(error_messages, "The parameter 'norm' (normalisation method to use) must be one of: 'CLR', 'LogNormalize'!")
+    }
+  } else {
+    parameter$norm = "CLR"
+  }
+  
+  # Check col  ###
+  if ("col" %in% names(parameter)) {
+    if (!parameter$col %in% colors() & any(!grepl("#[A-F0-9]+", parameter$col, ignore.case=TRUE))) {
+      error_messages = c(error_messages, "The parameter 'col' is missing or not a valid colour! Specify either a valid R color name or a color in hex color code.")
+    }
+  } else {
+    parameter$col = "palevioletred"
   }
   
   # Check debugging_mode   ###
@@ -982,11 +1088,30 @@ check_installed_packages_scrnaseq = function() {
                         "Matrix", "kableExtra", "DT", "ggsci",
                         "openxlsx", "readr", "R.utils", "biomaRt",
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
-                        "knitcitations", "sceasy")
+                        "knitcitations", "sceasy", "ROpenSci")
   
   is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {
-    return(paste0("The R packages '", required_packages[!is_installed],"' are not installed!"))
+    return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
+  } else {
+    return(c())
+  }
+}
+
+#' Checks if all packages required for the scrnaseq hto workflow are installed.
+#'
+#' @return Returns a list with error messages.
+check_installed_packages_scrnaseq_hto = function() {
+  required_packages = c("Seurat", "ggplot2", "patchwork", "magrittr",
+                        "reticulate", "future", "knitr",
+                        "dplyr", "tidyr", "purrr", "stringr", 
+                        "Matrix", "kableExtra", "DT", "ggsci",
+                        "openxlsx", "readr", "R.utils",
+                        "sessioninfo", "knitcitations", "sceasy")
+  
+  is_installed = packages_installed(packages=required_packages)
+  if(any(!is_installed)) {
+    return(paste0("The R package '", required_packages[!is_installed],"' is not installed!"))
   } else {
     return(c())
   }

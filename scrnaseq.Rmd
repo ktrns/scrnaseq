@@ -14,14 +14,14 @@ params:
                            path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
                            stats=c(NA, NA))
 
-  # Data type ("RNA", "Spatial")
+  # Data type ("RNA","Spatial")
   assay_raw: "RNA"
   
   # Downsample data to at most n cells per sample
   #   NULL to deactivate
   downsample_cells_n: NULL
 
-  # Path to output directory and whether existing results should be overwritten (true/false)
+  # Path to output directory and whether existing results should be overwritten (true, false)
   path_out: "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
   overwrite: true
 
@@ -65,14 +65,14 @@ params:
   # Which normalisation should be used for analysis? ("RNA", "SCT")
   norm: "RNA"
 
-  # Whether or not to remove cell cycle effects
+  # Whether or not to remove cell cycle effects (true, false)
   cc_remove: !r FALSE
 
-  # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
+  # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)? (true, false)
   # Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
   cc_remove_all: !r FALSE
    
-  # Whether or not to re-score cell cycle effects after data
+  # Whether or not to re-score cell cycle effects after data (true, false)
   #   from different samples have been merged/integrated
   cc_rescore_after_merge: !r TRUE
 
@@ -167,13 +167,13 @@ params:
   # P-value threshold for functional enrichment tests
   enrichr_padj: 0.05
    
-  # Enrichr databases of interest
+  # Enrichr databases of interest (see Enrichr site for a list of possible databases)
   enrichr_dbs: !r c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018", "Azimuth_Cell_Types_2021", "CellMarker_Augmented_2021", "Descartes_Cell_Types_and_Tissue_2021")
   
   ######################
   # General parameters #
   ######################
-  # Main colour to use for plots
+  # Main colour to use for plots (Any valid R color or RGB hexadecimal code)
   col: "palevioletred"
 
   # Colour palette used for samples
@@ -185,8 +185,7 @@ params:
   # Path to git repository
   path_to_git: "."
    
-  # Debugging mode: 
-  # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
+  # Debugging mode ("default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions)
   debugging_mode: "print_traceback"
   
   # Number of cores to use
@@ -230,18 +229,18 @@ library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
 library(magrittr) # %>% operator
-library(reticulate) # required for "leiden" clustering
+library(reticulate) # required for python (e.g. "leiden" clustering)
 library(enrichR) # functional enrichment
 library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional; for speed but only available for R 4.0)
 # Tables: kableExtra, DT
 # Plots: ggsci
 # IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
-# DEG: mast, limma (for a more efficient implementation of the Wilcoxon Rank Sum Test according to Seurat)
+# DEG: mast, limma (optional; for a more efficient implementation of the Wilcoxon Rank Sum Test according to Seurat)
 # Functional enrichment: enrichR
 # Other: sessioninfo, cerebroApp, sceasy, ROpenSci/bibtex, knitcitations
 
@@ -269,7 +268,7 @@ cat(paste0('<link rel="stylesheet" href="', params$path_to_git, '/css/style.css"
 ```
 
 ```{r preparation_and_initial_checks}
-# The params object should not be modified because R/knitr seem load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
+# The params object should not be modified because R/knitr seems load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
 param = params
 
 # Source additional R functions from the git directory
