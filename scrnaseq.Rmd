@@ -24,7 +24,7 @@ params:
   # Downsample all samples equally according to the smallest sample
   #   TRUE/FALSE
   #   Overwritten by downsample_cells_n
-  downsample_cells_equally: TRUE
+  downsample_cells_equally: FALSE
 
   # Path to output directory
   path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
@@ -1033,11 +1033,11 @@ if (length(p_list)==1) {
 p
 ```
 ```{r downsampling}
-# If requested, determine number of cells for downsampling
-if (is.null(param$downsample_cells_n) & param$downsample_cells_equally) {
-  n = purrr::map_int(sc, ncol) %>% min()  
-} else if (!is.null(param$downsample_cells_n)) {
+# downsample_cells_n overwrites downsample_cells_equally
+if (!is.null(param$downsample_cells_n)) {
   n = param$downsample_cells_n
+} else if (param$downsample_cells_equally) {
+  n = purrr::map_int(sc, ncol) %>% min()  
 }
 
 # Actual downsampling
