@@ -1088,7 +1088,7 @@ check_installed_packages_scrnaseq = function() {
                         "Matrix", "kableExtra", "DT", "ggsci",
                         "openxlsx", "readr", "R.utils", "biomaRt",
                         "MAST", "enrichR", "sessioninfo", "cerebroApp",
-                        "knitcitations", "sceasy", "ROpenSci")
+                        "knitcitations", "sceasy")
   
   is_installed = packages_installed(packages=required_packages)
   if(any(!is_installed)) {

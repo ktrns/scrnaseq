@@ -195,7 +195,10 @@ DegsWriteToFile = function(degs, annot_ensembl, gene_to_ensembl, file, additiona
   
   degs_lst = c(list("README"=readme_table), degs_lst)
   
-  # Fix names that are more 31bp (which is too long for Excel)
+  # Replace characters that are invalid in Excel sheet names
+  names(degs_lst)= make.unique(gsub("[^\\w\\s\\.]+", ".", names(degs_lst), perl=TRUE))
+  
+  # Fix names that are more 31bp and are too long for Excel sheet names
   names(degs_lst) = strtrim(names(degs_lst), 31)
   
   # Output in Excel sheet
@@ -697,7 +700,10 @@ EnrichrWriteResults = function(enrichr_results, file) {
   readme_table = rbind(readme_table, c("Genes.Species", "Species genes in functional annotation (which are translated to Enrichr genes)"))
   enrichr_results = c(list("README"=readme_table), enrichr_results)
   
-  # Fix names that are more 31bp (which is too long for Excel)
+  # Replace characters that are invalid in Excel sheet names
+  names(enrichr_results)= make.unique(gsub("[^\\w\\s\\.]+", ".", names(enrichr_results), perl=TRUE))
+  
+  # Fix names that are more 31bp and are too long for Excel sheet names
   names(enrichr_results) = strtrim(names(enrichr_results), 31)
   
   # Output in Excel sheet

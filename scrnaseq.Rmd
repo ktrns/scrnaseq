@@ -2511,7 +2511,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_", n, "_vs_rest.xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_", make.names(n), "_vs_rest.xlsx")))
   }))
   
   
@@ -2536,7 +2536,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_", n, "_vs_rest.xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_", make.names(n), "_vs_rest.xlsx")))
   }))
   
   # Combine, flatten into data.frame and add to sc misc slot
