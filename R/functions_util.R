@@ -239,15 +239,46 @@ GetBiomaRtMirror = function(mart_obj) {
   return(mirror)
 }
 
-#' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
+#' Make a color brighter.
+#' Inspired by https://gist.github.com/Jfortin1/72ef064469d1703c6b30.
+#' 
+#' @param color A color in string or hex format.
+#' @param factor A factor for how much brighter the color should be (1 - no change). 
+#' @return A color in hex code.
+brighter = function(color, factor=1.5){
+  color = purrr::map_chr(color, function(c) {
+    c = col2rgb(c)*factor
+    c[c>255] = 255
+    return(rgb(t(c), maxColorValue=255))
+  })
+  return(color)
+}
+
+#' Make a color darker
+#' Inspired by https://gist.github.com/Jfortin1/72ef064469d1703c6b30.
+#' 
+#' @param color A color in string or hex format.
+#' @param factor A factor for how much darker the color should be (1 - no change). 
+#' @return A color in hex code.
+darker = function(color, factor=1.5){
+  color = purrr::map_chr(color, function(c) {
+    c = col2rgb(c)/factor
+    c[c>255] = 255
+    return(rgb(t(c), maxColorValue=255))
+  })
+  return(color)
+}
+
+#' Generate colors using a color palette. If the requested number of colors exceeds the number of colors of the respective palette, 
+#' a set of brighter colors and a set of darker colours is added. Alternatively, different alpha (transparency) values can be provided.
 #' 
 #' @param num_colours The number of colours to generate.
 #' @param names A character vector with names to be assigned to the colour values. If NULL, no names. 
 #' @param palette A palette function for generating the colours.
 #' @param palette_options List of additional arguments (beside alpha) to pass on to the palette function.
-#' @param alphas Alpha value(s) to use. If the number of colours exceeds the palette, multiple alpha value are used to generate more colours.
+#' @param alphas Alpha value(s) to use.
 #' @return The generated colours.
-GenerateColours = function(num_colours, names=NULL, palette="ggsci::pal_igv", alphas=c(1,0.7,0.3), palette_options=list()) {
+GenerateColours = function(num_colours, names=NULL, palette="ggsci::pal_igv", alphas=1, palette_options=list()) {
   palette = tryCatch({eval(parse(text=palette))}, error=function(cond) return(NULL))
   if (is.null(palette)) stop("GenerateColours: Could not find specified palette!")
   
@@ -258,7 +289,11 @@ GenerateColours = function(num_colours, names=NULL, palette="ggsci::pal_igv", al
   }))
   
   if (num_colours > length(colours)) {
-    stop("GenerateColours: Cannot generate the requested number of colours since the palette does not provide enough colours. Please change palette or use alpha values.")
+    colours = c(colours, brighter(colours), darker(colours))
+    
+    if (num_colours > length(colours)) {
+      stop("GenerateColours: Cannot generate the requested number of colours. Please change palette or use alpha values.")
+    }
   }
   
   colours = colours[1:num_colours]
@@ -787,7 +822,7 @@ check_parameters_scrnaseq = function(parameter) {
   }
   
   # Check cluster_resolution_test  ###
-  if ("cluster_resolution_test" %in% names(parameter) & !is.null(parameter$samples_to_drop)) {
+  if ("cluster_resolution_test" %in% names(parameter) & !is.null(parameter$cluster_resolution_test)) {
     if (all(purrr::map_lgl(parameter$cluster_resolution_test, converts_to_number))) {
       parameter$cluster_resolution_test = as.numeric(parameter$cluster_resolution_test)
     } else {
@@ -1204,3 +1239,23 @@ Cite = function(reference, type="citet") {
   return(formatted)
 }
 
+#' Returns the ordered tip labels of a phylo class phylogenetic tree.
+#'
+#' @param tree Phylogenetic tree of class phylo.
+#' @return Returns the ordered tip labels.
+tree_tips = function(tree) {
+  # Parse phylo object
+  tip_labels = tree$tip.label
+  nodes = tree$edge[,2]
+  tips = nodes[nodes<=length(tip_labels)]
+  tip_labels = tip_labels[tips]
+  
+  # If 'smaller' labels (~ bigger clusters) are predominately at the end, flip order so that 'smaller' labels (~ bigger clusters) are predominately at the start
+  first_half = ceiling(length(tips)/2)
+  second_half = floor(length(tips)/2)
+  if (sum(tips[1:first_half]) > sum(tips[second_half:length(tips)])) {
+    tip_labels = rev(tip_labels)
+  }
+  
+  return(formatted)
+}
