@@ -81,6 +81,7 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
+reticulate_python3_path = "C:/Users/andpe/AppData/Local/Programs/Python/Python310/python.exe"
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -173,7 +174,7 @@ error_messages = c(error_messages, param[["error_messages"]])
 # Check installed packages
 error_messages = c(error_messages, check_installed_packages_scrnaseq_hto())
 # Check python
-#error_messages = c(error_messages, check_python())
+error_messages = c(error_messages, check_python())
 # Check pandoc
 error_messages = c(error_messages, check_pandoc())
 

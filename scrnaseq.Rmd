@@ -177,10 +177,10 @@ params:
   col: "palevioletred"
 
   # Colour palette used for samples
-  col_palette_samples: "ggsci::pal_jama"
+  col_palette_samples: "ggsci::pal_npg"
    
   # Colour palette used for cluster
-  col_palette_clusters: "ggsci::pal_igv"
+  col_palette_clusters: "ggsci::pal_jama"
    
   # Path to git repository
   path_to_git: "."
@@ -222,6 +222,7 @@ options(stringsAsFactors=FALSE,
 # Path to binary will be automatically found
 # Set manually if it does not work
 reticulate_python3_path = unname(Sys.which("python3"))
+reticulate_python3_path = "C:/Users/andpe/AppData/Local/Programs/Python/Python310/python.exe"
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
@@ -1574,12 +1575,15 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE, k.param=param$c
 
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
 # But we can run multiple resolutions if requested
-sc = Seurat::FindClusters(sc, resolution=cluster_resolutions, algorithm=4, verbose=FALSE, method="igraph")
+sc = Seurat::FindClusters(sc, resolution=cluster_resolutions, algorithm=4, verbose=FALSE)
 
-# Construct phylogenetic tree relating the "average" cell from each cluster for each clustering
+# Construct a phylogenetic tree relating the "average" cell from each cluster for each clustering
+
+
 # Also add colour lists for each clustering
 for(r in cluster_resolutions) {
-  n = paste0(DefaultAssay(sc), "_snn_res.", r)
+  sc = BuildPhylogeneticTree = function(sc, category=paste0(DefaultAssay(sc), "_snn_res.", r), pc_n=pc_n, reorder=FALSE)
+}
   
   # Tree
   if (length(levels(sc[[n, drop=TRUE]])) > 1) {
@@ -1601,9 +1605,11 @@ for(r in cluster_resolutions) {
 # Set default clustering
 n = paste0(DefaultAssay(sc), "_snn_res.", param$cluster_resolution)
 sc$seurat_clusters = sc[[n, drop=TRUE]]
+sc$seurat_clusters_ordered = sc$seurat_clusters
 Seurat::Idents(sc) = sc$seurat_clusters
 if (length(levels(sc$seurat_clusters)) > 1) {
   suppressWarnings({Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Misc(sc, "trees")[[n]]))})
+  sc$seurat_clusters_ordered 
 }
 
 # Set up colors for default clustering
@@ -2412,12 +2418,12 @@ if (markers_found) {
 if (markers_found) {
   # This will sample 500 cells; the number of cells per seurat_cluster will be proportional
   cells_subset = ScSampleCells(sc, n=500, group="seurat_clusters", group_proportional=TRUE, seed=1)
-    
+
   # Heatmap of all differentially expressed genes
-  p = Seurat::DoHeatmap(sc, features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) +
+  p = Seurat::DoHeatmap(sc, group.by="seurat_clusters_ordered", features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) +
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, all genes differentially expressed between a cluster and the rest")
-  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual("Cluster", values=param$col_clusters)})
   
   suppressWarnings(print(p))
 }
@@ -2438,12 +2444,12 @@ if (markers_found) {
     unique()
   
   # Heatmap of top up-regulated genes
-  p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
+  p = Seurat::DoHeatmap(sc, group.by="seurat_clusters_ordered", features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
+  suppressMessages({p = p + scale_fill_viridis_c() + scale_color_manual(values=param$col_clusters)})
   
-  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
-  p
+  suppressWarnings(print(p))
 }
 ```
 
@@ -2465,9 +2471,9 @@ if (markers_found) {
   p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
-  
   suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
-  p
+  
+  suppressWarnings(print(p))
 }
 ```
 

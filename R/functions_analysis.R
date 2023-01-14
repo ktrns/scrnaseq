@@ -25,7 +25,7 @@ CellsFisher = function(sc) {
   return(out)
 }
 
-#' Calculate cell cycle scores
+#' Calculate cell cycle scores.
 #' 
 #' @param sc Seurat object
 #' @param genes_s Vector of gene names characteristic for S-phase
@@ -262,5 +262,39 @@ LogNormalizeCustom = function(sc, assay="RNA", exclude_highly_expressed=FALSE, m
                             slot="data", 
                             assay=assay, 
                             new.data=log1p(Matrix::t(Matrix::t(counts) * size_factors)))
+  return(sc)
+}
+
+#' Build a phylogenetic tree of values of a cell metadata category in gene expression or PCA space.
+#' 
+#' @param sc Seurat object
+#' @param category Cell metadata category
+#' @param pc_n Number of principal components to use. By default NULL meaning gene expression data will be used.
+#' @param reorder Whether to change the category levels according to the order in the phylogenetic tree
+#' @return Updated Seurat object with tree in the misc slot and - if reorder is set to TRUE - reordered metadata category
+BuildPhylogeneticTree = function(sc, category, pc_n=NULL, reorder=FALSE){
+  
+  category_levels = levels(sc[[category, drop=TRUE]])
+  if (length(category_levels) > 1) {
+    # Category has multiple values
+    Seurat::Idents(sc) = category
+    sc = suppressWarnings(Seurat::BuildClusterTree(category, dims=1:pc_n, verbose=FALSE))
+    tree = Seurat::Tool(sc, "Seurat::BuildClusterTree")
+  } else {
+    # Category has only one value - dummy tree
+    tree = ape::read.tree(text = paste0("(,", category_levels, ");"))
+  }
+  
+  # Reordered metadata category if reorder is set to TRUE
+  if (reorder) {
+    tip_labels = tree$tip.label
+    nodes = tree$edge[,2]
+    tips = nodes[nodes<=length(tip_labels)]
+    tips = tip_labels[tips]
+    tips = rev(tips)
+    
+    levels(sc[[category]]) = tips
+  }
+  
   return(sc)
 }
