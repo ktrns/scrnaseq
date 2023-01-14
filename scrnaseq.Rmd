@@ -221,8 +221,8 @@ options(stringsAsFactors=FALSE,
 # Python3 needed for clustering, umap, other python packages
 # Path to binary will be automatically found
 # Set manually if it does not work
-reticulate_python3_path = unname(Sys.which("python3"))
-Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
+#reticulate_python3_path = unname(Sys.which("python3"))
+#Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
