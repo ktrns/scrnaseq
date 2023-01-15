@@ -1578,8 +1578,6 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE, k.param=param$c
 sc = Seurat::FindClusters(sc, resolution=cluster_resolutions, algorithm=4, verbose=FALSE)
 
 # Construct a phylogenetic tree relating the "average" cell from each cluster for each clustering
-
-
 # Also add colour lists for each clustering
 for(r in cluster_resolutions) {
   sc = BuildPhylogeneticTree = function(sc, category=paste0(DefaultAssay(sc), "_snn_res.", r), pc_n=pc_n, reorder=FALSE)
@@ -2269,7 +2267,7 @@ if (markers_found) {
   #   The plot has 5 columns and 1 row per cluster, hence the layout works nicely if we find 
   #     at least 5 markers per cluster
   nr_rows_5cols = ceiling(nrow(markers_top)/5)
-  fig_height_5cols = height_per_row * nr_rows_5cols
+  fig_height_5cols = height_per_row * nr_rows_5cols %>% min(100)
   
   # Dotplots: each row contains 2 plots
   nr_rows_dp_2cols = ceiling(length(levels(sc$seurat_clusters))/2)
@@ -2361,7 +2359,7 @@ if (markers_found) {
 If the dataset contains multiple samples, we can visualise the expression of a gene that is up-regulated in a cluster separately for each sample. For each cluster, we extract up-regulated genes, and visualise expression of these genes in all cells in that cluster, split by their sample of origin. 
 ```{r markers_plot_dotplotpercl_height}
 fig_height_degs_per_cl = max(5, 
-                             max(2, 0.3 * (sc$orig.ident %>% unique() %>% length())) * length(levels(sc$seurat_clusters)) * 2) # We multiply by 2, as the legend requires quite some space
+                             max(2, 0.3 * (sc$orig.ident %>% unique() %>% length())) * length(levels(sc$seurat_clusters)) * 2) %>% min(100) # We multiply by 2, as the legend requires quite some space
 ```
 
 ### Scaled dotplots
@@ -2424,7 +2422,6 @@ if (markers_found) {
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, all genes differentially expressed between a cluster and the rest")
   suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual("Cluster", values=param$col_clusters)})
-  
   suppressWarnings(print(p))
 }
 ```
@@ -2447,9 +2444,8 @@ if (markers_found) {
   p = Seurat::DoHeatmap(sc, group.by="seurat_clusters_ordered", features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
-  suppressMessages({p = p + scale_fill_viridis_c() + scale_color_manual(values=param$col_clusters)})
-  
-  suppressWarnings(print(p))
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual(values=param$col_clusters)})
+  p
 }
 ```
 
@@ -2471,9 +2467,8 @@ if (markers_found) {
   p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
-  suppressMessages({p = p + scale_color_manual(values=param$col_clusters)})
-  
-  suppressWarnings(print(p))
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual(values=param$col_clusters)})
+  p
 }
 ```
 
@@ -3001,7 +2996,9 @@ invisible(ExportSeuratAssayData(sc,
 openxlsx::write.xlsx(x=sc[[]] %>% tibble::rownames_to_column(var="Barcode"), file=file.path(param$path_out, "data", "cell_metadata.xlsx"), rowNames=FALSE, colNames=TRUE)
 
 # Annotation as excel file
-openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)]) %>%
+openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc)) %>%
+                       dplyr::filter(seurat_id %in% names(seurat_rowname_to_ensembl)) %>%
+                       dplyr::mutate(ensembl_gene_id=seurat_rowname_to_ensembl[seurat_id]) %>%
                        dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
                      file=file.path(param$path_out, "annotation", "gene_annotation.xlsx"), 
                      rowNames=FALSE, colNames=TRUE)

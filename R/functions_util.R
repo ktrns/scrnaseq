@@ -822,7 +822,7 @@ check_parameters_scrnaseq = function(parameter) {
   }
   
   # Check cluster_resolution_test  ###
-  if ("cluster_resolution_test" %in% names(parameter) & !is.null(parameter$samples_to_drop)) {
+  if ("cluster_resolution_test" %in% names(parameter) & !is.null(parameter$cluster_resolution_test)) {
     if (all(purrr::map_lgl(parameter$cluster_resolution_test, converts_to_number))) {
       parameter$cluster_resolution_test = as.numeric(parameter$cluster_resolution_test)
     } else {

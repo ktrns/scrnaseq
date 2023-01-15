@@ -273,7 +273,6 @@ LogNormalizeCustom = function(sc, assay="RNA", exclude_highly_expressed=FALSE, m
 #' @param reorder Whether to change the category levels according to the order in the phylogenetic tree
 #' @return Updated Seurat object with tree in the misc slot and - if reorder is set to TRUE - reordered metadata category
 BuildPhylogeneticTree = function(sc, category, pc_n=NULL, reorder=FALSE){
-  
   category_levels = levels(sc[[category, drop=TRUE]])
   if (length(category_levels) > 1) {
     # Category has multiple values
@@ -284,7 +283,7 @@ BuildPhylogeneticTree = function(sc, category, pc_n=NULL, reorder=FALSE){
     # Category has only one value - dummy tree
     tree = ape::read.tree(text = paste0("(,", category_levels, ");"))
   }
-  
+
   # Reordered metadata category if reorder is set to TRUE
   if (reorder) {
     tip_labels = tree$tip.label
@@ -292,9 +291,7 @@ BuildPhylogeneticTree = function(sc, category, pc_n=NULL, reorder=FALSE){
     tips = nodes[nodes<=length(tip_labels)]
     tips = tip_labels[tips]
     tips = rev(tips)
-    
     levels(sc[[category]]) = tips
   }
-  
   return(sc)
 }

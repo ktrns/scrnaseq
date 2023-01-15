@@ -661,5 +661,9 @@ Read10XMetrics = function(file) {
     content = content[, c(5, 6)]
   }
   colnames(content) = c("metric", "value")
+  
+  idx_num = which(suppressWarnings(!is.na(as.numeric(na.omit(content$value)))))
+  content$value[idx_num] = round(as.numeric(content$value[idx_num]), 2)
+  
   return(content)
 }
