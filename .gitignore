@@ -6,6 +6,7 @@
 .DS_Store
 
 /.quarto/
+/_book/
 
 scrnaseq.Rproj
 scrnaseq_files/**
@@ -13,8 +14,7 @@ scrnaseq_files/**
 
 references.bib
 
-test_datasets/**
+datasets/**
 
-workflows/*_cache/**
-workflows/*_files/**
-workflows/*.html
+workflows/**
+!workflows/*.qmd
