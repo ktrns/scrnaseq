@@ -1,0 +1,9 @@
+# Visualisation
+
+This will contain the visualisation steps.
+
+```{r}
+#| cache: true
+
+print(1)
+```

@@ -1,0 +1,19 @@
+R Style Guide
+
+We try to stick to styles defined by Google:
+https://google.github.io/styleguide/Rguide.html
+
+and tidyverse:
+https://style.tidyverse.org/syntax.html
+
+In particular, we use: 
+* FunctionNames (words start with capital letters)
+* object_names (lower letters, words separated by "_")
+* Spaces after commas and not before, after if/for/..., around "="" for assignments
+* If function calls get too long, we use single lines for each argument
+* Function calls as package::function
+
+Exceptions to styles from Google and tidyverse:
+* No spaces around "="" in function calls
+* "=" for assignments, not "<-"
+* Skip function call as package::function for ggplot2 and operators; plus Seurat "subset", where it does not work
