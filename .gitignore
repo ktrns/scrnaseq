@@ -1,20 +1,14 @@
-.Rproj.user
+# Ignore general files and directories
 .Rhistory
 .RData
 .Ruserdata
 .Rproj
+.Rproj.user
 .DS_Store
-
-/.quarto/
-/_book/
-
 scrnaseq.Rproj
-scrnaseq_files/**
+.quarto
+_book
 
-
-references.bib
-
+# Ignore files and directories produced in datasets directories
 datasets/**
-
-workflows/**
-!workflows/*.qmd
+/.quarto/

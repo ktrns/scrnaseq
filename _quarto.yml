@@ -1,2 +1,81 @@
 project:
   type: default
+  execute-dir: project
+  
+author: 
+  - name: "Bfx"
+    email: genomecenter@tu-dresden.de
+    url: www.genomecenter.de
+    affiliations:
+      - name: DRESDEN-concept Genome Center
+        address: Fetscherstrasse 105  
+        city: Dresden
+        state: Saxony
+        postal-code: 01307
+        
+# Format options  
+format:
+  html:
+    theme:
+    - journal
+    embed-resources: true
+    code-fold: true
+    code-summary: Code
+    code-link: true
+    code-block-bg: true
+    df-print: paged
+    toc: true
+    fig-format: png
+    keep-md: false
+    execute:
+      echo: true
+      warning: false
+    knitr:
+      opts_chunk: 
+        dev: ragg_png
+        dpi: 96
+        fig.retina: 2
+        tidy: styler
+        tidy-opts:
+          strict: false
+      opts_knit:
+        dev: !expr 'c("ragg_png", "pdf")'
+  pdf:
+    documentclass: scrreprt
+    toc: true
+    lof: true
+    lot: true
+    fig-format: pdf
+    keep-tex: false
+    df-print: kable
+    execute:
+      echo: false
+      warning: false
+    knitr:
+      opts_chunk: 
+        dev: pdf
+        tidy: styler
+        tidy-opts:
+          strict: false
+    code-block-bg: true
+    include-in-header: 
+      text: |
+        \usepackage{fvextra}
+        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+  docx:
+    reference-doc: docs/template.docx
+    page-width: 8.3
+    toc: true
+    fig-format: png
+    df-print: kable
+    execute:
+      echo: false
+      warning: false
+    knitr:
+      opts_chunk: 
+        dev: ragg_png
+        dpi: 96
+        fig.retina: 2
+        tidy: styler
+        tidy-opts:
+          strict: false

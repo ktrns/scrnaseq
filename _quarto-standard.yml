@@ -1,0 +1,10 @@
+project:
+  type: book
+  
+book:
+  title: "Single-cell analysis results"
+  subtitle: "Sub"
+  chapters:
+  - index.qmd
+  - workflows/preprocessing/preprocessing.qmd
+  - workflows/visualisation/visualisation.qmd

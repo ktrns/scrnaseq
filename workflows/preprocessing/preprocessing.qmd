@@ -5,6 +5,6 @@ This will contain the preprocessing steps.
 ```{r}
 #| cache: true
 
-print(2)
+print(getwd())
 ```
 

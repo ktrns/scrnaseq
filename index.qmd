@@ -1,3 +1,9 @@
 # Start
 
-This is our start.
+-   Introduction
+
+-   Documentation
+
+-   References
+
+-   How to cite (doi at zenodo)
