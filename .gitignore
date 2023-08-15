@@ -6,9 +6,12 @@
 .Rproj.user
 .DS_Store
 scrnaseq.Rproj
-.quarto
-_book
+/.quarto/
+/_book/
 
 # Ignore files and directories produced in datasets directories
-datasets/**
-/.quarto/
+/datasets/**
+
+# Ignore files and directories produced in workflow directories (except qmd files)
+/workflows/**
+/!workflows/**/*.qmd
