@@ -1,4 +1,18 @@
-# Start
+---
+title: Start
+
+author: 
+  - name: "Bfx"
+    email: genomecenter@tu-dresden.de
+    url: www.genomecenter.de
+    affiliations:
+      - name: DRESDEN-concept Genome Center
+        address: Fetscherstrasse 105  
+        city: Dresden
+        state: Saxony
+        postal-code: 01307
+---
+# A
 
 -   Introduction
 
@@ -7,3 +21,11 @@
 -   References
 
 -   How to cite (doi at zenodo)
+
+# B
+
+```{r}
+getOption("kableExtra_view_html")
+```
+
+c

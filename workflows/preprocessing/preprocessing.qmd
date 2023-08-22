@@ -1,10 +1,19 @@
-# Preprocessing
+---
+title: Preprocessing
+params:
+  test: "e"
+---
 
 This will contain the preprocessing steps.
 
 ```{r}
-#| cache: true
+#| label: setup
 
-print(getwd())
+param = params
 ```
 
+```{r}
+print(param)
+```
+
+Blah Blah [see @Xie_2015]

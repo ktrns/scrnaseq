@@ -1,45 +1,47 @@
 project:
   type: default
   execute-dir: project
-  
-author: 
-  - name: "Bfx"
-    email: genomecenter@tu-dresden.de
-    url: www.genomecenter.de
-    affiliations:
-      - name: DRESDEN-concept Genome Center
-        address: Fetscherstrasse 105  
-        city: Dresden
-        state: Saxony
-        postal-code: 01307
-        
-# Format options  
+
+bibliography: "misc/references.bib"
+
+#################
+# Knitr options #
+#################
+knitr:
+  opts_chunk:
+    dpi: 96
+    fig.retina: 2
+    results: hold
+    tidy: styler
+    tidy-opts:
+      strict: false
+  opts_knit:
+    dev: !expr 'c("ragg_png", "cairo_pdf")'
+
+##################
+# Format options #
+##################
 format:
   html:
     theme:
-    - journal
-    embed-resources: true
+    - darkly
+    embed-resources: false
     code-fold: true
     code-summary: Code
     code-link: true
     code-block-bg: true
+    css: css/style.css
     df-print: paged
     toc: true
     fig-format: png
     keep-md: false
     execute:
       echo: true
-      warning: false
+      warning: true
+      message: true
     knitr:
       opts_chunk: 
         dev: ragg_png
-        dpi: 96
-        fig.retina: 2
-        tidy: styler
-        tidy-opts:
-          strict: false
-      opts_knit:
-        dev: !expr 'c("ragg_png", "pdf")'
   pdf:
     documentclass: scrreprt
     toc: true
@@ -54,16 +56,13 @@ format:
     knitr:
       opts_chunk: 
         dev: pdf
-        tidy: styler
-        tidy-opts:
-          strict: false
     code-block-bg: true
     include-in-header: 
       text: |
         \usepackage{fvextra}
         \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
   docx:
-    reference-doc: docs/template.docx
+    reference-doc: misc/template.docx
     page-width: 8.3
     toc: true
     fig-format: png
@@ -74,8 +73,6 @@ format:
     knitr:
       opts_chunk: 
         dev: ragg_png
-        dpi: 96
-        fig.retina: 2
-        tidy: styler
-        tidy-opts:
-          strict: false
+
+params:
+  author: "aba"

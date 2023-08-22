@@ -8,3 +8,4 @@ book:
   - index.qmd
   - workflows/preprocessing/preprocessing.qmd
   - workflows/visualisation/visualisation.qmd
+  - references.qmd
