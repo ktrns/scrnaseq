@@ -17,22 +17,6 @@ The workflow generates an extensive HTML report. Are you curious about what that
 
 If you are a researcher, and you would like to start analysing your own data, the workflow can be your starting point. If you work in a *bioinformatics core facility* and frequently support other researchers with bioinformatics analyses, the workflow can be run in a standardised fashion both interactively in `Rstudio` and on command line. We typically first run the workflow with default parameters, and communicate with our collaborators. We then optimise the parameters in further rounds to improve the results. 
 
-# News
-<a name="news"/>
-
-(2021-12-02)  
-We updated our master code branch, and merged two recent pull requests (see [#92](https://github.com/ktrns/scrnaseq/pull/92) and [#104](https://github.com/ktrns/scrnaseq/pull/104)). 
-
-The most important changes are: 
-
-* Introduced the possiblity to run the workflow directly from command-line ([#86](https://github.com/ktrns/scrnaseq/issues/86))
-* Added UMAPs that display samples separately ([#98](https://github.com/ktrns/scrnaseq/issues/98))
-* Added possibility to adapt dot size in UMAPs ([#99](https://github.com/ktrns/scrnaseq/issues/99))
-* Added UMAPs that show the effect of different cluster resolution values ([#97](https://github.com/ktrns/scrnaseq/issues/97))
-* Updated tables that show QC filtering results ([#95](https://github.com/ktrns/scrnaseq/issues/95))
-* Added extensive explanations into the report ([#43](https://github.com/ktrns/scrnaseq/issues/42))
-
-Stay tuned, we will soon create our first code release! 
 
 # Workflow summary
 <a name="workflow_summary"/>
