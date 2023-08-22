@@ -6,5 +6,13 @@ Our `scrnaseq` singularity container includes all software required to run the w
 
 The container version is written into the workflow output. This way, we can later go back to the same container and rely on software versions to reproduce the analysis. 
 
-As containers are big in space, we decided to share our [DcGC singularity recipes](https://github.com/dcgc-bfx/singularity-single-cell). You can download the recipe and build the container on your own.
+You can download the container as follows: 
 
+1. Install Singularity
+2. Pull container: `singularity pull oras://gcr.hrz.tu-chemnitz.de/dcgc-bfx/singularity/singularity-single-cell:v1.4.0`
+
+You can then run Rstudio-Server:
+
+3. Generate `<my_dir>/rstudio-server/run` and `<my_dir>/rstudio-server/lib` directories
+4. `singularity run -B <my_dir>/rstudio-server/run:/var/run/rstudio-server -B <my_dir>/rstudio-server/lib:/var/lib/rstudio-server --writable-tmpfs --app rserver singularity-single-cell_v1.4.0.sif 8789`
+5. Open localhost:8789 in your web browser

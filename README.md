@@ -55,10 +55,15 @@ Stay tuned, we will soon create our first code release!
    * Dimensionality of the dataset
 * Clustering
 * Visualisation with UMAP
-* Distribution of cells in clusters
+* Distribution of samples in clusters
 * Cell Cycle Effect
 * Cluster QC
 * Known marker genes
+* Marker genes
+    * Table to top marker genes
+    * Visualisation of top marker genes
+    * Heatmaps
+    * Functional enrichment analysis
 * Differentially expressed genes
 * Output   
    * Export to Loupe Cell Browser

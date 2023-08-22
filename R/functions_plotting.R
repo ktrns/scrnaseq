@@ -24,6 +24,39 @@ AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_p
     if (!is.null(ylab)) ylab(ylab)
   )
 }
+
+#' Plot the number of DEGs per test.
+#' 
+#' @param markers Result table of the "Seurat::FindAllMarkers" function.
+#' @param group Group results by column for plotting.
+#' @param title Plot title.
+#' @return A ggplot object.
+MarkersPlotNumbers = function(markers, group=NULL, title=NULL) {
+  
+  markers_up = markers %>% dplyr::filter(avg_log2FC > 0)
+  markers_down = markers %>% dplyr::filter(avg_log2FC < 0)
+  
+  if ((nrow(markers_up) > 0) | (nrow(markers_down) > 0)) {
+    markers_n = rbind(data.frame(markers_up, Direction=rep("Up", nrow(markers_up))), data.frame(markers_down, Direction=rep("Down", nrow(markers_down))))
+    
+    if (!is.null(group)) {
+      markers_group_levels = unique(levels(markers_up[, group, drop=TRUE]), levels(markers_down[, group, drop=TRUE]))
+      markers_n$Identity = factor(markers_n[, group, drop=TRUE], levels=markers_group_levels)
+    } else {
+      markers_n$Identity = as.factor("Genes")
+    }
+    
+    markers_n = markers_n %>% dplyr::group_by(Identity, Direction) %>% dplyr::summarise(n=length(Direction))
+    p = ggplot(markers_n, aes(x=Identity, y=n, fill=Direction)) + 
+      geom_bar(stat="identity") +
+      xlab(group) +
+      AddStyle(title=title,
+               fill=setNames(c("steelblue", "darkgoldenrod1"), c("Down", "Up"))) +
+      scale_x_discrete(drop=FALSE)
+    return(p)
+  }
+}
+
 #' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
 #' 
 #' @param x: A matrix cells (rows) x htos (cols).
