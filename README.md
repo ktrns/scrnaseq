@@ -1,6 +1,5 @@
 # Table of contents
 * [Introduction](#introduction) 
-* [News](#news) 
 * [Workflow summary](#workflow_summary)
 * [Quick start](#quick_start)
 * [Documentation](#documentation)
