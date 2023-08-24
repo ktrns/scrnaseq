@@ -711,7 +711,7 @@ sc = purrr::map(list_names(sc), function(n) {
 ```{r qc_plot_cells, fig.height=10}
 # QC metrics to plot for cells
 cell_qc_features = c(paste0(c("nFeature_", "nCount_"), param$assay_raw), "percent_mt")
-if ("DoubletScore" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_QC_features, "DoubletScore")
+if ("DoubletScore" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "DoubletScore")
 if ("percent_ercc" %in% colnames(sc_cell_metadata)) cell_qc_features = c(cell_qc_features, "percent_ercc")
 cell_qc_features = values_to_names(cell_qc_features)
 
