@@ -54,6 +54,7 @@ params:
   # Doublet scores can be provided automatically via metadata.tsv.gz in path_data
   # NULL if no doublet scores are provided in metadata
   doublets: NULL
+  doublets_prediction: NULL
 
   #####################
   # Filter parameters #
@@ -590,8 +591,10 @@ if (!is.null(param$file_contam_cells) && file.exists(param$file_contam_cells)) {
 
 # Rename doublet scores
 for (i in seq(sc)) {
-  if (!is.null(param$doublets)) {
-    sc[[i]][[]] = dplyr::rename(sc[[i]][[]], DoubletScore=param$doublets)
+  if (!is.null(param$doublets)) {                         
+    sc[[i]]@meta.data = dplyr::rename(sc[[i]][[]], 
+                                      DoubletScore=param$doublets, 
+                                      IsDoublet=param$doublets_prediction)
   } 
 }
 ```
@@ -2098,7 +2101,7 @@ if ("DoubletScore" %in% colnames(sc[[]])) {
              xlab="Cluster", legend_position="none")
   p = p1 | p2 
   p = p + patchwork::plot_annotation(title="Doublet score")
-  p
+  print(p)
   
   m = c("DoubletScore", paste0("nFeature_", param$assay_raw))
   p = ggplot(sc[[c(m, "seurat_clusters")]], aes(x=!!sym(m[1]), y=!!sym(m[2]), colour=seurat_clusters)) + 
@@ -2106,7 +2109,7 @@ if ("DoubletScore" %in% colnames(sc[[]])) {
     AddStyle(col=param$col_clusters) +
     facet_wrap(~seurat_clusters) +
     theme(legend.position = "none")
-  p
+  print(p)
 } else {
   message("No doublet scores found.")
 }
@@ -2128,7 +2131,7 @@ if ("DoubletScore" %in% colnames(sc[[]])) {
              xlab="Cluster", legend_position="none")
   p = p1 | p2 
   p = p + patchwork::plot_annotation(title="Doublet score")
-  p
+  print(p)
   
   m = c("DoubletScore", paste0("nFeature_", param$assay_raw))
   p = ggplot(sc[[c(m, "seurat_clusters")]], aes(x=!!sym(m[1]), y=!!sym(m[2]), colour=seurat_clusters)) + 
@@ -2136,7 +2139,7 @@ if ("DoubletScore" %in% colnames(sc[[]])) {
     AddStyle(col=param$col_clusters) +
     facet_wrap(~seurat_clusters) +
     theme(legend.position = "none")
-  p
+  print(p)
 } else {
   message("No doublet scores found.")
 }
