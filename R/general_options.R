@@ -19,3 +19,6 @@ options(Seurat.object.assay.version="v5")
 # Python3 path needed for clustering, umap, other python packages
 reticulate_python3_path = unname(Sys.which("python3"))
 Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
+
+# Buffer for reading large text files
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)

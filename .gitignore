@@ -19,3 +19,6 @@ scrnaseq.Rproj
 # Ignore files and directories produced at the project level
 /index.html
 /index_files
+
+# Ignore quarto local files that should not be cached
+environment.local
