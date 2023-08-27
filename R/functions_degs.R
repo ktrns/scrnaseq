@@ -206,37 +206,6 @@ DegsWriteToFile = function(degs, annot_ensembl, gene_to_ensembl, file, additiona
   return(file)
 }
 
-#' Plot the number of DEGs per test.
-#' 
-#' @param degs Result table of the "Seurat::FindAllMarkers" function.
-#' @param group Group results by column for plotting.
-#' @param title Plot title.
-#' @return A ggplot object.
-DegsPlotNumbers = function(degs, group=NULL, title=NULL) {
-  
-  degs_up = degs %>% dplyr::filter(avg_log2FC > 0)
-  degs_down = degs %>% dplyr::filter(avg_log2FC < 0)
-  
-  if ((nrow(degs_up) > 0) | (nrow(degs_down) > 0)) {
-    degs_n = rbind(data.frame(degs_up, Direction=rep("Up", nrow(degs_up))), data.frame(degs_down, Direction=rep("Down", nrow(degs_down))))
-    
-    if (!is.null(group)) {
-      degs_group_levels = unique(levels(degs_up[, group, drop=TRUE]), levels(degs_down[, group, drop=TRUE]))
-      degs_n$Identity = factor(degs_n[, group, drop=TRUE], levels=degs_group_levels)
-    } else {
-      degs_n$Identity = as.factor("Genes")
-    }
-    
-    degs_n = degs_n %>% dplyr::group_by(Identity, Direction) %>% dplyr::summarise(n=length(Direction))
-    p = ggplot(degs_n, aes(x=Identity, y=n, fill=Direction)) + 
-      geom_bar(stat="identity") +
-      xlab(group) +
-      AddStyle(title=title,
-               fill=setNames(c("steelblue", "darkgoldenrod1"), c("Down", "Up")))
-    return(p)
-  }
-}
-
 #' Returns an empty deg test table with the columns 'p_val', 'avg_log2FC', 'pct.1', 'pct.2', 'p_val_adj' and 'gene'.
 #' 
 #' @param col_def Additional columns.
@@ -721,6 +690,6 @@ FlattenEnrichr = function(enrichr_results) {
   enrichr_results_flat = purrr::map(names(enrichr_results), function(n) {
     return(data.frame(Database=rep(n, nrow(enrichr_results[[n]])), enrichr_results[[n]]))
   })
-  enrichr_results_flat = purrr::invoke(dplyr::bind_rows, enrichr_results_flat)
+  enrichr_results_flat = purrr::exec(dplyr::bind_rows, !!!enrichr_results_flat)
   return(enrichr_results_flat)
 }

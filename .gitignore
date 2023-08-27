@@ -13,3 +13,6 @@ test_datasets/**/*csv
 .DS_Store
 references.bib
 scrnaseq_files/**
+scrnaseq_bfx*.Rmd
+scrnaseq_bfx*.html
+rstudio-server/**

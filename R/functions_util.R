@@ -1091,7 +1091,7 @@ check_enrichr = function(databases, site="Enrichr") {
   suppressMessages(enrichR::setEnrichrSite(site))
 
   # Are databases available at all
-  available_databases = tryCatch({ enrichR::listEnrichrDbs()[,"libraryName"] }, error=function(e) {return(NULL) })
+  available_databases = tryCatch({ enrichR::listEnrichrDbs()[, "libraryName"] }, error=function(e) {return(NULL) })
   if (is.null(available_databases)) return("Could not list databases available at enrichR! Please check the enrichR vignette!")
   
   

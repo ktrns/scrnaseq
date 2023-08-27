@@ -40,9 +40,17 @@ For dataset type `smartseq2`, cell names can contain plate information in the fo
 
 When providing multiple datasets, cell names are expected to be unique. If not, they will be made unique by adding a numerical suffix. Furthermore, it is highly recommended to use Ensembl ids as gene ids. If not, then it should be made sure that the gene ids are unique and only contain only letters, digits, hyphens and dots.
 
+#### __`assay_raw`__
+
+"RNA" or "Spatial"
+
 #### __`downsample_cells_n`__
 
 Downsample data  to `n` cells for each sample (mainly for tests); set to NULL to deactivate
+
+#### __`downsample_cells_equally`__
+
+Downsample all samples equally according to the smalles sample
 
 #### __`path_out`__
 
@@ -51,6 +59,10 @@ Path to an output directory (will be created if it does not exist)
 #### __`file_known_markers`__
 
 Path to an Excel file with marker genes based on literature. There should be one list per column with the first row as header and the gene ids listed below. The expression of known marker genes will be visualised in the report. 
+
+#### __`file_contam_cells`__
+
+Cell IDs that are to be excluded for the analysis; if `NULL`, no cells will be excluded
 
 #### __`mart_dataset`__
 
@@ -72,13 +84,13 @@ Gene annotation attributes to include when fetching gene annotation from Ensembl
 
 `biomaRt` mirror to query Ensembl (`www`, `useast`, `uswest` or `asia`; if `NULL`, the mirror will be automatically selected)
 
-#### __`file_annot`__
-
-Instead of fetching the gene annotation from Ensembl servers, read it from an external file. Note that by default the gene annotation will be fetched only once and is then saved in a separate file. Use this argument only if there is no access to Ensembl at all.
-
 #### __`mt`__
 
 Prefix of mitochondrial genes, usually `^MT-` for human, `^Mt-` for mouse and `^mt-` for zebrafish. The caret indicates the prefix.
+
+#### __`doublets`__
+
+Column name for doublet scores in metadata; set to NULL if not doublet scores are provided.
 
 ### Filtering
 <a name="documentation_scrnaseq_arguments_filtering"/>
@@ -170,9 +182,21 @@ Note that the integration methods `standard`, `reference` and `reciprocal` are o
 
 The number of principle components (PCs) used for dimensionaly reduction. After normalisation, scaling and integration (if requested), a principle component analysis (PCA) is done. To denoise the dataset and to reduce the complexity of the analysis, only the first `n` components are kept for further analysis such as clustering and visualisation. This parameter can be adjusted based on the Elbow plot in the report, which shows the percentage of variation explained by the PCs. A good number of PCs can be estimated based on where the plot reaches a plateau phase such that further PCs contribute only marginally to the variation. 
 
+#### __`cluster_k`__
+
+k nearest neighbors to find clusters
+
+#### __`umap_k`__
+
+k nearest neighbors to construct the UMAP
+
+#### __`cluster_resolution_test`__
+
+Cluster resolutions to generate test images
+
 #### __`cluster_resolution`__
 
-The resolution of the clustering algorithm. This controls the granularity of the clustering, i.e. lower values will lead to fewer clusters and higher values will lead to more clusters. Usually between 0.2 and 2 (but can be higher).
+Cluster resolution to use for the analaysis. This controls the granularity of the clustering, i.e. lower values will lead to fewer clusters and higher values will lead to more clusters. Usually between 0.2 and 2 (but can be higher).
 
 ### Marker genes and genes with differential expression
 <a name="documentation_scrnaseq_arguments_degs"/>
@@ -273,6 +297,10 @@ Here are some examples for a better understanding:
   * `subset_group`: `1+2+3;4`
   * this will result in 2 tests
 
+#### __`enrichr_site`
+
+Enrichr site to use; can be any of "Enrichr", "FlyEnrichr", "WormEnrichr", "YeastEnrichr", and "FishEnrichr".
+
 #### __`enrichr_padj`__
 
 P-value threshold for functional enrichment tests by Enrichr
@@ -300,6 +328,10 @@ Colour palette used for clusters. Ideally, this should be one of ggsci palettes 
 
 Path to the local git repository
 
-#### __`default_debugging`__
+#### __`debugging_mode`__
 
 Debugging mode: "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
+
+#### __`cores`__
+
+Number of cores to use for the analysis
