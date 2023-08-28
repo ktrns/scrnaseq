@@ -184,7 +184,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
     missed = nms[!nms %in% rownames(features_ids_types)]
     if (length(missed) > 0) stop(sprintf("ReadCountsTable: The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed)))
-    sc[[n]][[a]][] = cbind(sc[[n]][[a]][], features_ids_types[rownames(sc[[n]][[a]]), ])
+    sc[[n]][[a]]@meta.features = cbind(sc[[n]][[a]]@meta.features, features_ids_types[rownames(sc[[n]][[a]]), ])
     
     # Now add remaining assays
     for (f in feature_types[-1]) {
@@ -197,7 +197,7 @@ ReadCountsTable = function(counts_table, project="SeuratProject", row_name_colum
       missed = nms[!nms %in% rownames(features_ids_types)]
       if (length(missed) > 0) stop(sprintf("ReadCountsTable: The 'CreateAssayObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed)))
-      sc[[n]][[a]][] = cbind(sc[[n]][[a]][],features_ids_types[rownames(sc[[n]][[a]]), ])
+      sc[[n]][[a]]@meta.features = cbind(sc[[n]][[a]]@meta.features,features_ids_types[rownames(sc[[n]][[a]]), ])
     }
     
     # Add suffixes if requested
@@ -361,7 +361,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
   if (length(missed)>0) stop(sprintf("ReadSparseMatrix: The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                   a, first_n_elements_to_string(missed)))
   
-  sc[[n]][[a]][] = cbind(sc[[n]][[a]][], features_ids_types[rownames(sc[[n]][[a]]), ])
+  sc[[n]][[a]]@meta.features = cbind(sc[[n]][[a]]@meta.features, features_ids_types[rownames(sc[[n]][[a]]), ])
   
   # Now add remaining assays
   for (f in feature_types[-1]) {
@@ -374,7 +374,7 @@ ReadSparseMatrix = function(path, project="SeuratProject", row_name_column=2, co
     if (length(missed) > 0) stop(sprintf("ReadSparseMatrix: The 'CreateSeuratObject' method modifies feature symbols for assay %s not as expected: %s!", 
                                                     a, first_n_elements_to_string(missed)))
     
-    sc[[n]][[a]][] = cbind(sc[[n]][[a]][], features_ids_types[rownames(sc[[n]][[a]]), ])
+    sc[[n]][[a]]@meta.features = cbind(sc[[n]][[a]]@meta.features, features_ids_types[rownames(sc[[n]][[a]]), ])
   }
   
   # Add suffixes if requested
@@ -431,7 +431,7 @@ ExportSeuratAssayData = function(sc, dir="data", assays=NULL, slot="counts", ass
   if (is.null(include_feature_metadata_cols)) {
     include_feature_metadata_cols = c(1:3)
   }
-  assay_feature_meta_data_df = dplyr::bind_rows(lapply(assays, function(a) { sc[[a]][include_feature_metadata_cols] }))
+  assay_feature_meta_data_df = dplyr::bind_rows(lapply(assays, function(a) { sc[[a]]@meta.features[include_feature_metadata_cols] }))
   fh = gzfile(file.path(d, "features.tsv.gz"), open="wb")
   write.table(assay_feature_meta_data_df, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\t")
   close(fh)

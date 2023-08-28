@@ -628,7 +628,7 @@ knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 ro
   kableExtra::scroll_box(width="100%")
 
 # Print gene metadata
-knitr::kable(head(sc[[1]][[param$assay_raw]][], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
+knitr::kable(head(sc[[1]][[param$assay_raw]]@meta.features, 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 ```
@@ -721,7 +721,7 @@ sc = purrr::map(list_names(sc), function(n) {
   # Add all QC measures as metadata
   df = data.frame(num_cells_expr, num_cells_expr_threshold, counts_median)
   
-  sc[[n]][[param$assay_raw]][] = cbind(sc[[n]][[param$assay_raw]][], df[rownames(sc[[n]][[param$assay_raw]][]), ])
+  sc[[n]][[param$assay_raw]]@meta.features = cbind(sc[[n]][[param$assay_raw]]@meta.features, df[rownames(sc[[n]][[param$assay_raw]]@meta.features), ])
   return(sc[[n]])
 })
 ```
@@ -840,13 +840,13 @@ We next investigate whether there are individual genes that are represented by a
 # Plot only samples that we intend to keep 
 sc_names = names(sc)[!(names(sc) %in% param$samples_to_drop)]
 genes_highestExpr = lapply(sc_names, function(i) {
-  top_ten_exp = sc[[i]][[param$assay_raw]]["counts_median"] %>% dplyr::arrange(dplyr::desc(counts_median)) %>% head(n=10)
+  top_ten_exp = sc[[i]][[param$assay_raw]]@meta.features["counts_median"] %>% dplyr::arrange(dplyr::desc(counts_median)) %>% head(n=10)
   return(rownames(top_ten_exp))
   }) %>%
   unlist() %>%
   unique()
 
-genes_highestExpr_counts = purrr::map_dfc(sc[sc_names], .f=function(s) s[[param$assay_raw]]["counts_median"][genes_highestExpr, ]) 
+genes_highestExpr_counts = purrr::map_dfc(sc[sc_names], .f=function(s) s[[param$assay_raw]]@meta.features["counts_median"][genes_highestExpr, ]) 
 genes_highestExpr_counts$gene = genes_highestExpr
 genes_highestExpr_counts$mean = genes_highestExpr_counts %>% dplyr::select(-gene) %>% rowMeans()
 genes_highestExpr_counts = genes_highestExpr_counts %>% dplyr::slice_max(mean, n=10) %>% tidyr::pivot_longer(cols=all_of(sc_names))
@@ -972,7 +972,7 @@ sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
   if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
   
   # Return gene names that do not pass the minimum threshold 
-  else return(names(which(sc[[n]][[param$assay_raw]]["num_cells_expr_threshold", drop=TRUE] < param$feature_filter[[n]][["min_cells"]])))
+  else return(names(which(sc[[n]][[param$assay_raw]]@meta.features["num_cells_expr_threshold"] < param$feature_filter[[n]][["min_cells"]])))
 })
 
 # Which genes are to be filtered for all samples?
@@ -1315,11 +1315,11 @@ if (param$integrate_samples[["method"]] != "single") {
     # "feature_id", "feature_name", "feature_type" are accumulated for all assays and stored just once
     # This step is skipped for assays that do not contain all three types of feature information
     contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { 
-      all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]][])) 
+      all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]]@meta.features)) 
       })
 
     if (all(contains_neccessary_columns)) {
-      feature_id_name_type = purrr::map(sc, function(s) return(s[[a]][c("feature_id", "feature_name", "feature_type")]) )
+      feature_id_name_type = purrr::map(sc, function(s) return(s[[a]]@meta.features[c("feature_id", "feature_name", "feature_type")]) )
       feature_id_name_type = purrr::reduce(feature_id_name_type, function(df_x, df_y) {
         new_rows = which(!rownames(df_y) %in% rownames(df_x))
         if (length(new_rows) > 0) return(rbind(df_x, df_y[new_rows, ]))
@@ -1332,7 +1332,7 @@ if (param$integrate_samples[["method"]] != "single") {
     
     # For all other meta-data, we prefix column names with the dataset
     other_feature_data = purrr::map(list_names(sc), function(n) {
-      df = sc[[n]][[a]][]
+      df = sc[[n]][[a]]@meta.features
       if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id", "feature_name", "feature_type"), c()))
       if (ncol(df) > 0) colnames(df) = paste(n, colnames(df), sep=".")
       df$row_names = rownames(df)
@@ -1480,7 +1480,7 @@ if (param$integrate_samples[["method"]] == "integrate") {
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
     if (a %in% names(sc_feature_metadata)) {
-      sc[[a]][] = sc_feature_metadata[[a]][rownames(sc[[a]]),, drop=FALSE]
+      sc[[a]]@meta.features = sc_feature_metadata[[a]][rownames(sc[[a]]),, drop=FALSE]
     }
   }
   
