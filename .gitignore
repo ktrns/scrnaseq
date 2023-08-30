@@ -11,6 +11,7 @@ scrnaseq.Rproj
 
 # Ignore files and directories produced in datasets directories
 /datasets/**
+/test_datasets
 
 # Ignore files and directories produced in workflow directories (except qmd files)
 /workflows/**
