@@ -110,7 +110,7 @@ ReadMetadata_excel = function(excel_file) {
   assertthat::is.readable(excel_file)
   
   # Read table
-  meta_data = readxl::read_excel(excel_file, sheet=1, col_names=TRUE))
+  meta_data = readxl::read_excel(excel_file, sheet=1, col_names=TRUE)
   meta_data = as.data.frame(meta_data)
   rownames(meta_data) = meta_data[, 1, drop=TRUE]
   return(meta_data)
@@ -291,7 +291,7 @@ ReadCounts_h5ad = function(h5ad_file) {
 #' @param path Path to counts data. Can be a character-separated file or a matrix exchange format directory (with files matrix.mtx.gz, barcodes.tsv.gz and features.tsv.gz).
 #' @param transpose  If TRUE then rows are cells and columns are genes (default: FALSE)
 #' @return A sparse counts matrix (dgTMatrix or dgCMatrix format)
-ReadCounts_SmartSeq = function(path, transpose=FALSE) {
+ReadCounts_SmartSeq = function(path, transpose=FALSE) {.
   # Checks
   assertthat::is.readable(path)
   
@@ -597,3 +597,25 @@ ReadCounts_ScaleBio = function(path, transpose=FALSE) {
   counts_data = ReadCounts_ScaleBio_mtx(h5ad_file=path)
   return(counts_data)
 }
+
+ReadCounts {
+  path 
+  tech
+  type: GEX, ATAC, ADT, ...
+  barcode_meta
+  feature_meta
+  barcode_name: "ID", numeric/column of barcode_meta,
+  feature_name: "ID", numeric/column of feature_meta,anno df (e.g. provided by ensembl)?
+    
+  1. Read Counts
+  2. Read Metadata and add
+  3. Update annotation
+  4. Write data (if req)
+}
+
+1. Then got list of assays for all samples and types
+2. Group by type
+3. CreateSeuratObject for all GEX
+4. Then add others as assays
+5. Add metadata
+6. Set column SAMPLE and column dataset
