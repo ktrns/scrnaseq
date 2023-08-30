@@ -183,6 +183,22 @@ parser$add_argument(
 )
 
 parser$add_argument(
+  "--doublets",
+  action="store",
+  help="If cell metadata is provided (via metadata.tsv.gz), which column contains doublet scores (default: %(default)s)",
+  dest="doublets",
+  default=NULL
+)
+
+parser$add_argument(
+  "--doublets_prediction",
+  action="store",
+  help="If cell metadata is provided (via metadata.tsv.gz), which column contains the doublet classification TRUE/FALSE (default: %(default)s)",
+  dest="doublets_prediction",
+  default=NULL
+)
+
+parser$add_argument(
   "--cell-filter-nCount",
   action="store",
   nargs=1,
@@ -663,6 +679,19 @@ if (!is.null(opt[["biomart_mirror"]])) {
     param["biomart_mirror"] = list(NULL)
 }
 param[["mt"]] = opt[["mt"]]
+
+# Doublet parameters
+if (!is.null(opt[["doublets"]])) {
+    param[["doublets"]] = opt[["doublets"]]
+} else {
+    param["doublets"] = list(NULL)
+}
+
+if (!is.null(opt[["doublets_prediction"]])) {
+    param[["doublets_prediction"]] = opt[["doublets_prediction"]]
+} else {
+    param["doublets_prediction"] = list(NULL)
+}
 
 # Filter
 cell_filter = list()
