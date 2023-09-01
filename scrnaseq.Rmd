@@ -6,7 +6,7 @@ params:
   author: !r Sys.info()[["user"]]
 
   # Project ID
-  project_id: pbmc
+  project_id: "pbmc"
    
   # Path to input data
   path_data: !r data.frame(name=c("pbmc_10x","pbmc_smartseq2"), 
@@ -14,7 +14,7 @@ params:
                            path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
                            stats=c(NA, NA))
 
-  # Data type ("RNA", "Spatial")
+  # Data type ("RNA","Spatial")
   assay_raw: "RNA"
   
   # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
@@ -26,12 +26,14 @@ params:
   #   Overwritten by downsample_cells_n
   downsample_cells_equally: FALSE
 
-  # Path to output directory
-  path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
+  # Path to output directory and whether existing results should be overwritten (true, false)
+  path_out: "test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/"
+  overwrite: true
 
   # Marker genes based on literature, translated to Ensembl IDs
   #   xlsx file, one list per column, first row as header and Ensembl IDs below
   #   NULL if no known marker genes should be plotted
+
   file_known_markers: test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx
 
   # Contaminant cells
@@ -40,8 +42,8 @@ params:
   file_contam_cells: NULL
 
   # Annotation via biomaRt
-  mart_dataset: hsapiens_gene_ensembl
-  annot_version: 98
+  mart_dataset: "hsapiens_gene_ensembl"
+  annot_version: "98"
   annot_main: !r c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
   mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
                         c("chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
@@ -78,16 +80,16 @@ params:
   # Normalisation parameters #
   ############################
   # Which normalisation should be used for analysis? ("RNA", "SCT")
-  norm: RNA
+  norm: "RNA"
 
-  # Whether or not to remove cell cycle effects
+  # Whether or not to remove cell cycle effects (true, false)
   cc_remove: !r FALSE
 
-  # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)?
+  # Should all cell cycle effects be removed, or only the difference between profilerating cells (G2M and S phase)? (true, false)
   # Read https://satijalab.org/seurat/v3.1/cell_cycle_vignette.html, for an explanation
   cc_remove_all: !r FALSE
    
-  # Whether or not to re-score cell cycle effects after data
+  # Whether or not to re-score cell cycle effects after data (true, false)
   #   from different samples have been merged/integrated
   cc_rescore_after_merge: !r TRUE
 
@@ -133,7 +135,7 @@ params:
   cluster_resolution_test: !r c(0.3, 0.7)
   
   # Cluster resolution to use for analysis
-  cluster_resolution: 0.5
+  cluster_resolution: 1.5
   
   #######################################################
   # Marker genes and genes with differential expression #
@@ -182,27 +184,27 @@ params:
   # P-value threshold for functional enrichment tests
   enrichr_padj: 0.05
    
-  # Enrichr databases of interest
+  # Enrichr databases of interest (see Enrichr site for a list of possible databases)
   enrichr_dbs: !r c("GO_Molecular_Function_2018", "GO_Biological_Process_2018", "GO_Cellular_Component_2018", "Azimuth_Cell_Types_2021", "CellMarker_Augmented_2021", "Descartes_Cell_Types_and_Tissue_2021")
   
   ######################
   # General parameters #
   ######################
+  
   # Main colour to use for plots
   col: "darkblue"
 
   # Colour palette used for samples
-  col_palette_samples: "ggsci::pal_jama"
+  col_palette_samples: "ggsci::pal_npg"
    
   # Colour palette used for cluster
-  col_palette_clusters: "ggsci::pal_igv"
+  col_palette_clusters: "ggsci::pal_jama"
    
   # Path to git repository
   path_to_git: "."
    
-  # Debugging mode: 
-  # 'default_debugging' for default, 'terminal_debugger' for debugging without X11, 'print_traceback' for non-interactive sessions 
-  debugging_mode: "default_debugging"
+  # Debugging mode ("default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions)
+  debugging_mode: "print_traceback"
   
   # Number of cores to use
   cores: 8
@@ -215,8 +217,10 @@ output:
     code_folding: "hide"
     highlight: "tango"
     theme: "paper"
+    
 bibliography: "`r file.path(params$path_out, 'references.bib')`"
-title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
+title: "Single-cell RNA-seq data analysis"
+subtitle: "project `r params$project_id`"
 author: "`r params$author`"
 ---
 
@@ -226,11 +230,12 @@ options(stringsAsFactors=FALSE,
         citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
-        kableExtra_view_html=TRUE,
+        kableExtra_view_html=interactive(),
         future.globals.maxSize=+Inf,
         mc.cores=params$cores, 
-        future.fork.enable=TRUE, future.plan="multicore",
-        future.rng.onMisuse="ignore")
+        #future.fork.enable=TRUE, future.plan="multicore",
+        future.rng.onMisuse="ignore",
+        Seurat.object.assay.version = "v3")
 
 # Python3 needed for clustering, umap, other python packages
 # Path to binary will be automatically found
@@ -243,18 +248,18 @@ library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
 library(magrittr) # %>% operator
-library(reticulate) # required for "leiden" clustering
+library(reticulate) # required for python (e.g. "leiden" clustering)
 library(enrichR) # functional enrichment
 library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional; for speed but only available for R 4.0)
 # Tables: kableExtra, DT
 # Plots: ggsci
 # IO: openxlsx, readr, R.utils
 # Annotation: biomaRt
-# DEG: mast, limma (for a more efficient implementation of the Wilcoxon Rank Sum Test according to Seurat)
+# DEG: mast, limma (optional; for a more efficient implementation of the Wilcoxon Rank Sum Test according to Seurat)
 # Functional enrichment: enrichR
 # Other: sessioninfo, cerebroApp, sceasy, ROpenSci/bibtex, knitcitations
 
@@ -266,7 +271,7 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       tidy=FALSE,                    # do not auto-tidy-up code
                       fig.width=10,                  # default fig width in inches
                       class.source="fold-hide",      # by default collapse code blocks
-                      dev=c("png", "pdf"),           # create figures in png and pdf; the first device (png) will be used for HTML output
+                      dev=c(ifelse(require("ragg", quietly=TRUE), "ragg_png", "png"), "pdf"),           # create figures in png and pdf; the first device (png) will be used for HTML output
                       dev.args=list(png=list(type="cairo"),  # png: use cairo - works on cluster, supports anti-aliasing (more smooth)
                                     pdf=list(bg="white")),     # pdf: use cairo - works on cluster, supports anti-aliasing (more smooth)
                       dpi=96,                        # figure resolution
@@ -282,13 +287,10 @@ cat(paste0('<link rel="stylesheet" href="', params$path_to_git, '/css/style.css"
 ```
 
 ```{r preparation_and_initial_checks}
-# Copy input parameters to internal parameter list
+# The params object should not be modified because R/knitr seems load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
 param = params
-if (is.null(param$samples_to_drop )) param$samples_to_drop = c()
-if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
-if (is.null(param$latent_vars)) param$latent_vars = c()
 
-# Git directory and files to source must be done first, then all helper functions can be sourced
+# Source additional R functions from the git directory
 git_files_to_source = c("functions_io.R",
                         "functions_plotting.R",
                         "functions_analysis.R",
@@ -296,10 +298,10 @@ git_files_to_source = c("functions_io.R",
                         "functions_util.R")
 git_files_to_source = file.path(param$path_to_git, "R", git_files_to_source)
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
-if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", param$path_to_git, "'.!"))
+if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please make sure that the parameter 'path_to_git' points to the git directory!"))
 invisible(purrr::map(git_files_to_source, source))
 
-# Debugging mode: 
+# Debugging mode
 switch (param$debugging_mode, 
         default_debugging=on_error_default_debugging(), 
         terminal_debugger=on_error_start_terminal_debugger(),
@@ -309,13 +311,22 @@ switch (param$debugging_mode,
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
 
-# Create output directories
-if (!file.exists(param$path_out)) dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "figures"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "marker_degs"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "annotation"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "data"), recursive=TRUE, showWarnings=FALSE)
-dir.create(file.path(param$path_out, "export"), recursive=TRUE, showWarnings=FALSE)
+# Create output directories and remove content if overwrite is TRUE (except for annotation where we want to keep/re-use the files)
+param$path_out = gsub("/$", "", param$path_out)
+dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
+for(d in c("figures", "marker_degs", "annotation", "data", "export")) {
+  d = file.path(param$path_out, d)
+  dir.create(d, recursive=TRUE, showWarnings=FALSE)
+  
+  if (length(list.files(d)) > 0 & d != "annotation") {
+    if (param$overwrite) {
+      unlink(d, recursive=TRUE)
+      dir.create(d, recursive=TRUE, showWarnings=FALSE)
+    } else {
+      stop(paste("Output directory", d, "already exists but is not empty and parameter 'overwrite' is set to false. Please either delete all files in this directory or set parameter 'overwrite' to true so that the script will delete the files."))
+    }
+  }
+}
 
 # Path for figures in png and pdf format (trailing "/" is needed)
 knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
@@ -330,7 +341,12 @@ param$file_cc_genes = file.path(param$path_out, "annotation", "cell_cycle_marker
 error_messages = c()
 
 # Check parameters and parse entries (e.g. numbers) so that they are valid
-param = check_parameters_scrnaseq(param)
+param = check_parameters_scrnaseq(parameter=param)
+if (is.null(param$samples_to_drop)) param$samples_to_drop = c()
+if (is.null(param$vars_to_regress)) param$vars_to_regress = c()
+if (is.null(param$latent_vars)) param$latent_vars = c()
+if (is.null(param$cluster_resolution_test)) param$cluster_resolution_test = c()
+
 error_messages = c(error_messages, param[["error_messages"]])
 # Check installed packages
 error_messages = c(error_messages, check_installed_packages_scrnaseq())
@@ -339,7 +355,7 @@ error_messages = c(error_messages, check_python())
 # Check pandoc
 error_messages = c(error_messages, check_pandoc())
 # Check enrichR
-error_messages = c(error_messages, check_enrichr(param$enrichr_dbs, param$enrichr_site))
+error_messages = c(error_messages, check_enrichr(databases=param$enrichr_dbs, site=param$enrichr_site))
 # Check ensembl
 error_messages = c(error_messages, check_ensembl(biomart="ensembl", 
                                                  dataset=param$mart_dataset, 
@@ -612,7 +628,7 @@ knitr::kable(head(sc_cell_metadata), align="l", caption="Cell metadata, top 5 ro
   kableExtra::scroll_box(width="100%")
 
 # Print gene metadata
-knitr::kable(head(sc[[1]][[param$assay_raw]][[]], 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
+knitr::kable(head(sc[[1]][[param$assay_raw]]@meta.features, 5), align="l", caption="Feature metadata, top 5 rows (only first dataset shown)") %>% 
   kableExtra::kable_styling(bootstrap_options=c("striped", "hover"))  %>% 
   kableExtra::scroll_box(width="100%")
 ```
@@ -703,7 +719,9 @@ sc = purrr::map(list_names(sc), function(n) {
   counts_median = sparseMatrixStats::rowMedians(counts_rna_perc)
   
   # Add all QC measures as metadata
-  sc[[n]][[param$assay_raw]] = Seurat::AddMetaData(sc[[n]][[param$assay_raw]], data.frame(num_cells_expr, num_cells_expr_threshold, counts_median))
+  df = data.frame(num_cells_expr, num_cells_expr_threshold, counts_median)
+  
+  sc[[n]][[param$assay_raw]]@meta.features = cbind(sc[[n]][[param$assay_raw]]@meta.features, df[rownames(sc[[n]][[param$assay_raw]]@meta.features), ])
   return(sc[[n]])
 })
 ```
@@ -822,18 +840,22 @@ We next investigate whether there are individual genes that are represented by a
 # Plot only samples that we intend to keep 
 sc_names = names(sc)[!(names(sc) %in% param$samples_to_drop)]
 genes_highestExpr = lapply(sc_names, function(i) {
-  top_ten_exp = sc[[i]][[param$assay_raw]][["counts_median"]] %>% dplyr::arrange(dplyr::desc(counts_median)) %>% head(n=10)
+  top_ten_exp = sc[[i]][[param$assay_raw]]@meta.features["counts_median"] %>% dplyr::arrange(dplyr::desc(counts_median)) %>% head(n=10)
   return(rownames(top_ten_exp))
   }) %>%
   unlist() %>%
   unique()
 
-genes_highestExpr_counts = purrr::map_dfc(sc[sc_names], .f=function(s) s[[param$assay_raw]][["counts_median"]][genes_highestExpr, ]) 
+genes_highestExpr_counts = purrr::map_dfc(sc[sc_names], .f=function(s) s[[param$assay_raw]]@meta.features["counts_median"][genes_highestExpr, ]) 
 genes_highestExpr_counts$gene = genes_highestExpr
-genes_highestExpr_counts = genes_highestExpr_counts %>% tidyr::pivot_longer(cols=all_of(sc_names))
-genes_highestExpr_counts$name = factor(genes_highestExpr_counts$name, levels=sc_names)
+genes_highestExpr_counts$mean = genes_highestExpr_counts %>% dplyr::select(-gene) %>% rowMeans()
+genes_highestExpr_counts = genes_highestExpr_counts %>% dplyr::slice_max(mean, n=10) %>% tidyr::pivot_longer(cols=all_of(sc_names))
+genes_highestExpr = unique(genes_highestExpr_counts$gene)
 
+genes_highestExpr_counts$gene = factor(genes_highestExpr_counts$gene, levels=genes_highestExpr)
+genes_highestExpr_counts$name = factor(genes_highestExpr_counts$name, levels=sc_names)
 col =  GenerateColours(num_colours=length(genes_highestExpr), names=genes_highestExpr, palette="ggsci::pal_simpsons")
+
 p = ggplot(genes_highestExpr_counts, aes(x=name, y=value, col=gene, group=gene)) + 
   geom_point() + 
   AddStyle(title="Top 10 highest expressed genes per sample, added into one list", 
@@ -950,7 +972,7 @@ sc_features_to_exclude = purrr::map(list_names(sc), function(n) {
   if (length(Cells(sc[[n]])) < param$feature_filter[[n]][["min_cells"]]) return(list())
   
   # Return gene names that do not pass the minimum threshold 
-  else return(names(which(sc[[n]][[param$assay_raw]][["num_cells_expr_threshold", drop=TRUE]] < param$feature_filter[[n]][["min_cells"]])))
+  else return(names(which(sc[[n]][[param$assay_raw]]@meta.features["num_cells_expr_threshold"] < param$feature_filter[[n]][["min_cells"]])))
 })
 
 # Which genes are to be filtered for all samples?
@@ -1282,7 +1304,7 @@ if (param$integrate_samples[["method"]]=="single") {
 ```
 
 ```{r multi_dataset_integration_preparation, eval=(param$integrate_samples[["method"]]!="single"), include=(param$integrate_samples[["method"]]!="single"), results="asis"}
-if (param$integrate_samples[["method"]]!="single") {
+if (param$integrate_samples[["method"]] != "single") {
   
   # When merging, feature meta-data is removed by Seurat entirely; save separately for each assay except for SCT and add again afterwards
   # Note: not sure whether this is still needed - discuss
@@ -1293,11 +1315,11 @@ if (param$integrate_samples[["method"]]!="single") {
     # "feature_id", "feature_name", "feature_type" are accumulated for all assays and stored just once
     # This step is skipped for assays that do not contain all three types of feature information
     contains_neccessary_columns = purrr::map_lgl(list_names(sc), function(n) { 
-      all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]][[]])) 
+      all(c("feature_id", "feature_name", "feature_type") %in% colnames(sc[[n]][[a]]@meta.features)) 
       })
 
     if (all(contains_neccessary_columns)) {
-      feature_id_name_type = purrr::map(sc, function(s) return(s[[a]][[c("feature_id", "feature_name", "feature_type")]]) )
+      feature_id_name_type = purrr::map(sc, function(s) return(s[[a]]@meta.features[c("feature_id", "feature_name", "feature_type")]) )
       feature_id_name_type = purrr::reduce(feature_id_name_type, function(df_x, df_y) {
         new_rows = which(!rownames(df_y) %in% rownames(df_x))
         if (length(new_rows) > 0) return(rbind(df_x, df_y[new_rows, ]))
@@ -1310,7 +1332,7 @@ if (param$integrate_samples[["method"]]!="single") {
     
     # For all other meta-data, we prefix column names with the dataset
     other_feature_data = purrr::map(list_names(sc), function(n) {
-      df = sc[[n]][[a]][[]]
+      df = sc[[n]][[a]]@meta.features
       if (contains_neccessary_columns[[n]]) df = df %>% dplyr::select(-dplyr::one_of(c("feature_id", "feature_name", "feature_type"), c()))
       if (ncol(df) > 0) colnames(df) = paste(n, colnames(df), sep=".")
       df$row_names = rownames(df)
@@ -1340,7 +1362,7 @@ if (param$integrate_samples[["method"]]!="single") {
 ```{r multi_dataset_integration_merge, eval=(param$integrate_samples[["method"]]=="merge"), include=(param$integrate_samples[["method"]]=="merge")}
 # Data for different samples can be merged if no integration is needed, 
 #   for example, when samples were multiplexed on the same chip
-if (param$integrate_samples[["method"]]=="merge") {
+if (param$integrate_samples[["method"]] == "merge") {
   sc = merge(x=sc[[1]], y=sc[2:length(sc)], project=param$project_id)
 
   # Re-score cell cycle effects after merge
@@ -1398,7 +1420,7 @@ if (param$integrate_samples[["method"]]=="merge") {
 
 ```{r multi_dataset_integration_integrate, eval=(param$integrate_samples[["method"]]=="integrate"), include=(param$integrate_samples[["method"]]=="integrate"), warning=FALSE}
 # Standard method for integrating multiple samples. Best performance but computationally intensive.
-if (param$integrate_samples[["method"]]=="integrate") {
+if (param$integrate_samples[["method"]] == "integrate") {
   if (!"use_reciprocal_pca" %in% names(param$integrate_samples)) param$integrate_samples[["use_reciprocal_pca"]] = FALSE
 
   # Run integration
@@ -1424,6 +1446,7 @@ if (param$integrate_samples[["method"]]=="integrate") {
       param$latent_vars = setdiff(param$latent_vars, c("S.Score", "G2M.Score", "CC.Difference"))
     }
   }
+  
   
   # (Re-)Run scaling
   if (param$norm == "RNA") {
@@ -1457,7 +1480,7 @@ if (param$integrate_samples[["method"]]=="integrate") {
   # Add feature metadata
   for (a in Seurat::Assays(sc)) {
     if (a %in% names(sc_feature_metadata)) {
-      sc[[a]] = Seurat::AddMetaData(sc[[a]], sc_feature_metadata[[a]][rownames(sc[[a]]),, drop=FALSE])
+      sc[[a]]@meta.features = sc_feature_metadata[[a]][rownames(sc[[a]]),, drop=FALSE]
     }
   }
   
@@ -1638,8 +1661,10 @@ sc = Seurat::FindNeighbors(sc, dims=1:param$pc_n, verbose=FALSE, k.param=param$c
 
 # Seurat vignette suggests resolution parameter between 0.4-1.2 for datasets of about 3k cells
 # But we can run multiple resolutions if requested
-sc = suppressWarnings(Seurat::FindClusters(sc, resolution=cluster_resolutions, algorithm=4, verbose=FALSE, method="igraph"))
+sc = suppressWarnings(Seurat::FindClusters(sc, resolution=cluster_resolutions, algorithm=4, verbose=FALSE))
 
+# Construct a phylogenetic tree relating the "average" cell from each cluster for each clustering
+# Also add colour lists for each clustering
 # Construct phylogenetic tree relating the "average" cell from each cluster for each clustering
 # Also add colour lists for each clustering
 for(r in cluster_resolutions) {
@@ -1669,7 +1694,6 @@ Seurat::Idents(sc) = sc$seurat_clusters
 if (length(levels(sc$seurat_clusters)) > 1) {
   suppressWarnings({Seurat::Misc(sc, "trees") = c(Seurat::Misc(sc, "trees"), list(seurat_clusters = Seurat::Misc(sc, "trees")[[n]]))})
 }
-
 # Set up colors for default clustering
 sc = ScAddLists(sc, lists=list(seurat_clusters=Misc(sc, "colour_lists")[[n]]), lists_slot="colour_lists")
 param$col_clusters = Misc(sc, "colour_lists")[["seurat_clusters"]]
@@ -1682,7 +1706,7 @@ fig_height_test_clusters = nr_rows * height_per_row
 fig_height_test_clusters = fig_height_test_clusters %>% min(100)
 ```
 
-```{r run_umap_test, fig.height=fig_height_test_clusters}
+```{r run_umap_test, fig.height=fig_height_test_clusters, message=FALSE}
 # Default UMAP
 sc = suppressWarnings(Seurat::RunUMAP(sc, dims=1:param$pc_n, verbose=FALSE, umap.method="uwot", n.neighbors=param$umap_k))
 
@@ -2467,7 +2491,7 @@ if (markers_found) {
   #     at least 6 markers per cluster
   nr_rows_3cols = ceiling(nrow(markers_top)/3)
   fig_height_3cols = height_per_row * nr_rows_3cols
-  
+
   # Dotplots: each row contains 2 plots
   nr_rows_dp_2cols = ceiling(length(levels(sc$seurat_clusters))/2)
   fig_height_dp_2cols = height_per_row_variable * nr_rows_dp_2cols
@@ -2629,13 +2653,13 @@ if (markers_found) {
 if (markers_found) {
   # This will sample 500 cells; the number of cells per seurat_cluster will be proportional
   cells_subset = ScSampleCells(sc, n=500, group="seurat_clusters", group_proportional=TRUE, seed=1)
-    
+
   # Heatmap of all differentially expressed genes
-  p = Seurat::DoHeatmap(sc, features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
+  p = Seurat::DoHeatmap(sc, group.by="seurat_clusters", features=markers_filt$all$gene, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) +
     theme(axis.text.y=element_blank()) +
     ggtitle("Heatmap of scaled gene expression data, all genes differentially expressed between a cluster and the rest")
-  p
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual("Cluster", values=param$col_clusters)})
+  suppressWarnings(print(p))
 }
 ```
 
@@ -2655,10 +2679,10 @@ if (markers_found) {
     unique()
   
   # Heatmap of top up-regulated genes
-  p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
+  p = Seurat::DoHeatmap(sc, group.by="seurat_clusters", features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual(values=param$col_clusters)})
   p
 }
 ```
@@ -2680,9 +2704,9 @@ if (markers_found) {
   
   # Heatmap of top down-regulated genes
   p = Seurat::DoHeatmap(sc, features=features_subset, group.colors=param$col_clusters, label=FALSE, cells=cells_subset) + 
-    NoLegend() + 
     theme(axis.text.y=element_text(size=8)) +
     ggtitle("Heatmap of scaled gene expression data, top genes up-regulated in a cluster compared to the rest")
+  suppressMessages({p = p + scale_fill_viridis_c("Expression") + scale_color_manual(values=param$col_clusters)})
   p
 }
 ```
@@ -2729,7 +2753,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_up_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_up_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_", n, "_vs_rest.xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_up_cluster_", make.names(n), "_vs_rest.xlsx")))
   }))
   
   
@@ -2754,7 +2778,7 @@ if (markers_found) {
   # Write to files
   invisible(purrr::map(names(marker_genesets_down_enriched), function(n) {
     EnrichrWriteResults(enrichr_results=marker_genesets_down_enriched[[n]],
-                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_", n, "_vs_rest.xlsx")))
+                        file=file.path(param$path_out, "marker_degs", paste0("functions_marker_down_cluster_", make.names(n), "_vs_rest.xlsx")))
   }))
   
   # Combine, flatten into data.frame and add to sc misc slot
@@ -3220,7 +3244,8 @@ invisible(ExportSeuratAssayData(sc,
 openxlsx::write.xlsx(x=sc[[]] %>% tibble::rownames_to_column(var="Barcode"), file=file.path(param$path_out, "data", "cell_metadata.xlsx"), rowNames=FALSE, colNames=TRUE)
 
 # Annotation as excel file
-openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc), ensembl_gene_id=seurat_rowname_to_ensembl[rownames(sc)], row.names=rownames(sc)) %>%
+openxlsx::write.xlsx(x=data.frame(seurat_id=rownames(sc)) %>%
+                       dplyr::filter(seurat_id %in% names(seurat_rowname_to_ensembl)) %>%                       dplyr::mutate(ensembl_gene_id=seurat_rowname_to_ensembl[seurat_id]) %>%
                        dplyr::inner_join(annot_ensembl, by="ensembl_gene_id"),
                      file=file.path(param$path_out, "annotation", "gene_annotation.xlsx"), 
                      rowNames=FALSE, colNames=TRUE)

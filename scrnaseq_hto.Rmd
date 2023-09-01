@@ -1,38 +1,31 @@
 ---
 date: "`r format(Sys.time(), '%B, %Y')`"
 geometry: margin=2cm
-output:
-   html_document:
-    toc: true
-    toc_depth: 4
-    toc_float: true
-    code_folding: hide
-    highlight: tango
-    theme: paper
 params:
   # Author
   author: !r Sys.info()[["user"]]
 
   # Project ID
-  project_id: HTO_testDataset 
+  project_id: "HTO_testDataset "
    
   # Input directory
-  path_data: test_datasets/10x_pbmc_hto_GSE108313/counts
+  path_data: "test_datasets/10x_pbmc_hto_GSE108313/counts"
   
   # Metrics summary
-  stats:
+  stats: NULL
    
-  # Output directory
-  path_out: test_datasets/10x_pbmc_hto_GSE108313/demultiplexed
+  # Path to output directory and whether existing results should be overwritten (true/false)
+  path_out: "test_datasets/10x_pbmc_hto_GSE108313/demultiplexed"
+  overwrite: true
    
   # HTO names
   #   HTOs have an ID that is included in the "features.tsv" input file
   #   We additionally ask for readable names that are used throughout this report (optional)
-  #   This could look like this, where HTO1-3 are the IDs included raw dataset
-  #    - without names: 'hto.names: c("HTO1", "HTO2", "HTO3")'
-  #    - with names: 'hto.names: !r setNames(c("NameA", "NameB", "NameC"), c("HTO1", "HTO2", "HTO3"))'
+  #   This could look like this, where htoA, htoB and htoC are the IDs of sample 1, 2 and 3 included raw dataset
+  #    - without names: 'hto.names: !r c("htoA", "htoB", "htoC")'
+  #    - with names: 'hto.names: 'hto.names: !r c("Sample1"="htoA", "Sample2"="htoB", "Sample3"="htoC")'
   # 
-  hto_names: !r setNames(c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"), c("htoA","htoB","htoC","htoD","htoE","htoF","htoG","htoH"))
+  hto_names: !r c("Sample1"="htoA", "Sample2"="htoB", "Sample3"="htoC", "Sample4"="htoD", "Sample5"="htoE", "Sample6"="htoF", "Sample8"="htoG", "Sample9"="htoH")
    
   # HTO regular expression (alternative to HTO names)
   #   Identify HTOs via a regular expression. Names cannot be provided here.
@@ -41,9 +34,6 @@ params:
    
   # HTO normalisation: CLR (default) or LogNormalize
   norm: "CLR"
-   
-  # Prefix of mitochondrial genes
-  mt_names: "^MT-"
    
   # Main color to use for plots
   col: "palevioletred"
@@ -54,35 +44,62 @@ params:
   # Path to git
   path_to_git: "."
    
-  # Debugging mode: 
-  # "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
+  # Debugging mode ("default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions)
   debugging_mode: "default_debugging"
-title: "Single-cell RNA-seq data analysis of project `r params$project_id`"
-subtitle: "Demultiplexing with hashtag oligos"
+  
+  # Number of cores to use
+  cores: 4
+  
+output:
+   html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    code_folding: "hide"
+    highlight: "tango"
+    theme: "paper"
+    
+bibliography: "`r file.path(params$path_out, 'references.bib')`"
+title: "Demultiplexing of 10x single-cell data using hashtag oligos"
+subtitle: "project `r params$project_id`"
 author: "`r params$author`"
 ---
 
 ```{r setup, message=FALSE, warning=FALSE}
 # R Options
 options(stringsAsFactors=FALSE,
-        "citation_format"="pandoc", 
+        citation_format="pandoc", 
         dplyr.summarise.inform=FALSE, 
         knitr.table.format="html",
-        future.globals.maxSize=2000000000, mc.cores=4, 
+        kableExtra_view_html=TRUE,
+        future.globals.maxSize=+Inf,
+        mc.cores=params$cores, 
         future.fork.enable=TRUE, future.plan="multicore",
         future.rng.onMisuse="ignore")
+
+# Python3 needed for clustering, umap, other python packages
+# Path to binary will be automatically found
+# Set manually if it does not work
+reticulate_python3_path = unname(Sys.which("python3"))
+reticulate_python3_path = "C:/Users/andpe/AppData/Local/Programs/Python/Python310/python.exe"
+Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Required libraries
 library(Seurat) # main
 library(ggplot2) # plots
 library(patchwork) # combination of plots
 library(magrittr) # %>% operator
+library(reticulate) # required for python
+library(future) # multicore support for Seurat
 
 # Other libraries we use
 # Knit: knitr
-# Data handling: dplyr, tidyr, purrr
-# Tables: kableExtra
+# Data handling: dplyr, tidyr, purrr, stringr, Matrix, sctransform, glmGamPoi (optional for speed but only available for R 4.0)
+# Tables: kableExtra, DT
 # Plots: ggsci
+# IO: openxlsx, readr, R.utils
+# Other: sessioninfo, ROpenSci/bibtex, knitcitations
+
 
 # Knitr default options
 knitr::opts_chunk$set(echo=TRUE,                     # output code
@@ -99,54 +116,70 @@ knitr::opts_chunk$set(echo=TRUE,                     # output code
                       fig.retina=2                   # retina multiplier for HTML output (note: final = dpi*fig.retina)
                                      
 )
+
+# If the DOI publication servers cannot be reached, there will be no citations, knitcitations will not write a references.bib file and pandoc will stop. This makes sure that there is always at least one citation.
+invisible(knitcitations::citep(citation("knitr")))
+```
+
+```{r css, results="asis"}
+cat(paste0('<link rel="stylesheet" href="', params$path_to_git, '/css/style.css">'))
 ```
 
 ```{r preparation_and_initial_checks}
-# Path for figures in png and pdf format
-knitr::opts_chunk$set(fig.path=paste(params$path_out, "figures/", sep="/"))
-
-# When using pandoc, setting the dpi via opts_chunk does not work (https://github.com/yihui/knitr/issues/901)
-# As workaround, we define a function that takes care of that
-#knitr::opts_hooks$set(dpi = function(options) {options$dpi = 40;options})
+# The params object should not be modified because R/knitr seems load/update it dynamically from the YAML thereby overwriting local changes. We make a copy.
+param = params
 
 # Git directory and files to source must be done first, then all helper functions can be sourced
-git_files_to_source = c("R/functions_io.R",
-              "R/functions_plotting.R",
-              "R/functions_util.R")
-git_files_to_source = paste(params$path_to_git, git_files_to_source, sep="/")
+git_files_to_source = c("functions_io.R",
+              "functions_plotting.R",
+              "functions_util.R")
+git_files_to_source = file.path(param$path_to_git, "R", git_files_to_source)
 file_exists = purrr::map_lgl(git_files_to_source, file.exists)
-
-if (any(!file_exists)) stop(paste("The following files could not be found:",paste(git_files_to_source[!file_exists], collapse=", "), ". Please check the git directory at '", params$path_to_git, "'.!"))
+if (any(!file_exists)) stop(paste("The following files could not be found:", paste(git_files_to_source[!file_exists], collapse=", "), ". Please make sure that the parameter 'path_to_git' points to the git directory!"))
 invisible(purrr::map(git_files_to_source, source))
 
-# Debugging mode: 
-# "default_debugging" for default, "terminal_debugger" for debugging without X11, "print_traceback" for non-interactive sessions 
-invisible(switch (params$debugging_mode, 
+# Debugging mode
+switch (param$debugging_mode, 
         default_debugging=on_error_default_debugging(), 
         terminal_debugger=on_error_start_terminal_debugger(),
         print_traceback=on_error_just_print_traceback(),
-        on_error_default_debugging()))
+        on_error_default_debugging())
 
 # Set output hooks
 knitr::knit_hooks$set(message=format_message, warning=format_warning)
 
 # Create output directories
-if (!file.exists(params$path_out)) dir.create(params$path_out, recursive=TRUE, showWarnings=FALSE)
+param$path_out = gsub("/$", "", param$path_out)
+dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
+if (length(list.files(param$path_out)) > 0) {
+  if (param$overwrite) {
+    unlink(param$path_out, recursive=TRUE)
+    dir.create(param$path_out, recursive=TRUE, showWarnings=FALSE)
+  } else {
+    stop("Output directory already exists but is not empty and parameter 'overwrite' is set to false. Please either delete all files in this directory or set parameter 'overwrite' to true so that the script will delete the files.")
+  }
+}
+dir.create(file.path(param$path_out, "figures"), recursive=TRUE, showWarnings=FALSE)
+
+# Path for figures in png and pdf format (trailing "/" is needed)
+knitr::opts_chunk$set(fig.path=paste0(file.path(param$path_out, "figures"), "/"))
 
 # Do checks
 error_messages = c()
-# Check installed packages
-#error_messages = c(error_messages, check_installed_packages())
-# Check parameters TODO
-#error_messages = c(error_messages, check_parameters(param))
-```
 
-```{r initial_checks_failed, eval=length(error_messages)>0, include=length(error_messages)>0}
-# Now format collected error messages as error boxes, print and exit
-# Note: asis_output prints a content as is; knit_exist toggles knitr to exit after the current chunk
-error_message_blocks = purrr::map(error_messages, format_error) %>% paste(collapse="")
-knitr::knit_exit()
-knitr::asis_output(error_message_blocks)
+# Check parameters and parse entries (e.g. numbers) so that they are valid
+param = check_parameters_scrnaseq_hto(parameter=param)
+
+error_messages = c(error_messages, param[["error_messages"]])
+# Check installed packages
+error_messages = c(error_messages, check_installed_packages_scrnaseq_hto())
+# Check python
+error_messages = c(error_messages, check_python())
+# Check pandoc
+error_messages = c(error_messages, check_pandoc())
+
+# Stop here if there are errors
+if (length(error_messages)) stop(paste(c("", paste("*", error_messages)), collapse="\n"))
 ```
 
 # Read input data
