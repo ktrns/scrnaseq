@@ -183,6 +183,22 @@ parser$add_argument(
 )
 
 parser$add_argument(
+  "--doublets",
+  action="store",
+  help="If cell metadata is provided (via metadata.tsv.gz), which column contains doublet scores (default: %(default)s)",
+  dest="doublets",
+  default=NULL
+)
+
+parser$add_argument(
+  "--doublets_prediction",
+  action="store",
+  help="If cell metadata is provided (via metadata.tsv.gz), which column contains the doublet classification TRUE/FALSE (default: %(default)s)",
+  dest="doublets_prediction",
+  default=NULL
+)
+
+parser$add_argument(
   "--cell-filter-nCount",
   action="store",
   nargs=1,
@@ -764,6 +780,25 @@ if (!is.null(opt[["cell_filter_nFeature"]])) {
         cell_filter[[n]] = param[[n]]
     }
 }
+
+# Doublet parameters
+if (!is.null(opt[["doublets"]])) {
+    param[["doublets"]] = opt[["doublets"]]
+} else {
+    param["doublets"] = list(NULL)
+}
+
+if (!is.null(opt[["doublets_prediction"]])) {
+    param[["doublets_prediction"]] = opt[["doublets_prediction"]]
+} else {
+    param["doublets_prediction"] = list(NULL)
+}
+
+# Filter
+cell_filter = list()
+if (!is.null(opt[["cell_filter_nCount"]])) cell_filter[[paste0("nCount_", param[["assay_raw"]])]] = opt[["cell_filter_nCount"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% gsub(pattern="NA", replacement=NA) %>% as.numeric()
+if (!is.null(opt[["cell_filter_nFeature"]])) cell_filter[[paste0("nFeature_", param[["assay_raw"]])]] = opt[["cell_filter_nFeature"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% gsub(pattern="NA", replacement=NA) %>% as.numeric()
+if (!is.null(opt[["cell_filter_percent_mt"]])) cell_filter[["percent_mt"]] = opt[["cell_filter_percent_mt"]] %>% strsplit(",") %>% unlist() %>% trimws() %>% gsub(pattern="NA", replacement=NA) %>% as.numeric()
 
 # cell_filter
 filter_values = list()

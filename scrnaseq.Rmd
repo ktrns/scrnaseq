@@ -1272,7 +1272,7 @@ To determine variable genes, we need to separate biological variability from tec
 </details>
 
 ```{r plot_variable_features_heights}
-fig_height_vf = 5 * ceiling(length(names(sc))/2)
+fig_height_vf = 5 * ceiling(length(names(sc))/2) %>% min(100)
 ```
 
 ```{r plot_variable_features, warning=FALSE, fig.height=fig_height_vf}
@@ -1703,6 +1703,7 @@ height_per_row = 3
 nr_cols = 3
 nr_rows = ceiling(length(cluster_resolutions)/nr_cols)
 fig_height_test_clusters = nr_rows * height_per_row
+fig_height_test_clusters = fig_height_test_clusters %>% min(100)
 ```
 
 ```{r run_umap_test, fig.height=fig_height_test_clusters, message=FALSE}
@@ -2260,12 +2261,12 @@ height_per_row_variable = max(2, 0.3 * length(levels(sc$seurat_clusters)))
 # The total heights of average feature plots and dotplots depend on the number of lists provided
 fig_height_knownMarkers_avgplot = max(height_per_row, height_per_row * sum(idx_avgplot))
 # fig_height_knownMarkers_dotplot = max(height_per_row_variable, height_per_row_variable * sum(idx_dotplot)) %>% min(150)
-fig_height_knownMarkers_dotplot = min(height_per_row_variable, 7)
-fig_height_knownMarkers_avgvioplot = max(height_per_row_variable, height_per_row_variable * nr_avgviolin)
+fig_height_knownMarkers_dotplot = min(height_per_row_variable, 7) %>% min(100)
+fig_height_knownMarkers_avgvioplot = max(height_per_row_variable, height_per_row_variable * nr_avgviolin) %>% min(100)
 
 # The total height of individual feature plots depends on the total number of known markers
 nr_rows = ceiling(length(known_markers_vect)/4)
-fig_height_knownMarkers_vect = max(height_per_row, height_per_row * nr_rows)
+fig_height_knownMarkers_vect = max(height_per_row, height_per_row * nr_rows) %>% min(100)
 ```
 
 You provided `r length(known_markers_list)` list(s) of known marker genes. In the following tabs, you find: 
@@ -2493,11 +2494,13 @@ if (markers_found) {
 
   # Dotplots: each row contains 2 plots
   nr_rows_dp_2cols = ceiling(length(levels(sc$seurat_clusters))/2)
-  fig_height_dp_2cols = height_per_row_variable * nr_rows_dp_2cols %>% min(100)
+  fig_height_dp_2cols = height_per_row_variable * nr_rows_dp_2cols
   
 } else {
   fig_height_3cols = fig_height_dp_2cols = 7 
 }
+fig_height_3cols = fig_height_3cols %>% min(100)
+fig_height_dp_2cols = fig_height_dp_2cols %>% min(100)
 ```
 
 ### Feature plots
