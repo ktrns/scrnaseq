@@ -111,7 +111,7 @@ ReadMetadata_csv = function(csv_file) {
   assertthat::is.readable(csv_file)
   
   # Read table
-  meta_data = readr::read_delim(csv_file, col_names=TRUE, comment="#", progress=FALSE, col_types=readr::cols())
+  meta_data = readr::read_delim(csv_file, col_names=TRUE, comment="#", progress=FALSE, show_col_types=FALSE, col_types=readr::cols())
   meta_data = as.data.frame(meta_data)
   rownames(meta_data) = meta_data[, 1, drop=TRUE]
   return(meta_data)
@@ -185,7 +185,7 @@ ReadCounts_csv = function(csv_file, transpose=FALSE) {
   assertthat::is.readable(csv_file)
   
   # Read character-separated counts table with gene id in the first column and counts in the other columns 
-  counts_data = readr::read_delim(csv_file, col_names=TRUE, comment="#", progress=FALSE, col_types=readr::cols())
+  counts_data = readr::read_delim(csv_file, col_names=TRUE, comment="#", progress=FALSE, show_col_types=FALSE, col_types=readr::cols())
   row_ids = counts_data[, 1, drop=TRUE]
   col_ids = colnames(counts_data)
   col_ids = col_ids[-1]
@@ -215,7 +215,7 @@ ReadCounts_csv = function(csv_file, transpose=FALSE) {
 #' @param feature_type_column If there is data for multiple feature types, which column (number) in the features file is used to identify the type. If there is no column, set to NULL and type will be "Gene Expression" (default: NULL)
 #' @param delim Delimiter used in barcodes and feature files (default: \t)
 #' @param strip_suffix String that needs to be removed from the end of the barcodes (default: NULL) 
-#' @return One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpose=FALSE, barcodes_file_name="barcodes.tsv.gz", barcodes_column_names=FALSE, features_file_name="features.tsv.gz", features_column_names=FALSE, feature_type_column=NULL, delim="\t", strip_suffix=NULL) {
   # Checks
   for(f in file.path(mtx_directory, c(mtx_file_name, barcodes_file_name, features_file_name))) assertthat::is.readable(f)
@@ -225,12 +225,10 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
   if (transpose) {
     counts_data = Matrix::t(counts_data)
   }
+  counts_data = as(counts_data, "CsparseMatrix")
   
   # Read barcodes file
-  barcodes_data = readr::read_delim(file=file.path(mtx_directory, barcodes_file_name), 
-                                    col_names=barcodes_column_names, 
-                                    delim=delim,
-                                    progress=FALSE)
+  barcodes_data = readr::read_delim(file=file.path(mtx_directory, barcodes_file_name), col_names=barcodes_column_names, delim=delim, progress=FALSE, show_col_types=FALSE)
   barcodes_col_nms = colnames(barcodes_data)
   if (is.logical(barcodes_column_names) && barcodes_column_names==FALSE) {
     barcodes_col_nms = make.unique(rep("barcode_info", length(barcodes_col_nms)), sep="_")
@@ -245,9 +243,7 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
   rownames(barcodes_data) = barcodes_data$barcode
   
   # Read features file
-  features_data = readr::read_delim(file=file.path(mtx_directory, features_file_name),
-                                    col_names=features_column_names,
-                                    delim=delim, progress=FALSE)
+  features_data = readr::read_delim(file=file.path(mtx_directory, features_file_name), col_names=features_column_names, delim=delim, progress=FALSE, show_col_types=FALSE)
   feature_col_nms = colnames(features_data)
   if (is.logical(features_column_names) && features_column_names==FALSE)  {
     feature_col_nms = make.unique(rep("feature_info", length(feature_col_nms)), sep="_")
@@ -297,6 +293,8 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
 #' @param h5ad_file Path to an anndata object in hdf5 format.
 #' @return Sparse counts matrix (AnnDataMatrixH5 format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_h5ad = function(h5ad_file) {
+  library(magrittr)
+  
   # Checks
   assertthat::is.readable(h5ad_file)
   
@@ -330,7 +328,7 @@ ReadCounts_h5ad = function(h5ad_file) {
 #' @param path Path to counts data. Can be a character-separated file or a matrix exchange format directory (with files matrix.mtx.gz, barcodes.tsv.gz and features.tsv.gz).
 #' @param type Counts assay type. Can be: 'RNA' (gene expression), 'ATAC' (chromatin accessibility), 'ADT' (protein antibody capture), 'CRISPR' (CRISPR) or 'Custom'. Multiple types can be specified.
 #' @param transpose  If TRUE then rows are cells and columns are genes (default: FALSE)
-#' @return A sparse counts matrix (dgTMatrix or dgCMatrix format)
+#' @return A sparse counts matrix (dgCMatrix format)
 ReadCounts_SmartSeq = function(path, type="RNA", transpose=FALSE) {.
   # Checks
   assertthat::is.readable(path)
@@ -364,7 +362,7 @@ ReadCounts_SmartSeq = function(path, type="RNA", transpose=FALSE) {.
 #' Reads 10x counts that are in market exchange format.
 #' 
 #' @param mtx_directory Path to 10x counts directory in market exchange format.
-#' @return One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_10x_mtx = function(mtx_directory) {
   # Determine the name of the matrix file
   mtx_file_name = dplyr::case_when(file.exists(file.path(mtx_directory, "matrix.mtx.gz")) ~ "matrix.mtx.gz",
@@ -393,12 +391,7 @@ ReadCounts_10x_mtx = function(mtx_directory) {
     # 10x atac
     features_column_names = c("tf_full_name", "tf_name")
   } else {
-    feature_metadata = readr::read_delim(
-      file.path(mtx_directory, features_file_name),
-      delim = "\t",
-      col_names = FALSE,
-      n_max = 10
-    )
+    feature_metadata = readr::read_delim(file.path(mtx_directory, features_file_name), delim="\t", col_names=FALSE, n_max=3, progress=FALSE, show_col_types=FALSE)
     
     if (ncol(feature_metadata)) {
       # 10x multiome
@@ -522,7 +515,7 @@ ReadCounts_10x_hdf5 = function(hdf5_file) {
 #' 
 #' @param path Path to 10x counts data. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
 #' @param type If there are multiple counts types in the dataset, which type to read. Can be: 'RNA' (gene expression), 'ATAC' (chromatin accessibility), 'ADT' (protein antibody capture), 'CRISPR' (CRISPR) or 'Custom'. Multiple types can be specified. If there is only one counts type, this simply sets the counts assay type.
-#' @return One sparse counts matrix per feature type. Format is either MatrixSubset (when reading hdf5) or dgTMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix per feature type. Format is either MatrixSubset (when reading hdf5) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_10x = function(path, type, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
@@ -569,7 +562,7 @@ ReadCounts_10x = function(path, type, transpose=FALSE) {
 #' Reads Parse Biosciences counts that are in market exchange format.
 #' 
 #' @param mtx_directory Path to Parse Biosciences counts directory in market exchange format. Typically contains the files count_matrix.mtx, cell_metadata.csv and all_genes.csv.
-#' @return One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_ParseBio_mtx = function(mtx_directory) {
   # Determine the name of the matrix file
   mtx_file_name = "count_matrix.mtx"
@@ -613,7 +606,7 @@ ReadCounts_ParseBio_h5ad = function(h5ad_file) {
 #' 
 #' @param path Path to Parse Biosciences counts data. Can be a Parse Biosciences anndata.h5ad file (recommended for big datasets) or a Parse Biosciences matrix exchange format directory.
 #' @param type If there are multiple counts types in the dataset, which type to read. Can be: 'RNA' (gene expression), 'ATAC' (chromatin accessibility), 'ADT' (protein antibody capture), 'CRISPR' (CRISPR) or 'Custom'. Multiple types can be specified. If there is only one counts type, this simply sets the counts assay type.
-#' @return One sparse counts matrix. Format is either AnnDataMatrixH5 (when reading anndata.h5ad) or dgTMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix. Format is either AnnDataMatrixH5 (when reading anndata.h5ad) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_ParseBio = function(path, type, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
@@ -660,7 +653,7 @@ ReadCounts_ParseBio = function(path, type, transpose=FALSE) {
 #' Reads Scale Bio counts that are in market exchange format.
 #' 
 #' @param mtx_directory Path to Scale Bio counts directory in market exchange format. Typically contains the files matrix.mtx.gz, barcodes.tsv.gz and features.tsv.gz.
-#' @return One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_ScaleBio_mtx = function(mtx_directory) {
   # Determine the name of the matrix file
   mtx_file_name = "matrix.mtx"
@@ -691,7 +684,7 @@ ReadCounts_ScaleBio_mtx = function(mtx_directory) {
 #' 
 #' @param path Path to Scale Bio counts data. Must be a Scale Bio matrix exchange format directory.
 #' @param type If there are multiple counts types in the dataset, which type to read. Can be: 'RNA' (gene expression), 'ATAC' (chromatin accessibility), 'ADT' (protein antibody capture), 'CRISPR' (CRISPR) or 'Custom'. Multiple types can be specified. If there is only one counts type, this simply sets the counts assay type.
-#' @return  One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata
+#' @return  One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata
 ReadCounts_ScaleBio = function(path, type, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
@@ -735,21 +728,33 @@ ReadCounts_ScaleBio = function(path, type, transpose=FALSE) {
 #' @param path Path to counts data. Can be: character-separated file (Smartseq), matrix exchange format directory (SmartSeq, 10x, Parse Biosciences, ScaleBio), hdf5 file (10x), h5ad file (Parse Biosciences).
 #' @param technology Technology. Can be: 'smartseq', '10x', 'parse' or 'scale'.
 #' @param type If there are multiple counts types in the dataset, which type to read. Can be: 'RNA' (gene expression), 'ATAC' (chromatin accessibility), 'ADT' (protein antibody capture), 'CRISPR' (CRISPR) or 'Custom'. Multiple types can be specified. If there is only one counts type, this simply sets the counts assay type.
-#' @param barcode_metadata_file Path to additional barcode metadata. Can be: character-separated file, Excel file or a table saved R rds file. First column must contain the barcode. Missing barcodes will be filled with NA (default: NULL).
-#' @param feature_metadata_file Path to additional feature metadata. Can be: character-separated file, Excel file or a table saved R rds file. First column must contain the feature id. Missing features will be filled with NA (default: NULL).
+#' @param barcode_metadata_file Optional path to additional barcode metadata. Can be: character-separated file, Excel file or a table saved R rds file. First column must contain the barcode. Missing barcodes will be filled with NA.
+#' @param feature_metadata_file Optional path to additional feature metadata. Can be: character-separated file, Excel file or a table saved R rds file. First column must contain the feature id. Missing features will be filled with NA.
+#' @param rename_barcodes If not NULL, controls how to rename the barcodes. Can be a character vector of length 1 with the name of a barcode metadata column or a named character vector with names being the old barcode names and values being the new barcode names. The named character vector can also contain just a subset of barcodes for renaming and all other barcodes stay untouched.
+#' @param rename_features If not NULL, controls how to rename the features. Can be a character vector of length 1 with the name of a feature metadata column or a named character vector with names being the old feature names and values being the new feature names. The named character vector can also contain just a subset of features for renaming and all other features stay untouched.
+#' @param barcode_suffix Suffix to add to the barcodes (default: NULL). When barcodes are renamed, will be applied afterwards.
+#' @param on_disk_path If not NULL, do not store counts in memory but on disk in a matrix directory at this path. Together with the BPcells package, this allows the analysis of very large datasets since at all times just a small part but never the entire counts matrix is kept in memory. 
+#' @param on_disk_overwrite If TRUE, overwrite existing matrix directories. If FALSE, read and return existing matrix directories.
+#' @return  One sparse counts matrix per feature type (dgCMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata
 
-#' @return  One sparse counts matrix per feature type (dgTMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata
-
-ReadCounts = function(path, technology, type, barcode_metadata=NULL, feature_metadata=NULL) {
+ReadCounts = function(path, technology, type, barcode_metadata_file=NULL, feature_metadata_file=NULL, rename_barcodes=NULL, rename_features=NULL, barcode_suffix=NULL, on_disk_path=NULL, on_disk_overwrite=FALSE) {
+  library(magrittr)
   
   path = "datasets/10x_pbmc_5k_protein/counts/"
   technology = "10x"
   type = c("RNA", "ADT")
+  on_disk_path = "this"
+  on_disk_overwrite = FALSE
+  barcode_metadata_file = NULL
+  feature_metadata_file = NULL
+  rename_barcodes = NULL
+  rename_features = "feature_name"
+  barcode_suffix = NULL
   
   # Checks
   valid_technologies = c("smartseq", "10x", "parse", "scale")
   assertthat::assert_that(technology %in% valid_technologies,
-                          msg=glue::glue("technology is {technology} but must be one of: {valid_technologies*}.", .transformer=FormatErrorMessage_glue()))
+                          msg=glue::glue("Technology is {technology} but must be one of: {valid_technologies*}.", .transformer=FormatErrorMessage_glue()))
   
   # Read counts
   if (technology == "smartseq") {
@@ -792,7 +797,7 @@ ReadCounts = function(path, technology, type, barcode_metadata=NULL, feature_met
       if ("feature_metadata" %in% names(attributes(counts_lst[[i]]))) {
         metadata = attr(counts_lst[[i]], "feature_metadata")
       } else {
-        metadata = data.frame(id=colnames(counts_lst[[i]]))
+        metadata = data.frame(id=rownames(counts_lst[[i]]))
       }
       
       x_id = colnames(metadata)[1]
@@ -804,25 +809,99 @@ ReadCounts = function(path, technology, type, barcode_metadata=NULL, feature_met
     }
   }
   
-  # Update annotation
+  # Update barcode and feature names
+  if (!is.null(rename_barcodes)) {
+    if (length(names(rename_barcodes))==0) {
+      barcode_name_column = rename_barcodes[1]
+      for(i in seq_along(counts_lst)) {
+        metadata = attr(counts_lst[[i]], "barcode_metadata")
+        assertthat::assert_that(barcode_name_column %in% colnames(metadata),
+                                msg=glue::glue("Column {barcode_name_column} cannot be found in the barcode metadata available for dataset {path}.", .transformer=FormatErrorMessage_glue()))
+        new_barcode_names = metadata[, barcode_name_column, drop=TRUE]
+        if (any(duplicated(new_barcode_names))) {
+          warning(glue::glue("Metadata column {barcode_name_column} contains duplicate values for dataset {path}. Barcode names will be made unique.", .transformer=FormatErrorMessage_glue()))
+          new_barcode_names = make.unique(new_barcode_names)
+        }
+        colnames(counts_lst[[i]]) = new_barcode_names
+      }
+    } else if (length(names(rename_barcodes))>0) {
+      barcode_names = rename_barcodes
+      new_barcode_names = ifelse(colnames(counts_lst[[i]]) %in% names(barcode_names),
+                                 barcode_names[colnames(counts_lst[[i]])],
+                                 colnames(counts_lst[[i]]))
+      if (any(duplicated(new_barcode_names))) {
+        warning(glue::glue("Provided barcode names contain duplicate values for dataset {path}. Barcode names will be made unique.", .transformer=FormatErrorMessage_glue()))
+        new_barcode_names = make.unique(new_barcode_names)
+      }
+      colnames(counts_lst[[i]]) = unname(new_barcode_names)
+    }
+  }
   
-  path 
-  tech
-  type: RNA, ATAC, ADT, ...
-  barcode_meta
-  feature_meta
-  barcode_name: "ID", numeric/column of barcode_meta,
-  feature_name: "ID", numeric/column of feature_meta,anno df (e.g. provided by ensembl)?
-    
-  1. Read Counts
-  2. Read Metadata and add
-  3. Update annotation
-  4. Write data (if req)
+  if (!is.null(rename_features)) {
+    if (length(names(rename_features))==0) {
+      feature_name_column = rename_features[1]
+      for(i in seq_along(counts_lst)) {
+        metadata = attr(counts_lst[[i]], "feature_metadata")
+        assertthat::assert_that(feature_name_column %in% colnames(metadata),
+                                msg=glue::glue("Column {feature_name_column} cannot be found in the feature metadata available for dataset {path}.", .transformer=FormatErrorMessage_glue()))
+        new_feature_names = metadata[, feature_name_column, drop=TRUE]
+        if (any(duplicated(new_feature_names))) {
+          warning(glue::glue("Metadata column {feature_name_column} contains duplicate values for dataset {path}. Feature names will be made unique.", .transformer=FormatErrorMessage_glue()))
+          new_feature_names = make.unique(new_feature_names)
+        }
+        rownames(counts_lst[[i]]) = new_feature_names
+      }
+    } else if (length(names(rename_features))>0) {
+      feature_names = rename_features
+      new_feature_names = ifelse(rownames(counts_lst[[i]]) %in% names(feature_names),
+                                 feature_names[colnames(counts_lst[[i]])],
+                                 rownames(counts_lst[[i]]))
+      if (any(duplicated(new_feature_names))) {
+        warning(glue::glue("Provided feature names contain duplicate values for dataset {path}. Feature names will be made unique.", .transformer=FormatErrorMessage_glue()))
+        new_feature_names = make.unique(new_feature_names)
+      }
+      rownames(counts_lst[[i]]) = unname(new_feature_names)
+    }
+  }
+  
+  # Add barcode suffix
+  if (!is.null(barcode_suffix)) {
+    for(i in seq_along(counts_lst)) {
+      colnames(counts_lst[[i]]) = paste0(colnames(counts_lst[[i]]), barcode_suffix)
+    }
+  }
+  
+  # Store counts in memory or write counts into matrix directory
+  for(n in names(counts_lst)) {
+    if (!is.null(on_disk_path)) {
+      # in matrix directory
+      if (is(counts_lst[[n]], 'dgCMatrix')) {
+        # test if we have non-negative integers, then convert matrix save disk space (default is double)
+        vals = sample(counts_lst[[n]]@x, min(length(counts_lst[[n]]@x), 100000))
+        
+        counts_lst[[n]] = as(counts_lst[[n]], "IterableMatrix")
+        if (all(vals >= 0) & all(vals == round(vals))) {
+          counts_lst[[n]] = BPCells::convert_matrix_type(counts_lst[[n]], type="uint32_t")
+        }
+      }
+      
+      if (dir.exists(file.path(on_disk_path, n)) & on_disk_overwrite==FALSE) {
+        counts_lst[[n]] = BPCells::open_matrix_dir(file.path(on_disk_path, n))
+      } else {
+        counts_lst[[n]] = BPCells::write_matrix_dir(mat=counts_lst[[n]], dir=file.path(on_disk_path, n), overwrite=on_disk_overwrite)
+      }
+    } else {
+      # in memory: make sure it is sparse
+      if (!is(counts_lst[[n]], 'dgCMatrix')) {
+        counts_lst[[n]] = counts_lst[[n]] %>% as("sparseMatrix")
+      }
+    }
+  }
 }
 
-1. Then got list of assays for all samples and types
-2. Group by type
-3. CreateSeuratObject for all RNA
-4. Then add others as assays
-5. Add metadata
-6. Set column SAMPLE and column dataset
+#1. Then got list of assays for all samples and types
+#2. Group by type
+#3. CreateSeuratObject for all RNA
+#4. Then add others as assays
+#5. Add metadata
+#6. Set column SAMPLE and column dataset
