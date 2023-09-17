@@ -74,5 +74,5 @@ format:
       opts_chunk: 
         dev: ragg_png
 
-params:
-  author: "aba"
+profile: 
+  default: default

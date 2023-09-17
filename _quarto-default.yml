@@ -9,3 +9,6 @@ book:
   - workflows/preprocessing/preprocessing.qmd
   - workflows/visualisation/visualisation.qmd
   - references.qmd
+
+params:
+  general_p: "po"

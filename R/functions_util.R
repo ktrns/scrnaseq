@@ -1,3 +1,63 @@
+
+#' Transformer for the glue package:
+#' - if quote=TRUE, quotes all variables in the glue string
+#' - if a variable has multiple values and its glue string contains a '*' (e.g. {variable*}, include all values separated by sep. If quote=TRUE, they will be quoted as well.
+#' 
+#' https://glue.tidyverse.org/articles/transformers.html
+#' 
+#' @param sep When a variable contains multiple values and is marked with a '*', which separator to use to collapse the values
+#' @param quote Whether to quote variables
+#' @return A function to transform the glue string
+GlueTransformer_quote_collapse = function(sep=", ", quote=TRUE, ...) {
+  function(text, envir) {
+    collapse = grepl("[*]$", text)
+    if (collapse) {
+      text = sub("[*]$", "", text)
+    }
+    res = glue::identity_transformer(text, envir)
+    if (quote) {
+      res = glue::single_quote(res)
+    }
+    if (collapse) {
+      glue::glue_collapse(res, sep, ...)  
+    } else {
+      res
+    }
+  }
+}
+
+#' Formats messages. 
+#' 
+#' - Variables can be automatically inserted with '{variable}'.
+#'  - If quote=TRUE, quotes all variables.
+#' - If a variable has multiple values, use {variable*} to include all values separated by sep. If quote=TRUE, they will be quoted as well.
+#' 
+#' @param sep When a variable contains multiple values and is marked with a '*', which separator to use to collapse the values
+#' @param quote Whether to quote variables
+#' @return The formatted message
+FormatMessage = function(msg, quote=TRUE, sep=", ") {
+  return(glue::glue(msg, .transformer=GlueTransformer_quote_collapse()))
+}
+
+
+param = function(p=NULL) {
+  general_params = config::get(
+    config=Sys.getenv(""),
+    file=Sys.getenv("aa"),
+    use_parent=FALSE)
+  document_params = params
+  merged_params = purrr::list_modify(general_params, !!!document_params)
+  
+  if(is.null(p)) {
+    return(merged_params)
+  } else {
+    assertthat::assert_that(p %in% names(merged_params),
+                            msg=FormatMessage("Parameter {p} is not set."))
+    
+    return(merged_params[[p]])
+  }
+}
+
 #' Tests if values can be converted to numbers.
 #' 
 #' @param x A vector with values.

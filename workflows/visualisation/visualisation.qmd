@@ -1,3 +1,9 @@
+---
+title: Visualisation
+params:
+  abra: "ss"
+---
+
 # Visualisation
 
 This will contain the visualisation steps.
@@ -5,7 +11,33 @@ This will contain the visualisation steps.
 ```{r}
 #| cache: true
 
-print(1)
+param = function(p=NULL) {
+  # read document params yaml
+  current_params = params
+  
+  # if profile is set, read profile params from the profile yaml file and merge
+  profile = Sys.getenv("QUARTO_PROFILE")
+  profile_params = list()
+  
+  if (nchar(profile) > 0) {
+    profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"))
+    if ("params" %in% names(profile_yml)) {
+      current_params = purrr::list_modify(profile_yml$params, !!!current_params)
+    }
+  }
+  
+  if(is.null(p)) {
+    return(current_params)
+  } else {
+    assertthat::assert_that(p %in% names(current_params),
+                            msg=FormatMessage("Parameter {p} is not set."))
+    
+    return(current_params[[p]])
+  }
+}
+
+param()
+
 ```
 
 
