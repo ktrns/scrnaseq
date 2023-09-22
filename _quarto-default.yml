@@ -6,8 +6,8 @@ book:
   subtitle: "Sub"
   chapters:
   - index.qmd
-  - workflows/preprocessing/preprocessing.qmd
-  - workflows/visualisation/visualisation.qmd
+  - modules/read_data/read_data.qmd
+  - modules/visualisation/visualisation.qmd
   - references.qmd
 
 params:

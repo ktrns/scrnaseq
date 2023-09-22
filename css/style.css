@@ -3,7 +3,7 @@
 The code was written by James Steinbach (October 10, 2018) and made available at https://codepen.io/jdsteinbach/pen/GYmQjo.
 */
   
-details {
+details.details_box {
   margin: 1rem auto;
   padding: 0 1rem;
   max-width: calc(100% - 0rem);
@@ -42,7 +42,7 @@ details {
   }
 }
 
-summary {
+summary.details_box {
   padding: 1rem 2em 1rem 0;
   display: block;
   position: relative;

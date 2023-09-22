@@ -1,0 +1,117 @@
+---
+# Module title
+title: Read data
+
+# Module-specific parameters (that are not already in the profile yaml)
+params:
+  # Name of the module. Must be the same as name of qmd file.
+  module: "read_data"
+  
+# Module exection
+execute:
+  # Set to true to never re-render this document
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  freeze: false
+---
+
+```{r}
+#| label: setup
+
+# If running code interactively in rstudio, set profile here
+# When rendering with quarto, profile is already set and should not be overwritten
+if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
+
+# Source general configurations
+source("R/general_configuration.R")
+
+# Source required R functions
+source("R/functions_util.R")
+
+# Load libraries
+library(magrittr)
+```
+
+```{r}
+#| label: preparation
+
+param()
+```
+
+
+The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell. \## Read and print general metrics
+
+Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
+
+<details class="details_box">
+
+<summary class="details_box">
+
+Pre-processing of 10x data with Cell Ranger
+
+</summary>
+
+We use the 10x Genomics Cell Ranger software to map 10x sequencing reads. The result is a count matrix that contains the number of unique transcripts per gene (rows) and cell (columns). To save storage space, the matrix is converted into a condensed format and described by the following 3 files:\
+
+<ul>
+
+<li>"features.tsv.gz": Tabular file with gene annotation (Ensembl gene ID and the gene symbol) to identify genes</li>
+
+<li>"barcodes.tsv.gz": File with cell barcodes to identify cells</li>
+
+<li>"matrix.mtx.gz": A condensed version of the count matrix</li>
+
+</ul>
+
+</details>
+
+<details class="details_box">
+
+<summary class="details_box">
+
+Pre-processing of SmartSeq-2 data
+
+</summary>
+
+Sequencing reads from SmartSeq-2 (and other) experiments can be mapped with any suitable mapping software as long as a count matrix is generated that contains the number of mapped reads per gene (rows) and cell (columns). The first row of the count matrix should contain cell barcodes or names, the first column of the matrix should contain Ensembl gene IDs.
+
+</details>
+
+## Data set overview
+
+```{r general_metrics, message=TRUE}
+
+content = readLines("/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv")
+
+
+### 10X ###################
+
+metrics_file = "/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv"
+
+metrics_table = readr::read_delim(metrics_file, col_names=TRUE, show_col_types=FALSE)
+
+
+# standard, atac, multiome, visium, xenium
+
+
+# multi
+readr::read_delim("/projects/seq-work/analysis/joseg/bfx2306/cellranger_multi/bfx2306.LAB4821_Pre-amp-cDNA.s4-CEL105008.cellranger_multi_metrics_summary.csv")
+readr::read_delim("/projects/seq-work/analysis/joseg/bfx2306/cellranger_multi/bfx2306.LAB4821_Pre-amp-cDNA.s1-CEL104859.cellranger_multi_metrics_summary.csv")
+# ...
+
+### Smartseq2 ####################
+
+# provide standard tables
+
+
+### Parse Bio ###################
+
+
+```
+
+This will contain the visualisation steps.
+
+```{r}
+knitr::current_input()
+```
+
+Blah Blah [see @Xie_2014]

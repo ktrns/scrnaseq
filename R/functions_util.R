@@ -39,22 +39,38 @@ FormatMessage = function(msg, quote=TRUE, sep=", ") {
   return(glue::glue(msg, .transformer=GlueTransformer_quote_collapse()))
 }
 
-
+#' Access a workflow parameters set in the profile and the document yaml.
+#' 
+#' This function merges parameters defined in the current profile yaml with parameters defined in the yaml header of the current document. The document parameters will overwrite the profile parameters.
+#' 
+#' This is currently the only way to work with profile and document parameters a) interactively in rstudio as well as b) during rendering by quarto. The profile needs to be set in the setup chunk using the following lines:
+#' 
+#' `if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) { Sys.setenv("QUARTO_PROFILE" = "default")}`
+#' 
+#' @param p Parameter to access. If NULL, returns all parameters.
+#' @return One or more parameters as list
 param = function(p=NULL) {
-  general_params = config::get(
-    config=Sys.getenv(""),
-    file=Sys.getenv("aa"),
-    use_parent=FALSE)
-  document_params = params
-  merged_params = purrr::list_modify(general_params, !!!document_params)
+  # read document params yaml
+  current_params = params
+  
+  # if profile is set, read profile params from the profile yaml file and merge
+  profile = Sys.getenv("QUARTO_PROFILE")
+  profile_params = list()
+  
+  if (nchar(profile) > 0) {
+    profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"))
+    if ("params" %in% names(profile_yml)) {
+      current_params = purrr::list_modify(profile_yml$params, !!!current_params)
+    }
+  }
   
   if(is.null(p)) {
-    return(merged_params)
+    return(current_params)
   } else {
-    assertthat::assert_that(p %in% names(merged_params),
+    assertthat::assert_that(p %in% names(current_params),
                             msg=FormatMessage("Parameter {p} is not set."))
     
-    return(merged_params[[p]])
+    return(current_params[[p]])
   }
 }
 

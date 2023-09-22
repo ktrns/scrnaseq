@@ -8,15 +8,16 @@
 scrnaseq.Rproj
 /.quarto/
 /_book/
+/_freeze/
 
 # Ignore files and directories produced in datasets directories
 /datasets/**
 /test_datasets
 
 # Ignore files and directories produced in workflow directories (except qmd files)
-/workflows/**
-!/workflows/*/
-!/workflows/**/*.qmd
+/modules/**
+!/modules/*/
+!/modules/**/*.qmd
 
 # Ignore files and directories produced at the project level
 /index.html
