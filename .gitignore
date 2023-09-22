@@ -15,6 +15,7 @@ scrnaseq.Rproj
 
 # Ignore files and directories produced in workflow directories (except qmd files)
 /workflows/**
+!/workflows/*/
 !/workflows/**/*.qmd
 
 # Ignore files and directories produced at the project level
@@ -23,3 +24,6 @@ scrnaseq.Rproj
 
 # Ignore quarto local files that should not be cached
 environment.local
+
+# Ignore rstudio-server directories
+rstudio-server/**
