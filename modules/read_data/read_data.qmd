@@ -7,9 +7,43 @@ params:
   # Name of the module. Must be the same as name of qmd file.
   module: "read_data"
   
-# Module exection
+  # Path to a csv or Excel file containing a table with single-cell datasets. For Excel files, a sheet can be specified by appending ':<sheet_number>'.
+  # The table must contain the following columns:
+  # - sample (required): Name of the sample. A sample can have multiple single-cell datasets.
+  # - technology (required): Single-cell technology used. Can be: "smartseq2" - Smartseq2, "smartseq3" - Smartseq3, "10x" - 10x, "10x_visium" - 10x Visium, 
+  #                          "10x_xenium" - 10x Xenium, "parse" - Parse Biosciences, "scale" - ScaleBio.
+  # - assays (required): Assay(s) of single-cell data to read. Currently supported are: RNA (Gene Expression), ADT (Antibody Protein Capture) and 
+  #                     ATAC (Chromatin Accessibility), CUSTOM (Custom). Multiple assays can be specified comma-separated.
+  # - path (required): Path to single-cell dataset. Can be: csv file (Smartseq2/3), mtx matrix market directory (10x, 10x Visium, 10x Xenium, Parse Biosciences,
+  #                    ScaleBio), hdf5 file (10x, 10x Visium, 10x Xenium), h5ad file (Parse Biosciences).
+  # - metrics_file (required): Path to a file containing a metrics summary table. For Smartseq2/3, this can be any table. For 10x, 10x Visium or 10x Xenium, this 
+  #                            must be a "metrics_summary.csv" file produced by the Cellranger pipelines. For Parse Biosciences, this must be a "analysis_summary.csv"
+  #                            file produced by the splitpipe pipeline. For ScaleBio, this must be a "*.reportStatistics.csv" file produced by the scalerna pipeline.
+  # - barcode_metadata_file (optional): Path to a file containing a table of additional barcode metadata. Can be: a csv, Excel or an R table saved as rds file. 
+  #                                     For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the barcode. Table
+  #                                     does not need to contain all barcodes.
+  # - feature_metadata_file (optional): Path to a file containing a table of additional feature metadata. Can be: a csv, Excel or an R table saved as rds file. 
+  #                                     For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the feature id. Table
+  #                                     does not need to contain all features.
+  # - rename_features_ensembl (optional): By default, ids are used to name features (first column). For gene features, specify an Ensembl version to fetch the gene names (and more annotation). If used together with 
+  #                                       rename_features_metadata, then rename_features_metadata must be set '1' for all assays that should be renamed with rename_features_ensembl.
+  # - rename_features_metadata (optional): By default, ids are used to name features (first column). This column controls how to rename the features using metadata. Can be the name or index of a feature 
+  #                                        metadata column. If multiple assays are read, this option can be specified either once or for all assays. If used together with 
+  #                                        rename_features_ensembl, then rename_features_metadata must be set '1' for all assays that should be renamed with rename_features_ensembl.
+  # - barcode_suffix (optional): Suffix to add to the barcodes. Suggestion is to use '-1', '-2', etc. If not set, no suffixes are added.
+  datasets_file: "datasets/pbmc_datasets.xlsx"
+  
+  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. TThis will create a a 'counts' directory within the module directory with one matrix directory per sample and assay.
+  on_disk_counts: true
+  
+  # For large datasets: Overwrite existing matrix directories. The counts files will still be read though.
+  on_disk_counts_overwrite: true
+  
+# Module execution
 execute:
-  # Set to true to never re-render this document
+  # Should this module be re-rendered?
+  # - auto: only when code changes
+  # - true/false: always/never
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
   freeze: false
 ---
@@ -26,92 +60,136 @@ source("R/general_configuration.R")
 
 # Source required R functions
 source("R/functions_util.R")
+source("R/functions_io.R")
 
 # Load libraries
 library(magrittr)
+
+# Get module name and directory (needed to access files within the module directory)
+module_name = param("module")
+module_dir = file.path("modules", module_name)
 ```
 
 ```{r}
 #| label: preparation
 
+v = 
+ensembl_mart = GetBiomaRt(species="homo_sapiens", ensembl_version = 98)
+annot_ensembl = biomaRt::getBM(mart=ensembl_mart, attributes=c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "gene_biotype", "description"), useCache=FALSE)
+
+"", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description
+
+  annot_main: !r c(ensembl="", symbol="external_gene_name", entrez="entrezgene_accession")
+  mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
+
+```
+
+```{r}
+#| label: datasets_table
+
+# Read table with datasets
+datasets_file = param("datasets_file")
+
+
+datasets = ReadDatasetsTable(datasets_file)
+
+
+ annot_mart = suppressWarnings(GetBiomaRt(biomart="ensembl", 
+                                           dataset=param$mart_dataset, 
+                                           mirror=param$biomart_mirror, 
+                                           version=param$annot_version))
+  annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=param$mart_attributes, useCache=FALSE)
+  write.table(annot_ensembl, file=param$file_annot, sep="\t", col.names=TRUE, row.names=FALSE, append=FALSE)
+
+```
+
+
+```{r}
+# Read counts for datasets
+counts_lst = list()
+
+for (i in 1:nrow(datasets)) {
+  i = 1
+  
+  # Set defaults
+  sample = datasets$sample[i]
+  path = datasets$path[i]
+  technology = datasets$technology[i]
+  assays = strsplit(datasets$assays[i], split=",") %>% unlist() %>% trimws()
+  
+  barcode_metadata_file = datasets$barcode_metadata_file[i]
+  if (is.na(barcode_metadata_file)) barcode_metadata_file = NULL
+  
+  feature_metadata_file = datasets$feature_metadata_file[i]
+  if (is.na(feature_metadata_file)) feature_metadata_file = NULL
+  
+  rename_barcodes = NULL
+  rename_features = 2
+  
+  barcode_suffix = paste("-", i)
+  
+  # Save counts in matrix directory ?
+  if (param("on_disk_counts") ){
+    on_disk_path = file.path(module_dir, "counts", sample)
+  } else {
+    on_disk_path = NULL
+  }
+  on_disk_overwrite = param("on_disk_counts_overwrite")
+  
+  
+  # Read counts for dataset
+  counts_lst[[sample]] = ReadCounts(path=path,
+                                    technology=technology,
+                                    assay=assays,
+                                    barcode_metadata_file=barcode_metadata_file,
+                                    feature_metadata_file=feature_metadata_file,
+                                    rename_barcodes=NULL,
+                                    rename_features=2,
+                                    barcode_suffix=barcode_suffix,
+                                    on_disk_path=on_disk_path,
+                                    on_disk_overwrite=on_disk_overwrite)
+}
+
+# 
+a = "RNA"
+
+purrr::map(counts_lst, names) %>% unlist() %>% table()
+
+purrr::map(counts_lst, names)
+
+n = "RNA"
+has_assay = purrr::map(counts_lst, pluck_exists, n) %>% purrr::flatten_lgl()
+has_assay = c(TRUE, FALSE)
+assay_counts_lst = purrr::map(counts_lst[has_assay], pluck, n)
+
+assay_barcode_metadata = purrr::map(names(assay_counts_lst), function(n) {
+  metadata = attr(assay_counts_lst[[n]], "barcode_metadata")
+  metadata$orig.ident = n
+  metadata$technology = attr(assay_counts_lst[[n]], "technology")
+  return(metadata)
+}) %>% dplyr::bind_rows()
+
+merged.object <- CreateSeuratObject(counts=assay_counts_lst, meta.data=assay_barcode_metadata, assay="RNA", names.delim=NULL, names.field=NULL)
+
+n = "ADT"
+has_assay = purrr::map(counts_lst, pluck_exists, n) %>% purrr::flatten_lgl()
+assay_counts_lst = purrr::map(counts_lst[has_assay], pluck, n)
+
+assay_barcode_metadata = purrr::map(names(assay_counts_lst), function(n) {
+  metadata = attr(assay_counts_lst[[n]], "barcode_metadata")
+  metadata$orig.ident = n
+  metadata$technology = attr(assay_counts_lst[[n]], "technology")
+  return(metadata)
+}) %>% dplyr::bind_rows()
+
+other_assay <- CreateAssay5Object(counts = assay_counts_lst)
+
+merged.object[["ADT"]] = other_assay
+
+
 param()
 ```
 
 
-The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell. \## Read and print general metrics
-
-Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
-
-<details class="details_box">
-
-<summary class="details_box">
-
-Pre-processing of 10x data with Cell Ranger
-
-</summary>
-
-We use the 10x Genomics Cell Ranger software to map 10x sequencing reads. The result is a count matrix that contains the number of unique transcripts per gene (rows) and cell (columns). To save storage space, the matrix is converted into a condensed format and described by the following 3 files:\
-
-<ul>
-
-<li>"features.tsv.gz": Tabular file with gene annotation (Ensembl gene ID and the gene symbol) to identify genes</li>
-
-<li>"barcodes.tsv.gz": File with cell barcodes to identify cells</li>
-
-<li>"matrix.mtx.gz": A condensed version of the count matrix</li>
-
-</ul>
-
-</details>
-
-<details class="details_box">
-
-<summary class="details_box">
-
-Pre-processing of SmartSeq-2 data
-
-</summary>
-
-Sequencing reads from SmartSeq-2 (and other) experiments can be mapped with any suitable mapping software as long as a count matrix is generated that contains the number of mapped reads per gene (rows) and cell (columns). The first row of the count matrix should contain cell barcodes or names, the first column of the matrix should contain Ensembl gene IDs.
-
-</details>
-
-## Data set overview
-
-```{r general_metrics, message=TRUE}
-
-content = readLines("/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv")
-
-
-### 10X ###################
-
-metrics_file = "/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv"
-
-metrics_table = readr::read_delim(metrics_file, col_names=TRUE, show_col_types=FALSE)
-
-
-# standard, atac, multiome, visium, xenium
-
-
-# multi
-readr::read_delim("/projects/seq-work/analysis/joseg/bfx2306/cellranger_multi/bfx2306.LAB4821_Pre-amp-cDNA.s4-CEL105008.cellranger_multi_metrics_summary.csv")
-readr::read_delim("/projects/seq-work/analysis/joseg/bfx2306/cellranger_multi/bfx2306.LAB4821_Pre-amp-cDNA.s1-CEL104859.cellranger_multi_metrics_summary.csv")
-# ...
-
-### Smartseq2 ####################
-
-# provide standard tables
-
-
-### Parse Bio ###################
-
-
-```
-
-This will contain the visualisation steps.
-
-```{r}
-knitr::current_input()
-```
 
 Blah Blah [see @Xie_2014]

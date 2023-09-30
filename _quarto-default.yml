@@ -11,4 +11,70 @@ book:
   - references.qmd
 
 params:
-  general_p: "po"
+  general:
+    # Project ID
+    project_id: "pbmc"
+    
+    # Species
+    species: "homo_sapiens"
+    
+  modules:
+    read_data:
+      paramB: "E"
+
+
+# params:
+#   # Author
+#   author: !r Sys.info()[["user"]]
+# 
+#   
+#   project_id: pbmc
+#    
+#   # Path to input data
+#   path_data: !r data.frame(name=c("pbmc_10x","pbmc_smartseq2"), 
+#                            type=c("10x","smartseq2"), 
+#                            path=c("test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/10x/", "test_datasets/10x_SmartSeq2_pbmc_GSE132044/counts/smartseq2/counts_table.tsv.gz"), 
+#                            stats=c(NA, NA))
+# 
+#   # Data type ("RNA", "Spatial")
+#   assay_raw: "RNA"
+#   
+#   # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
+#   #   NULL to deactivate
+#   downsample_cells_n: NULL
+#   
+#   # Downsample all samples equally according to the smallest sample
+#   #   TRUE/FALSE
+#   #   Overwritten by downsample_cells_n
+#   downsample_cells_equally: FALSE
+# 
+#   # Path to output directory
+#   path_out: test_datasets/10x_SmartSeq2_pbmc_GSE132044/results/
+# 
+#   # Marker genes based on literature, translated to Ensembl IDs
+#   #   xlsx file, one list per column, first row as header and Ensembl IDs below
+#   #   NULL if no known marker genes should be plotted
+#   file_known_markers: test_datasets/10x_SmartSeq2_pbmc_GSE132044/known_markers.xlsx
+# 
+#   # Contaminant cells
+#   #   NULL if not cells are to be excluded
+#   #   Otherwise a file with one column, one cell name per line
+#   file_contam_cells: NULL
+# 
+#   # Annotation via biomaRt
+#   mart_dataset: hsapiens_gene_ensembl
+#   annot_version: 98
+#   annot_main: !r c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession")
+#   mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
+#                         c("chromosome_name", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description"))
+#   biomart_mirror: NULL
+# 
+#   # Prefix for mitochondrial genes 
+#   mt: "^MT-"
+#   
+#   # Name for doublet scores
+#   # Doublet scores can be provided automatically via metadata.tsv.gz in path_data
+#   # NULL if no doublet scores are provided in metadata
+#   doublets: NULL
+#   doublets_prediction: NULL
+

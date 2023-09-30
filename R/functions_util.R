@@ -36,43 +36,103 @@ GlueTransformer_quote_collapse = function(sep=", ", quote=TRUE, ...) {
 #' @param quote Whether to quote variables
 #' @return The formatted message
 FormatMessage = function(msg, quote=TRUE, sep=", ") {
-  return(glue::glue(msg, .transformer=GlueTransformer_quote_collapse()))
+  return(glue::glue(msg, .transformer=GlueTransformer_quote_collapse(), .envir=parent.frame()))
 }
 
-#' Access a workflow parameters set in the profile and the document yaml.
+#' Access a workflow parameters set in the profile and the module yaml.
 #' 
-#' This function merges parameters defined in the current profile yaml with parameters defined in the yaml header of the current document. The document parameters will overwrite the profile parameters.
+#' This function merged parameters defined in the module yaml head general with general and module-specific parameters from the profile yaml (in this order). 
+#'  
+#' This is currently the only way to work with profile and module parameters a) interactively in rstudio as well as b) during rendering by quarto. The profile needs to be set in the setup chunk using the following lines:
 #' 
-#' This is currently the only way to work with profile and document parameters a) interactively in rstudio as well as b) during rendering by quarto. The profile needs to be set in the setup chunk using the following lines:
-#' 
-#' `if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) { Sys.setenv("QUARTO_PROFILE" = "default")}`
+#' if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) { Sys.setenv("QUARTO_PROFILE" = "default")}
 #' 
 #' @param p Parameter to access. If NULL, returns all parameters.
 #' @return One or more parameters as list
 param = function(p=NULL) {
-  # read document params yaml
-  current_params = params
+
+  # Read module parameter (document params yaml) and get module name
+  assertthat::assert_that("module" %in% names(params),
+                          msg=FormatMessage("Module does not contain document yaml parameter 'module' with the module name."))
+  module_name = params[["module"]]
+  param_set = params
   
-  # if profile is set, read profile params from the profile yaml file and merge
+  # If profile is set, read profile params from the profile yaml file
   profile = Sys.getenv("QUARTO_PROFILE")
-  profile_params = list()
-  
   if (nchar(profile) > 0) {
-    profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"))
+    # Read profile yaml and get params chunk
+    profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"), eval.expr=TRUE)
     if ("params" %in% names(profile_yml)) {
-      current_params = purrr::list_modify(profile_yml$params, !!!current_params)
+      profile_params = profile_yml[["params"]]
+      
+      # Get general parameter if available
+      if ("general" %in% names(profile_params)) {
+        param_set = purrr::list_modify(param_set, !!!profile_params[["general"]])
+      }
+      
+      # Get module-specific parameter if available
+      if ("modules" %in% names(profile_params)) {
+        profile_module_params = profile_params[["modules"]]
+        
+        if (module_name %in% names(profile_module_params)) {
+          param_set = purrr::list_modify(param_set, !!!profile_module_params[[module_name]])
+        }
+      }
     }
   }
   
   if(is.null(p)) {
-    return(current_params)
+    return(param_set)
   } else {
-    assertthat::assert_that(p %in% names(current_params),
+    assertthat::assert_that(p %in% names(param_set),
                             msg=FormatMessage("Parameter {p} is not set."))
     
-    return(current_params[[p]])
+    return(param_set[[p]])
   }
 }
+
+#' Returns an Ensembl biomaRt for a species and Ensembl version.
+#' 
+#' @param species Latin species name in format genus_species (for example homo_sapiens or mus_musculus).
+#' @param ensembl_version Ensembl version (for example 98).
+#' @return A biomaRt object.
+GetBiomaRt = function(species, ensembl_version) {
+  # Check if we can find find an Ensembl database for this species and annotation version
+  ensembl_archives = biomaRt::listEnsemblArchives()
+  assertthat::assert_that(
+    ensembl_version %in% ensembl_archives$version,
+    msg = FormatMessage("Could not find or access Ensembl version {ensembl_version}.")
+  )
+  
+  # Get mart and check if the species is part of ensembl
+  ensembl_mart = biomaRt::useMart(biomart = "ensembl", host = ensembl_archives[match(ensembl_version, ensembl_archives$version), "url"])
+  ensembl_datasets = biomaRt::listDatasets(ensembl_mart)
+  
+  if (species == "heterocephalus_glaber") {
+    # Hack for heterocephalus_glaber which does not fit in the usual Ensembl way of naming datasets
+    species_dataset_name = paste0("hgfemale", "_gene_ensembl")
+  } else {
+    species_dataset_name = paste0(gsub("^(.)[a-z]+_", "\\1", species), "_gene_ensembl")
+  }
+  
+  idx = which(ensembl_datasets$dataset == species_dataset_name)
+  assertthat::assert_that(
+    length(idx) == 1,
+    msg = FormatMessage(
+      "Could not find species {species} dataset (name: {species_dataset_name}) for Ensembl version {ensembl_annotation_version}."
+    )
+  )
+  
+  # Get dataset
+  ensembl_mart = biomaRt::useDataset(ensembl_datasets[idx[1], "dataset"], ensembl_mart)
+  
+  return(ensembl_mart)
+}
+
+
+
+######################
+######################
 
 #' Tests if values can be converted to numbers.
 #' 
@@ -250,69 +310,6 @@ values_to_names = function(x) {
 #' @return A named vector with names as names and indices as values.
 list_indices = function(x) {
   return(setNames(seq(x), names(x)))
-}
-
-#' Wrapper around the biomaRt::useEnsembl function to cope with unavailable Ensembl mirrors. Tries different Ensembl mirrors and returns a mart object with the mirror that works.
-#' 
-#' @param biomart A biomaRt database name. Possible database names can be retrieved with the function listEnsembl().
-#' @param dataset Dataset you want to use. Possible dataset names can be retrieved with the function listDatasets(mart_obj).
-#' @param mirror Specify an Ensembl mirror to connect to. The valid options here are 'www', 'uswest', 'useast', 'asia'. If no mirror is specified, then the first mirror that works will be used. Will be ignored if a host is specified.
-#' @param version Ensembl version to connect to when wanting to connect to an archived Ensembl version.
-#' @param host Host to connect to. Only needs to be specified if different from www.ensembl.org. 
-#' @return A biomaRt object.
-GetBiomaRt = function(biomart, dataset, mirror=NULL, version=NULL, host=NULL) {
-  
-  # Which mirrors to test
-  if (is.null(mirror)) {
-    mirrors_to_test = c("www", "uswest", "useast", "asia")
-  } else {
-    mirrors_to_test = c(mirror)
-  }
-  
-  mart_obj = NULL
-  if(is.null(host)) {
-    # Test and if a mirror is not available, check the next one
-    for(m in mirrors_to_test) {
-      mart_obj = tryCatch({
-        biomaRt::useEnsembl(biomart=biomart, dataset=dataset, mirror=m, version=version)
-      },
-      error=function(cond) {
-        return(NULL)
-      })
-    
-      if(!is.null(mart_obj)) break
-    }
-
-  } else {
-    # Use specific host
-    mart_obj = tryCatch({
-      biomaRt::useEnsembl(biomart=biomart, dataset=dataset, host=host, version=version)
-    },
-    error=function(cond) {
-      return(NULL)
-    })
-  }
-  
-  return(mart_obj)
-}
-
-
-#' Returns the mirror of a biomaRt object.
-#' 
-#' @param mart_obj A biomaRt object obtained by GetBiomaRt or useEnsembl name.
-#' @return The mirror of the biomaRt object. Can be 'www', 'uswest', 'useast' or 'asia'.
-GetBiomaRtMirror = function(mart_obj) {
-  mirrors_to_test = c("uswest", "useast", "asia")
-  mirror = "www"
-  
-  for(m in mirrors_to_test){
-    if(grepl(pattern=m, x=mart_obj@host)){
-      mirror = m
-      break
-    }
-  }
-  
-  return(mirror)
 }
 
 #' Generate colours based on a palette. If the requested number exceeds the number of colours in the palette, then the palette is reused but with a different alpha.
