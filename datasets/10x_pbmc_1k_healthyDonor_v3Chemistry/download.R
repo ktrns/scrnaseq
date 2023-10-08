@@ -14,3 +14,9 @@ unlink(basename(path=url))
 # get metrics summary
 url = 'https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_metrics_summary.csv'
 curl::curl_download(url=url, destfile='metrics_summary.csv')
+
+# get some analysis results and use "analysis/clustering/graphclust/clusters.csv" as barcode metadata
+url = 'https://cf.10xgenomics.com/samples/cell-exp/3.0.0/pbmc_1k_v3/pbmc_1k_v3_analysis.tar.gz'
+curl::curl_download(url=url, destfile=basename(path=url))
+untar(tarfile = basename(path=url))
+unlink(basename(path=url))

@@ -13,7 +13,7 @@ params:
   # - technology (required): Single-cell technology used. Can be: "smartseq2" - Smartseq2, "smartseq3" - Smartseq3, "10x" - 10x, "10x_visium" - 10x Visium, 
   #                          "10x_xenium" - 10x Xenium, "parse" - Parse Biosciences, "scale" - ScaleBio.
   # - assays (required): Assay(s) of single-cell data to read. Currently supported are: RNA (Gene Expression), ADT (Antibody Protein Capture) and 
-  #                     ATAC (Chromatin Accessibility), CUSTOM (Custom). Multiple assays can be specified comma-separated.
+  #                      ATAC (Chromatin Accessibility), CUSTOM (Custom). Multiple assays can be specified comma-separated.
   # - path (required): Path to single-cell dataset. Can be: csv file (Smartseq2/3), mtx matrix market directory (10x, 10x Visium, 10x Xenium, Parse Biosciences,
   #                    ScaleBio), hdf5 file (10x, 10x Visium, 10x Xenium), h5ad file (Parse Biosciences).
   # - metrics_file (required): Path to a file containing a metrics summary table. For Smartseq2/3, this can be any table. For 10x, 10x Visium or 10x Xenium, this 
@@ -25,11 +25,14 @@ params:
   # - feature_metadata_file (optional): Path to a file containing a table of additional feature metadata. Can be: a csv, Excel or an R table saved as rds file. 
   #                                     For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the feature id. Table
   #                                     does not need to contain all features.
-  # - rename_features_ensembl (optional): By default, ids are used to name features (first column). For gene features, specify an Ensembl version to fetch the gene names (and more annotation). If used together with 
-  #                                       rename_features_metadata, then rename_features_metadata must be set '1' for all assays that should be renamed with rename_features_ensembl.
-  # - rename_features_metadata (optional): By default, ids are used to name features (first column). This column controls how to rename the features using metadata. Can be the name or index of a feature 
-  #                                        metadata column. If multiple assays are read, this option can be specified either once or for all assays. If used together with 
-  #                                        rename_features_ensembl, then rename_features_metadata must be set '1' for all assays that should be renamed with rename_features_ensembl.
+  # - rename_features_ensembl (optional): By default, ids are used to name features (first column). For gene features, set to '1' to fetch gene names (and more annotation)
+  #                                       from Ensembl. Set to '0' or leave empty to deactivate. If multiple assays are read, this option can be specified either once or 
+  #                                       for all assays. If used together with rename_features_metadata, then rename_features_metadata must be set '1' for all assays 
+  #                                       that should be renamed with rename_features_ensembl.
+  # - rename_features_metadata (optional): By default, ids are used to name features (first column). This column controls how to rename the features using metadata. 
+  #                                        Can be the name or index of a feature  metadata column. If multiple assays are read, this option can be specified either once 
+  #                                        or for all assays. If used together with rename_features_ensembl, then rename_features_metadata must be set '1' for all assays 
+  #                                        that should be renamed with rename_features_ensembl.
   # - barcode_suffix (optional): Suffix to add to the barcodes. Suggestion is to use '-1', '-2', etc. If not set, no suffixes are added.
   datasets_file: "datasets/pbmc_datasets.xlsx"
   
@@ -73,14 +76,8 @@ module_dir = file.path("modules", module_name)
 ```{r}
 #| label: preparation
 
-v = 
 ensembl_mart = GetBiomaRt(species="homo_sapiens", ensembl_version = 98)
 annot_ensembl = biomaRt::getBM(mart=ensembl_mart, attributes=c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "gene_biotype", "description"), useCache=FALSE)
-
-"", "start_position", "end_position", "percentage_gene_gc_content", "gene_biotype", "strand", "description
-
-  annot_main: !r c(ensembl="", symbol="external_gene_name", entrez="entrezgene_accession")
-  mart_attributes: !r c(c(ensembl="ensembl_gene_id", symbol="external_gene_name", entrez="entrezgene_accession"), 
 
 ```
 
@@ -93,14 +90,6 @@ datasets_file = param("datasets_file")
 
 datasets = ReadDatasetsTable(datasets_file)
 
-
- annot_mart = suppressWarnings(GetBiomaRt(biomart="ensembl", 
-                                           dataset=param$mart_dataset, 
-                                           mirror=param$biomart_mirror, 
-                                           version=param$annot_version))
-  annot_ensembl = biomaRt::getBM(mart=annot_mart, attributes=param$mart_attributes, useCache=FALSE)
-  write.table(annot_ensembl, file=param$file_annot, sep="\t", col.names=TRUE, row.names=FALSE, append=FALSE)
-
 ```
 
 
@@ -111,23 +100,50 @@ counts_lst = list()
 for (i in 1:nrow(datasets)) {
   i = 1
   
-  # Set defaults
+  # Set sample, path, technology and assays
   sample = datasets$sample[i]
   path = datasets$path[i]
   technology = datasets$technology[i]
   assays = strsplit(datasets$assays[i], split=",") %>% unlist() %>% trimws()
   
-  barcode_metadata_file = datasets$barcode_metadata_file[i]
-  if (is.na(barcode_metadata_file)) barcode_metadata_file = NULL
+  # Read barcode metadata
+  barcode_metadata_files = datasets$barcode_metadata_files[i]
+  if (is.na(barcode_metadata_files)) {
+    barcode_metadata = NULL
+  } else {
+    barcode_metadata_files = strsplit(barcode_metadata_files, split=",")  %>% unlist() %>% trimws()
+    barcode_metadata = purrr::map(barcode_metadata_files, ReadMetadata)
+    if (length(barcode_metadata) == 1) {
+      barcode_metadata = barcode_metadata[[1]]
+    }
+  }
   
-  feature_metadata_file = datasets$feature_metadata_file[i]
-  if (is.na(feature_metadata_file)) feature_metadata_file = NULL
+  # Read feature metadata
+  feature_metadata_files = datasets$feature_metadata_files[i]
+  if (is.na(feature_metadata_files)) {
+    feature_metadata = NULL
+  } else {
+    feature_metadata_files = strsplit(feature_metadata_files, split=",")  %>% unlist() %>% trimws()
+    feature_metadata = purrr::map(feature_metadata_files, ReadMetadata)
+    if (length(feature_metadata) == 1) {
+      feature_metadata = feature_metadata[[1]]
+    }
+  }
   
-  rename_barcodes = NULL
-  rename_features = 2
-  
-  barcode_suffix = paste("-", i)
-  
+  # Read feature metadata
+  rename_features_metadata = datasets$rename_features_metadata[i]
+  if (is.na(rename_features_metadata)) {
+    rename_features_metadata = NULL
+  } else {
+    feature_metadata_files = strsplit(rename_features_metadata, split=",")  %>% unlist() %>% trimws()
+  }
+
+  # Barcode suffix
+  barcode_suffix = datasets$barcode_suffix[i]
+  if (is.na(barcode_suffix)) {
+    barcode_suffix = NULL
+  }
+
   # Save counts in matrix directory ?
   if (param("on_disk_counts") ){
     on_disk_path = file.path(module_dir, "counts", sample)
@@ -143,8 +159,7 @@ for (i in 1:nrow(datasets)) {
                                     assay=assays,
                                     barcode_metadata_file=barcode_metadata_file,
                                     feature_metadata_file=feature_metadata_file,
-                                    rename_barcodes=NULL,
-                                    rename_features=2,
+                                    rename_features_metadata=1,
                                     barcode_suffix=barcode_suffix,
                                     on_disk_path=on_disk_path,
                                     on_disk_overwrite=on_disk_overwrite)

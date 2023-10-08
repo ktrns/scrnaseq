@@ -806,14 +806,12 @@ ReadCounts_ScaleBio = function(path, assays, transpose=FALSE) {
 #' @param path Path to counts data. Can be: character-separated file (Smartseq), matrix exchange format directory (SmartSeq, 10x, Parse Biosciences, ScaleBio), hdf5 file (10x), h5ad file (Parse Biosciences).
 #' @param technology Technology. Can be: 'smartseq2', 'smartseq3', '10x', '10x_visium', '10x_xenium', 'parse' or 'scale'.
 #' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
-#' @param barcode_metadata_file Optional path to additional barcode metadata. Can be: character-separated file, Excel file or a table saved as R rds file. First column must contain the barcode. Missing barcodes will be filled with NA.
-#' @param feature_metadata_file Optional path to additional feature metadata. Can be: character-separated file, Excel file or a table saved as R rds file. First column must contain the feature id. Missing features will be filled with NA.
+#' @param barcode_metadata Table with additional barcode metadata. Can also be a list specifying metadata for each assay. First column must contain the barcode. Missing barcodes will be filled with NA.
+#' @param feature_metadata Table with additional feature metadata. Can also be a list specifying metadata for each assay. First column must contain the feature id. Missing features will be filled with NA.
 #' @param rename_features Rename features using a named character vector where names are original feature names and values are updated feature names. If both options rename_features and rename_features_metadata are used, then rename_features_metadata is applied first followed by rename_features. Therefore, set rename_features_metadata to 1 for assays to keep the original feature is so that rename_features can be used.
 #' @param rename_features_metadata Rename features using feature metadata. Can be the name or index of a feature metadata column. If multiple assays are read, this option can be specified either once or for all assays. If both options rename_features and rename_features_metadata are used, then rename_features_metadata is applied first followed by rename_features. Therefore, set rename_features_metadata to 1 for assays to keep the original feature is so that rename_features can be used.
 #' @param barcode_suffix Suffix to add to the barcodes (default: NULL). When barcodes are renamed, will be applied afterwards.
-#' @param on_disk_path If not NULL, do not store counts in memory but on disk in a matrix directory at this path. Together with the BPcells package, this allows the analysis of very large datasets since at all times just a small part but never the entire counts matrix is kept in memory. 
-#' @param on_disk_overwrite If TRUE, overwrite existing matrix directories. If FALSE, read and return existing matrix directories.
-#' @return  One sparse counts matrix per assay (dgCMatrix format). Additional information on barcodes and features is attached as attributes.
+#' @return  One sparse counts matrix per assay. Format can be dgCMatrix (general), AnnDataMatrixH5 (when reading anndata.h5ad) or MatrixSubset (when reading hdf5). Additional information on barcodes and features is attached as attributes.
 ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feature_metadata_file=NULL, rename_features=NULL, rename_features_metadata=NULL, barcode_suffix=NULL, on_disk_path=NULL, on_disk_overwrite=FALSE) {
   library(magrittr)
   
@@ -854,10 +852,11 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
   assertthat::assert_that(assertthat::not_empty(counts_lst),
                           msg=FormatMessage("Count not read counts for dataset {path}, assay {assay}."))
   
-  # Read metadata and add to counts objects
-  if (!is.null(barcode_metadata_file)) {
-    barcode_metadata = ReadMetadata(barcode_metadata_file)
-
+  # Add barcode metadata to counts objects
+  if (!is.null(barcode_metadata)) {
+    assertthat::assert_that(!is.list(barcode_metadata) | length(barcode_metadata) == length(counts_lst),
+                            msg=FormatMessage("Barcode metadata must either be one table or a list of tables for each assay (dataset {path})."))
+    
     for(i in seq_along(counts_lst)) {
       # Do we have already other barcode metadata
       if ("barcode_metadata" %in% names(attributes(counts_lst[[i]]))) {
@@ -866,18 +865,26 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
         metadata = data.frame(id=colnames(counts_lst[[i]]))
       }
       
+      if (is.list(barcode_metadata)) {
+        barcode_metadata_assay = barcode_metadata[[i]]
+      } else {
+        barcode_metadata_assay = barcode_metadata
+      }
+      
       x_id = colnames(metadata)[1]
-      y_id = colnames(barcode_metadata)[1]
+      y_id = colnames(barcode_metadata_assay)[1]
       metadata = dplyr::left_join(x=metadata,
-                                   y=barcode_metadata,
+                                   y=barcode_metadata_assay,
                                    by=setNames(y_id, x_id))
       attr(counts_lst[[i]], "barcode_metadata") = metadata
     }
   }
-  
-  if (!is.null(feature_metadata_file)) {
-    feature_metadata = ReadMetadata(feature_metadata_file)
 
+  # Add feature metadata to counts objects
+  if (!is.null(feature_metadata)) {
+    assertthat::assert_that(!is.list(feature_metadata) | length(feature_metadata) == length(counts_lst),
+                            msg=FormatMessage("Feature metadata must either be one table or a list of tables for each assay (dataset {path})."))
+    
     for(i in seq_along(counts_lst)) {
       # Do we have already other feature metadata
       if ("feature_metadata" %in% names(attributes(counts_lst[[i]]))) {
@@ -886,10 +893,16 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
         metadata = data.frame(id=rownames(counts_lst[[i]]))
       }
       
+      if (is.list(feature_metadata)) {
+        feature_metadata_assay = feature_metadata[[i]]
+      } else {
+        feature_metadata_assay = feature_metadata
+      }
+      
       x_id = colnames(metadata)[1]
-      y_id = colnames(feature_metadata)[1]
+      y_id = colnames(feature_metadata_assay)[1]
       metadata = dplyr::left_join(x=metadata,
-                                  y=feature_metadata,
+                                  y=feature_metadata_assay,
                                   by=setNames(y_id, x_id))
       attr(counts_lst[[i]], "feature_metadata") = metadata
     }
@@ -1025,6 +1038,86 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
   
   return(counts_lst)
 }
+
+#' Write counts data to disk.
+#' 
+#' @param counts A counts matrix. Format can be a standard matrix, a sparse matrix, AnnDataMatrixH5 (when reading anndata.h5ad) or MatrixSubset (when reading hdf5).
+#' @param path Where to write counts on disk. Depending on the format this will be a single file or a directory.
+#' @param format Output format. Can be: 'matrix_market'  (directory with barcodes.tsv.gz, features.tsv.gz and matrix.txt.gz) or 'matrix_directory' format (directory for on-disk operations using the BPCells package)
+#' @param overwrite Overwrite existing output paths. Default is FALSE.
+#' @param metadata If TRUE write barcode and feature metadata. Default is FALSE.
+WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
+  # Checks
+  valid_formats = c("matrix_market", "matrix_directory")
+  assertthat::assert_that(format %in% valid_formats,
+                          msg=FormatMessage("Format is {format} but must be one of: {valid_formats*}."))
+  
+  # Check that the counts object has the correct format
+  if (class(counts) == "AnnDataMatrixH5") {
+    # Produced by BPCells::open_matrix_anndata_hdf5
+    # Nothing to do
+  } else if (class(counts) == "MatrixSubset") {
+    # Produced by BPCells::open_matrix_10x_hdf5
+    # Nothing to do
+  } else if (is.matrix(counts)) {
+    # Matrix
+    # Test if sparse matrix - if not convert
+    if (!is(counts, "sparseMatrix")) {
+      counts = as(counts, "dgCMatrix")
+    }
+  } else {
+    # No matrix - try to convert
+    counts = as(as.matrix(counts), "dgCMatrix")
+  }
+  
+  # Now write to disk
+  if (format == "matrix_directory") {
+    # Save in matrix directory
+    library(BPCells)
+    
+    # Sparse matrices must be converted to BPCells internal format for better efficiency
+    # AnnDataMatrixH5 and MatrixSubset can be processed directly
+    if (is(counts, "sparseMatrix")) {
+      
+      # Only dgCMatrix supported as sparse matrix format
+      if (!is(counts, "dgCMatrix")) {
+        counts = as(counts, "dgCMatrix")
+      }
+      
+      # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
+      vals = sample(counts@x, min(length(counts@x), 100000))
+      counts = as(counts, "IterableMatrix")
+      if (all(vals >= 0) & all(vals == round(vals))) {
+        counts = BPCells::convert_matrix_type(counts, type="uint32_t")
+      }
+    }
+    
+    if (!dir.exists(path) | overwrite==TRUE) {
+      # If path does not exists or overwrite set to TRUE: write data to matrix dir
+      counts = BPCells::write_matrix_dir(mat=counts, dir=path, overwrite=overwrite)
+    }
+  } else {
+    # Save in matrix market format
+    if (overwrite) {
+      d = file.path(path)
+      dir.create(d, showWarnings=FALSE)
+      
+      mh = file.path(d, "matrix.mtx")
+      Matrix::writeMM(counts, file=mh)
+      R.utils::gzip(mh, overwrite=TRUE)
+      
+      bh = gzfile(file.path(d, "barcodes.tsv.gz"), open="wb")
+      write(colnames(counts), file=bh)
+      close(bh)
+      
+      fh = gzfile(file.path(d, "features.tsv.gz"), open="wb")
+      write.table(assay_feature_meta_data_df, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\t")
+      close(fh)
+    }
+  }
+  
+}
+
 
 ReadMetrics_10x = function(metrics_file) {
   metrics_file = "/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv"
