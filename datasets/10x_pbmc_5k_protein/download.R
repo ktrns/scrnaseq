@@ -3,13 +3,11 @@
 
 # Important: Run this script in its directory
 
-unlink("filtered_feature_bc_matrix", recursive=T)
+unlink("filtered_feature_bc_matrix.h5", recursive=T)
 
 # download and untar
-url = 'http://cf.10xgenomics.com/samples/cell-exp/3.0.2/5k_pbmc_protein_v3/5k_pbmc_protein_v3_filtered_feature_bc_matrix.tar.gz'
-curl::curl_download(url=url, destfile=basename(path=url))
-untar(tarfile = basename(path=url))
-unlink(basename(path=url))
+url = 'http://cf.10xgenomics.com/samples/cell-exp/3.0.2/5k_pbmc_protein_v3/5k_pbmc_protein_v3_filtered_feature_bc_matrix.h5'
+curl::curl_download(url=url, destfile="filtered_feature_bc_matrix.h5")
 
 # get metrics summary
 url = 'http://cf.10xgenomics.com/samples/cell-exp/3.0.2/5k_pbmc_protein_v3/5k_pbmc_protein_v3_metrics_summary.csv'

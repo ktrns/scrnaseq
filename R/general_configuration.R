@@ -22,3 +22,16 @@ Sys.setenv(RETICULATE_PYTHON=reticulate_python3_path)
 
 # Buffer for reading large text files
 Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 2)
+
+# Hook to measure the computation time of a chunk
+# Activate with '#| timeit: true'. Deactivate with '#| timeit: null'
+knitr::knit_hooks$set(timeit = function(before, options, envir) {
+  if(before) {
+    ## code to be run before a chunk
+    tictoc::tic()
+  } else {
+    ## code to be run after a chunk
+    elapsed = tictoc::toc()$toc
+    print(paste0("Execution took ", elapsed, " seconds"))
+  }
+})

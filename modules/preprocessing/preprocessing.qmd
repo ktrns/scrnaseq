@@ -39,8 +39,6 @@ param = function(p=NULL) {
     return(current_params[[p]])
   }
 }
-
-param()
 ```
 
 

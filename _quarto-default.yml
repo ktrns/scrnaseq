@@ -18,6 +18,9 @@ params:
     # Species
     species: "homo_sapiens"
     
+    # Ensembl version
+    ensembl: 98
+    
   modules:
     read_data:
       paramB: "E"

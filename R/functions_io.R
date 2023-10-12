@@ -1,4 +1,3 @@
-
 # 10x feature types and assay names
 Assays_10x = list("Gene Expression" = "RNA",
                   "Multiplexing Capture" = "MPLX",
@@ -100,6 +99,12 @@ ReadMetadata_csv = function(csv_file) {
   # Read table
   meta_data = readr::read_delim(csv_file, col_names=TRUE, comment="#", progress=FALSE, show_col_types=FALSE, col_types=readr::cols())
   meta_data = as.data.frame(meta_data)
+  
+  # Assert that first column is unique
+  assertthat::assert_that(all(not(duplicated(meta_data[, 1, drop=TRUE]))),
+                          msg=FormatMessage("Metadata file {file} contains duplicate values in first column."))
+  
+  # Create table
   rownames(meta_data) = meta_data[, 1, drop=TRUE]
   return(meta_data)
 }
@@ -116,6 +121,12 @@ ReadMetadata_excel = function(excel_file, sheet=1) {
   # Read table
   meta_data = readxl::read_excel(excel_file, sheet=sheet, col_names=TRUE)
   meta_data = as.data.frame(meta_data)
+  
+  # Assert that first column is unique
+  assertthat::assert_that(all(not(duplicated(meta_data[, 1, drop=TRUE]))),
+                          msg=FormatMessage("Metadata file {file} contains duplicate values in first column."))
+  
+  # Create table
   rownames(meta_data) = meta_data[, 1, drop=TRUE]
   return(meta_data)
 }
@@ -133,6 +144,12 @@ ReadMetadata_rds = function(rds_file) {
   # Read table
   meta_data = readRDS(rds_file)
   meta_data = as.data.frame(meta_data)
+  
+  # Assert that first column is unique
+  assertthat::assert_that(all(not(duplicated(meta_data[, 1, drop=TRUE]))),
+                          msg=FormatMessage("Metadata file {file} contains duplicate values in first column."))
+  
+  # Create table
   rownames(meta_data) = meta_data[, 1, drop=TRUE]
   return(meta_data)
 }
@@ -164,6 +181,7 @@ ReadMetadata = function(file) {
     meta_data = ReadMetadata_rds(file)
   }
   
+  # Assert that it is not empty
   assertthat::assert_that(assertthat::not_empty(meta_data),
                           msg=FormatMessage("Metadata file {file} is empty."))
 
@@ -334,7 +352,7 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
 #' Does not discriminate between feature types.
 #' 
 #' @param h5ad_file Path to an anndata object in hdf5 format.
-#' @return Sparse counts matrix (AnnDataMatrixH5 format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return Sparse counts matrix (IterableMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_h5ad = function(h5ad_file) {
   library(magrittr)
   
@@ -346,7 +364,7 @@ ReadCounts_h5ad = function(h5ad_file) {
   barcodes_col_nms = colnames(barcodes_data)
   barcodes_col_nms[1] = "orig_barcode"
   colnames(barcodes_data) = barcodes_col_nms
-  rownames(barcodes_data) = barcodes_data[, 1, drop=TRUEs]
+  rownames(barcodes_data) = barcodes_data[, 1, drop=TRUE]
   
   features_data = ReadMetadata_h5ad(h5ad_file=h5ad_file, type='var')
   features_data = features_data %>% dplyr::select(feature_id=gene_id,
@@ -493,14 +511,14 @@ ReadCounts_10x_mtx = function(mtx_directory) {
 #' Note: This function does not read the entire counts data into memory. Instead it returns an iterator object that can be used to
 #' retrieve values directly from file (random access). It is recommend to convert this object into a BPcells on-disk storage object.
 #' 
-#' @param hdf5_file Path to a 10x hdf5 counts file.
-#' @return One sparse counts matrix per feature type (MatrixSubset format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
-ReadCounts_10x_hdf5 = function(hdf5_file) {
+#' @param h5_file Path to a 10x h5 counts file.
+#' @return One sparse counts matrix per feature type (IterableMatrix format). Additional information on barcodes and features is attached as attributes. barcode_metadata and feature_metadata.
+ReadCounts_10x_h5 = function(h5_file) {
   # Checks
-  assertthat::is.readable(hdf5_file)
+  assertthat::is.readable(h5_file)
   
   # Read barcodes and features data separately
-  hdf5_fh = hdf5r::H5File$new(hdf5_file, mode = "r+")
+  hdf5_fh = hdf5r::H5File$new(h5_file, mode = "r+")
   
   # No barcodes data, just a vector of the barcodes
   barcodes = hdf5_fh[["matrix/barcodes"]][]
@@ -562,7 +580,7 @@ ReadCounts_10x_hdf5 = function(hdf5_file) {
   
   feature_types = unique(features_data$feature_type)
   counts_lst = purrr::map(feature_types, function(f) {
-    cts = BPCells::open_matrix_10x_hdf5(hdf5_file, feature_type=f)
+    cts = BPCells::open_matrix_10x_hdf5(h5_file, feature_type=f)
     colnames(cts) = trimws(colnames(cts), which="right", whitespace="-1")
     
     attr(cts, "barcode_metadata") = barcodes_data
@@ -575,11 +593,11 @@ ReadCounts_10x_hdf5 = function(hdf5_file) {
   return(counts_lst)
 }
 
-#' Reads counts data produced by 10x.
+#' Reads counts data produced by 10x (non-spatial datasets).
 #' 
 #' @param path Path to 10x counts data. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
 #' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
-#' @return One sparse counts matrix per assay. Format is either MatrixSubset (when reading hdf5) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
+#' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
 ReadCounts_10x = function(path, assays, transpose=FALSE) {
   #path = "/projects/seq-work/analysis/SCdev/bfx2327/XETG00051/20230727__145230__LAB4872_RebekkaW/output-XETG00051__0003507__S146470__20230727__145352/cell_feature_matrix.h5"
   #assays = c("RNA")
@@ -599,8 +617,8 @@ ReadCounts_10x = function(path, assays, transpose=FALSE) {
     # 10x market exchange format
     counts_lst = ReadCounts_10x_mtx(mtx_directory=path)
   } else {
-    # 10x hdf5 file
-    counts_lst = ReadCounts_10x_hdf5(hdf5_file=path)
+    # 10x h5 file
+    counts_lst = ReadCounts_10x_h5(h5_file=path)
   }
   
   # Rename/prepare
@@ -626,6 +644,38 @@ ReadCounts_10x = function(path, assays, transpose=FALSE) {
   }
   
   return(counts_lst)
+}
+
+#' Reads counts data produced by 10x Visium.
+#' 
+#' @param path Path to 10x counts data for 10x Visium. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
+#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes. Path to a directory with image information is attached as attribute.
+ReadCounts_10xVisium = function(path, assays, transpose=FALSE) {
+  # Checks
+  assertthat::is.readable(path)
+  image_dir = file.path(dirname(path), "spatial")
+  assertthat::assert_that(dir.exists(image_dir),
+                          msg=FormatMessage("Visium dataset {path} needs a 'spatial' directory at the same location."))
+  
+  # Read counts
+  counts_lst = ReadCounts_10x(path, assays=assays)
+  
+  # Attach spatial information
+  for (i in seq_along(counts_lst)) {
+    attr(counts_lst[[i]], "image_dir") = image_dir
+  }
+  
+  return(counts_lst)
+}
+
+#' Reads counts data produced by 10x Xenium.
+#' 
+#' @param path Path to 10x counts data for 10x Xenium. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
+#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
+ReadCounts_10xXenium = function(path, assays, transpose=FALSE) {
+  return(ReadCounts_10x(path, assays=assays))
 }
 
 #' Reads Parse Biosciences counts that are in market exchange format.
@@ -666,7 +716,7 @@ ReadCounts_ParseBio_mtx = function(mtx_directory) {
 #' Does not discriminate between feature types.
 #' 
 #' @param h5ad_file Path to an anndata object in hdf5 format.
-#' @return Sparse counts matrix (AnnDataMatrixH5 format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
+#' @return Sparse counts matrix (IterableMatrix format). Additional information on barcodes and features is attached as attributes barcode_metadata and feature_metadata.
 ReadCounts_ParseBio_h5ad = function(h5ad_file) {
   return(ReadCounts_h5ad(h5ad_file))
 }
@@ -675,7 +725,7 @@ ReadCounts_ParseBio_h5ad = function(h5ad_file) {
 #' 
 #' @param path Path to Parse Biosciences counts data. Can be a Parse Biosciences anndata.h5ad file (recommended for big datasets) or a Parse Biosciences matrix exchange format directory.
 #' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
-#' @return One sparse counts matrix. Format is either AnnDataMatrixH5 (when reading anndata.h5ad) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes, features, technology and assays is attached as attributes.
+#' @return One sparse counts matrix. Format is either IterableMatrix (when reading an anndata.h5ad file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes, features, technology and assays is attached as attributes.
 ReadCounts_ParseBio = function(path, assays, transpose=FALSE) {
   #path = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered"
   #assays = "RNA"
@@ -801,18 +851,16 @@ ReadCounts_ScaleBio = function(path, assays, transpose=FALSE) {
   return(counts_lst)
 }
 
-#' Reads counts data produced by Smartseq, 10x, Parse Biosciences, Scale Bio.
+#' Reads counts data produced by Smartseq, 10x, 10x Visium, 10x Xenium, Parse Biosciences, Scale Bio.
 #' 
 #' @param path Path to counts data. Can be: character-separated file (Smartseq), matrix exchange format directory (SmartSeq, 10x, Parse Biosciences, ScaleBio), hdf5 file (10x), h5ad file (Parse Biosciences).
 #' @param technology Technology. Can be: 'smartseq2', 'smartseq3', '10x', '10x_visium', '10x_xenium', 'parse' or 'scale'.
 #' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
 #' @param barcode_metadata Table with additional barcode metadata. Can also be a list specifying metadata for each assay. First column must contain the barcode. Missing barcodes will be filled with NA.
 #' @param feature_metadata Table with additional feature metadata. Can also be a list specifying metadata for each assay. First column must contain the feature id. Missing features will be filled with NA.
-#' @param rename_features Rename features using a named character vector where names are original feature names and values are updated feature names. If both options rename_features and rename_features_metadata are used, then rename_features_metadata is applied first followed by rename_features. Therefore, set rename_features_metadata to 1 for assays to keep the original feature is so that rename_features can be used.
-#' @param rename_features_metadata Rename features using feature metadata. Can be the name or index of a feature metadata column. If multiple assays are read, this option can be specified either once or for all assays. If both options rename_features and rename_features_metadata are used, then rename_features_metadata is applied first followed by rename_features. Therefore, set rename_features_metadata to 1 for assays to keep the original feature is so that rename_features can be used.
 #' @param barcode_suffix Suffix to add to the barcodes (default: NULL). When barcodes are renamed, will be applied afterwards.
-#' @return  One sparse counts matrix per assay. Format can be dgCMatrix (general), AnnDataMatrixH5 (when reading anndata.h5ad) or MatrixSubset (when reading hdf5). Additional information on barcodes and features is attached as attributes.
-ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feature_metadata_file=NULL, rename_features=NULL, rename_features_metadata=NULL, barcode_suffix=NULL, on_disk_path=NULL, on_disk_overwrite=FALSE) {
+#' @return  One sparse counts matrix per assay. Format can be dgCMatrix (general) or IterableMatrix (when reading an anndata.h5ad or h5 file). Additional information on barcodes and features is attached as attributes.
+ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feature_metadata_file=NULL, barcode_suffix=NULL) {
   library(magrittr)
   
   #path = "datasets/10x_pbmc_5k_protein/filtered_feature_bc_matrix/"
@@ -840,9 +888,9 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
   } else if(technology == "10x") {
     counts_lst = ReadCounts_10x(path=path, assays=assays)
   } else if(technology == "10x_visium") {
-    counts_lst = ReadCounts_10x(path=path, assays=assays)
+    counts_lst = ReadCounts_10xVisium(path=path, assays=assays)
   } else if(technology == "10x_xenium") {
-    counts_lst = ReadCounts_10x(path=path, assays=assays)
+    counts_lst = ReadCounts_10xXenium(path=path, assays=assays)
   } else if(technology == "parse") {
     counts_lst = ReadCounts_ParseBio(path=path, assays=assays)
   } else if(technology == "scale") {
@@ -854,7 +902,7 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
   
   # Add barcode metadata to counts objects
   if (!is.null(barcode_metadata)) {
-    assertthat::assert_that(!is.list(barcode_metadata) | length(barcode_metadata) == length(counts_lst),
+    assertthat::assert_that(!is(barcode_metadata, "list") | length(barcode_metadata) == length(counts_lst),
                             msg=FormatMessage("Barcode metadata must either be one table or a list of tables for each assay (dataset {path})."))
     
     for(i in seq_along(counts_lst)) {
@@ -865,24 +913,26 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
         metadata = data.frame(id=colnames(counts_lst[[i]]))
       }
       
-      if (is.list(barcode_metadata)) {
+      if (is(barcode_metadata, "list")) {
         barcode_metadata_assay = barcode_metadata[[i]]
       } else {
         barcode_metadata_assay = barcode_metadata
       }
       
       x_id = colnames(metadata)[1]
+      x_rownames = rownames(metadata)
       y_id = colnames(barcode_metadata_assay)[1]
       metadata = dplyr::left_join(x=metadata,
                                    y=barcode_metadata_assay,
                                    by=setNames(y_id, x_id))
+      rownames(metadata) = x_rownames
       attr(counts_lst[[i]], "barcode_metadata") = metadata
     }
   }
 
   # Add feature metadata to counts objects
   if (!is.null(feature_metadata)) {
-    assertthat::assert_that(!is.list(feature_metadata) | length(feature_metadata) == length(counts_lst),
+    assertthat::assert_that(!is(feature_metadata, "list") | length(feature_metadata) == length(counts_lst),
                             msg=FormatMessage("Feature metadata must either be one table or a list of tables for each assay (dataset {path})."))
     
     for(i in seq_along(counts_lst)) {
@@ -893,88 +943,41 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
         metadata = data.frame(id=rownames(counts_lst[[i]]))
       }
       
-      if (is.list(feature_metadata)) {
+      if (is(feature_metadata, "list")) {
         feature_metadata_assay = feature_metadata[[i]]
       } else {
         feature_metadata_assay = feature_metadata
       }
       
       x_id = colnames(metadata)[1]
+      x_rownames = rownames(metadata)
       y_id = colnames(feature_metadata_assay)[1]
       metadata = dplyr::left_join(x=metadata,
                                   y=feature_metadata_assay,
                                   by=setNames(y_id, x_id))
+      rownames(metadata) = x_rownames
       attr(counts_lst[[i]], "feature_metadata") = metadata
     }
   }
   
-  # Rename features using metadata columns
-  if (!is.null(rename_features_metadata)) {
-    assertthat::assert_that(length(rename_features_metadata) == 1 | length(rename_features_metadata) == length(counts_lst),
-                            msg=FormatMessage("When renaming features, either specify one feature metadata column (to be used for all assays) or specify a column for each assay (dataset {path})."))
-    if (length(rename_features_metadata) == 1) {
-      rename_features_metadata = rep(rename_features_metadata, length(counts_lst))
-    }
-    
-    for(i in seq_along(counts_lst)) {
-      assay = names(counts_lst)[i]
-    
-      metadata = attr(counts_lst[[i]], "feature_metadata")
-      feature_name_column = rename_features_metadata[i]
-      is_column_index = suppressWarnings(feature_name_column %>% as.numeric() %>% is.na() %>% not())
-      if (is_column_index) {feature_name_column = as.numeric(feature_name_column)}
-      
-      if (is.numeric(feature_name_column)) {
-        assertthat::assert_that(feature_name_column <= ncol(metadata),
-                                msg=FormatMessage("Column number {feature_name_column} exceeds the number of columns in the feature metadata for dataset {path}, assay {assay}."))
-      } else {
-        assertthat::assert_that(feature_name_column %in% colnames(metadata),
-                                msg=FormatMessage("Column {feature_name_column} cannot be found in the feature metadata available for dataset {path}, assay {assay}."))
-      }
-      new_feature_names = metadata[, feature_name_column, drop=TRUE]
-      if (any(duplicated(new_feature_names))) {
-        warning(FormatMessage("Metadata column {feature_name_column} used for renaming contains duplicate values for dataset {path}, assay {assay}. Feature names will be made unique."))
-        new_feature_names = make.unique(new_feature_names)
-      }
-      
-      rownames(counts_lst[[i]]) = new_feature_names
-      rownames(metadata) =  new_feature_names
-      attr(counts_lst[[i]], "feature_metadata") = metadata
-    }
-  }
-  
-  # Rename features using a named character vector
-  if (!is.null(rename_features)) {
-    for(i in seq_along(counts_lst)) {
-      assay = names(counts_lst)[i]
-      metadata = attr(counts_lst[[i]], "feature_metadata")
-      
-      new_feature_names = rownames(counts_lst[[i]])
-      new_feature_names = ifelse(new_feature_names %in% names(rename_features), rename_features[new_feature_names], new_feature_names)
-      if (any(duplicated(new_feature_names))) {
-        warning(FormatMessage("Metadata column {feature_name_column} used for renaming contains duplicate values for dataset {path}, assay {assay}. Feature names will be made unique."))
-        new_feature_names = make.unique(new_feature_names)
-      }
-      
-      rownames(counts_lst[[i]]) = new_feature_names
-      rownames(metadata) =  new_feature_names
-      attr(counts_lst[[i]], "feature_metadata") = metadata
-    }
-  }
-  
-  # Make feature names Seurat-compatible (replace '_' with '-')
+  # Make feature names Seurat-compatible (replace '_' with '-') and unique
   for(i in seq_along(counts_lst)) {
     assay = names(counts_lst)[i]
     metadata = attr(counts_lst[[i]], "feature_metadata")
     
     feature_names = rownames(counts_lst[[i]])
     if (any(grepl(pattern="_", x=feature_names, fixed=TRUE))) {
-      warning(FormatMessage("Feature names contain '_' for dataset {path}, assay {assay} which will be replaced with '-'."))
-      feature_names = gsub(pattern="_", replacement="-", x=new_feature_names, fixed=TRUE)
-      rownames(counts_lst[[i]]) = feature_names
-      rownames(metadata) = feature_names
-      attr(counts_lst[[i]], "feature_metadata") = metadata
+      warning(FormatMessage("Feature names contain '_' for dataset {path}, assay {assay}. All occurences will be replaced with '-'."))
+      feature_names = gsub(pattern="_", replacement="-", x=feature_names, fixed=TRUE)
     }
+    if (any(duplicated(feature_names))) {
+      warning(FormatMessage("Features contains duplicate values for dataset {path}, assay {assay}. Feature names will be made unique."))
+      feature_names = make.unique(feature_names)
+    }
+    
+    rownames(counts_lst[[i]]) = feature_names
+    rownames(metadata) = feature_names
+    attr(counts_lst[[i]], "feature_metadata") = metadata
   }
 
   # Add barcode suffix
@@ -990,52 +993,6 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
     }
   }
   
-  # Store counts in memory or write counts into matrix directory (requires BPCells library)
-  for(n in names(counts_lst)) {
-    barcode_metadata = attr(counts_lst[[n]], "barcode_metadata")
-    feature_metadata = attr(counts_lst[[n]], "feature_metadata")
-    tech = attr(counts_lst[[n]], "technology")
-    as = attr(counts_lst[[n]], "assay")
-    
-    if (!is.null(on_disk_path)) {
-      # Save in matrix directory
-      library(BPCells)
-      
-      if (is(counts_lst[[n]], 'dgCMatrix')) {
-        # Test if we have non-negative integers, then convert matrix save disk space (default is double)
-        vals = sample(counts_lst[[n]]@x, min(length(counts_lst[[n]]@x), 100000))
-        
-        counts_lst[[n]] = as(counts_lst[[n]], "IterableMatrix")
-        if (all(vals >= 0) & all(vals == round(vals))) {
-          counts_lst[[n]] = BPCells::convert_matrix_type(counts_lst[[n]], type="uint32_t")
-        }
-      }
-      
-      matrix_dir = file.path(on_disk_path, n)
-      if (!dir.exists(matrix_dir) | on_disk_overwrite==TRUE) {
-        # If matrix dir not exists or on_disk_overwrite set to TRUE: write data to matrix dir
-        # TODO: Data is still read every time even though matrix is just loaded
-        counts_lst[[n]] = BPCells::write_matrix_dir(mat=counts_lst[[n]], dir=matrix_dir, overwrite=on_disk_overwrite)
-      }
-      
-      # Open matrix dir for access
-      counts_lst[[n]] = BPCells::open_matrix_dir(matrix_dir)
-    } else {
-      # In memory: make sure counts matrix is sparse
-      if (!is(counts_lst[[n]], 'dgCMatrix')) {
-        counts_lst[[n]] = counts_lst[[n]] %>% as("sparseMatrix")
-      }
-    }
-    
-    # Add metadata again
-    attr(counts_lst[[n]], "feature_metadata") = feature_metadata
-    attr(counts_lst[[n]], "barcode_metadata") = barcode_metadata
-    
-    # Add technology and type again
-    attr(counts_lst[[n]], "technology") = tech
-    attr(counts_lst[[n]], "assay") = as
-  }
-  
   return(counts_lst)
 }
 
@@ -1047,26 +1004,30 @@ ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feat
 #' @param overwrite Overwrite existing output paths. Default is FALSE.
 #' @param metadata If TRUE write barcode and feature metadata. Default is FALSE.
 WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
+  #counts = counts_lst[[i]][[j]]
+  #path=file.path(module_dir, sample, assay) 
+  #format="matrix_directory"
+  #overwrite=TRUE
+  
   # Checks
   valid_formats = c("matrix_market", "matrix_directory")
   assertthat::assert_that(format %in% valid_formats,
                           msg=FormatMessage("Format is {format} but must be one of: {valid_formats*}."))
   
   # Check that the counts object has the correct format
-  if (class(counts) == "AnnDataMatrixH5") {
-    # Produced by BPCells::open_matrix_anndata_hdf5
-    # Nothing to do
-  } else if (class(counts) == "MatrixSubset") {
-    # Produced by BPCells::open_matrix_10x_hdf5
+  if (is(counts, "IterableMatrix")) {
+    # Produced by BPCells::open_matrix_10x_hdf5 or BPCells::open_matrix_anndata_hdf5
     # Nothing to do
   } else if (is.matrix(counts)) {
-    # Matrix
-    # Test if sparse matrix - if not convert
-    if (!is(counts, "sparseMatrix")) {
+    # Standard matrix - convert to sparse matrix
+    counts = as(counts, "dgCMatrix")
+  } else if(is(counts, "sparseMatrix")) {
+    # Sparse matrix - convert to dgCMatrix
+    if (!is(counts, "dgCMatrix")) {
       counts = as(counts, "dgCMatrix")
     }
-  } else {
-    # No matrix - try to convert
+  }else {
+    # No matrix - try to convert to sparse matrix
     counts = as(as.matrix(counts), "dgCMatrix")
   }
   
@@ -1075,14 +1036,9 @@ WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
     # Save in matrix directory
     library(BPCells)
     
-    # Sparse matrices must be converted to BPCells internal format for better efficiency
+    # Sparse matrices in dgCMatrix format must be converted to BPCells internal format for better efficiency
     # AnnDataMatrixH5 and MatrixSubset can be processed directly
-    if (is(counts, "sparseMatrix")) {
-      
-      # Only dgCMatrix supported as sparse matrix format
-      if (!is(counts, "dgCMatrix")) {
-        counts = as(counts, "dgCMatrix")
-      }
+    if (is(counts, "dgCMatrix")) {
       
       # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
       vals = sample(counts@x, min(length(counts@x), 100000))
@@ -1118,6 +1074,55 @@ WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
   
 }
 
+#' Reads image data produced by 10x Visium.
+#' 
+#' @param path Path to the 'spatial' directory produced by 10x Visium.
+#' @return A Seurat VisiumV1 object.
+ReadImage_10xVisium = function(image_dir) {
+  #image_dir = "/group/sequencing/Bfx/scripts/andreasp/scrnaseq/datasets/10x_visium_human_brain_cancer/spatial/"
+  
+  # Checks
+  assertthat::is.readable(image_dir)
+  for (f in c("tissue_lowres_image.png", "scalefactors_json.json")) {
+    assertthat::assert_that(file.exists(file.path(image_dir, f)),
+                            msg=FormatMessage("10x Visium image directory {image_dir} misses the file {f}."))
+  }
+  
+  # Read image
+  image = Seurat::Read10X_Image(image_dir, filter.matrix=FALSE)
+  
+  return(image)
+}
+
+#' Reads image data produced by 10x Visium and 10x Xenium.
+#' 
+#' @param image_dir Path to the 'spatial' directory produced by 10x Visium.
+#' @param technology Technology. Can be: 10x_visium', '10x_xenium'.
+#' @param barcodes Named vector with barcodes to keep. Names are original barcodes and values are barcodes after renaming.
+#' @return A Seurat VisiumV1 object.
+ReadImage = function(image_dir, technology, barcodes) {
+  #image_dir = "/group/sequencing/Bfx/scripts/andreasp/scrnaseq/datasets/10x_visium_human_brain_cancer/spatial/"
+  #technology = "10x_visium"
+  #barcodes = colnames(counts_lst[[1]][[1]])
+  
+  # Checks
+  valid_technologies = c("10x_visium", "10x_xenium")
+  assertthat::assert_that(technology %in% valid_technologies,
+                          msg=FormatMessage("Technology is {technology} but must be one of: {valid_technologies*}."))
+  
+  # Read image
+  if(technology == "10x_visium") {
+    image = ReadImage_10xVisium(image_dir=image_dir)
+  } else if(technology == "10x_xenium") {
+    image = ReadImage_10xXenium(image_dir=image_dir)
+  }
+  
+  # Keep only spots that are also present in the assay data (under tissue)
+  spots_to_keep = image@coordinates %>% dplyr::filter(tissue==1) %>% row.names()
+  image = image[spots_to_keep]
+  
+  return(image)
+}
 
 ReadMetrics_10x = function(metrics_file) {
   metrics_file = "/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv"

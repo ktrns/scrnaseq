@@ -9,38 +9,48 @@ params:
   
   # Path to a csv or Excel file containing a table with single-cell datasets. For Excel files, a sheet can be specified by appending ':<sheet_number>'.
   # The table must contain the following columns:
-  # - sample (required): Name of the sample. A sample can have multiple single-cell datasets.
+  # - sample (required): Name of the (physical) sample. A sample can have multiple single-cell experiments (e.g. multiple 10x experiments).
+  # - experiment (required): Name of the single-cell experiment. A single-cell experiment can have multiple single-cell datasets (e.g. two datasets derived from the same 10x experiment).
   # - technology (required): Single-cell technology used. Can be: "smartseq2" - Smartseq2, "smartseq3" - Smartseq3, "10x" - 10x, "10x_visium" - 10x Visium, 
   #                          "10x_xenium" - 10x Xenium, "parse" - Parse Biosciences, "scale" - ScaleBio.
   # - assays (required): Assay(s) of single-cell data to read. Currently supported are: RNA (Gene Expression), ADT (Antibody Protein Capture) and 
   #                      ATAC (Chromatin Accessibility), CUSTOM (Custom). Multiple assays can be specified comma-separated.
   # - path (required): Path to single-cell dataset. Can be: csv file (Smartseq2/3), mtx matrix market directory (10x, 10x Visium, 10x Xenium, Parse Biosciences,
   #                    ScaleBio), hdf5 file (10x, 10x Visium, 10x Xenium), h5ad file (Parse Biosciences).
-  # - metrics_file (required): Path to a file containing a metrics summary table. For Smartseq2/3, this can be any table. For 10x, 10x Visium or 10x Xenium, this 
-  #                            must be a "metrics_summary.csv" file produced by the Cellranger pipelines. For Parse Biosciences, this must be a "analysis_summary.csv"
+  # - metrics_file (can be empty): Path to a file containing a metrics summary table. For Smartseq2/3, this can be any table. For 10x, 10x Visium or 10x Xenium, this 
+  #                                must be a "metrics_summary.csv" file produced by the Cellranger pipelines. For Parse Biosciences, this must be a "analysis_summary.csv"
   #                            file produced by the splitpipe pipeline. For ScaleBio, this must be a "*.reportStatistics.csv" file produced by the scalerna pipeline.
-  # - barcode_metadata_file (optional): Path to a file containing a table of additional barcode metadata. Can be: a csv, Excel or an R table saved as rds file. 
-  #                                     For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the barcode. Table
-  #                                     does not need to contain all barcodes.
-  # - feature_metadata_file (optional): Path to a file containing a table of additional feature metadata. Can be: a csv, Excel or an R table saved as rds file. 
-  #                                     For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the feature id. Table
-  #                                     does not need to contain all features.
-  # - rename_features_ensembl (optional): By default, ids are used to name features (first column). For gene features, set to '1' to fetch gene names (and more annotation)
-  #                                       from Ensembl. Set to '0' or leave empty to deactivate. If multiple assays are read, this option can be specified either once or 
-  #                                       for all assays. If used together with rename_features_metadata, then rename_features_metadata must be set '1' for all assays 
-  #                                       that should be renamed with rename_features_ensembl.
-  # - rename_features_metadata (optional): By default, ids are used to name features (first column). This column controls how to rename the features using metadata. 
-  #                                        Can be the name or index of a feature  metadata column. If multiple assays are read, this option can be specified either once 
-  #                                        or for all assays. If used together with rename_features_ensembl, then rename_features_metadata must be set '1' for all assays 
-  #                                        that should be renamed with rename_features_ensembl.
-  # - barcode_suffix (optional): Suffix to add to the barcodes. Suggestion is to use '-1', '-2', etc. If not set, no suffixes are added.
-  datasets_file: "datasets/pbmc_datasets.xlsx"
+  # - barcode_metadata_file (can be empty): Path to a file containing a table of additional barcode metadata. Can be: a csv, Excel or an R table saved as rds file. 
+  #                                         For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the barcode. Table
+  #                                         does not need to contain all barcodes. If a dataset contains multiple assays, multiple files can be provided (comma-separated).
+  # - feature_metadata_file (can be empty): Path to a file containing a table of additional feature metadata. Can be: a csv, Excel or an R table saved as rds file. 
+  #                                         For Excel files, a sheet can be specified by appending ':<sheet_number>'. First column must contain the feature id. Table
+  #                                         does not need to contain all features. If a dataset contains multiple assays, multiple files can be provided (comma-separated).
+  # - rename_features (can be empty): When reading counts, ids are used to name features. Features can be renamed by: a) Provide a feature metadata column index or name to rename features, 
+  #                                   b) Specify 'ENSEMBL' to fetch gene information from Ensembl (gene features only), c) Leave empty or specify 'NO' to not rename features.
+  #                                   If a dataset contains multiple assays, this option can be specified multiple times (comma-separated). 
+  # - barcode_suffix (can be empty): Suffix to add to the barcodes. If left empty, numeric suffixes will be added ('-1', '-2', etc). If set to 'NO', no suffixes are added.
+  datasets_file: "datasets/10x_pbmc_datasets.xlsx"
+  
+  # Default assay. All cells must have this assay.
+  default_assay: RNA
+  
+  # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
+  #   NULL to deactivate
+  downsample_cells_n: NULL
+  
+  # Downsample all samples equally according to the smallest sample
+  #   TRUE/FALSE
+  #   Overwritten by downsample_cells_n
+  downsample_cells_equally: false
   
   # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. TThis will create a a 'counts' directory within the module directory with one matrix directory per sample and assay.
   on_disk_counts: true
   
   # For large datasets: Overwrite existing matrix directories. The counts files will still be read though.
   on_disk_counts_overwrite: true
+  
+  
   
 # Module execution
 execute:
@@ -51,14 +61,17 @@ execute:
   freeze: false
 ---
 
+# Read data
+
 ```{r}
 #| label: setup
+#| timeit: null
 
 # If running code interactively in rstudio, set profile here
 # When rendering with quarto, profile is already set and should not be overwritten
 if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
 
-# Source general configurations
+# Source general configurations (always)
 source("R/general_configuration.R")
 
 # Source required R functions
@@ -67,46 +80,90 @@ source("R/functions_io.R")
 
 # Load libraries
 library(magrittr)
+suppressMessages(library(Seurat))
 
 # Get module name and directory (needed to access files within the module directory)
 module_name = param("module")
 module_dir = file.path("modules", module_name)
 ```
 
-```{r}
-#| label: preparation
-
-ensembl_mart = GetBiomaRt(species="homo_sapiens", ensembl_version = 98)
-annot_ensembl = biomaRt::getBM(mart=ensembl_mart, attributes=c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "gene_biotype", "description"), useCache=FALSE)
-
-```
+## Read counts
 
 ```{r}
 #| label: datasets_table
+#| timeit: null
 
 # Read table with datasets
+
 datasets_file = param("datasets_file")
-
-
 datasets = ReadDatasetsTable(datasets_file)
 
+##########
+# Checks #
+##########
+
+for (i in 1:nrow(datasets)) {
+  # Required columns
+  assertthat::assert_that(!is.na(datasets$sample[i]),
+                            msg=FormatMessage("Column 'sample' cannot be empty or NA (row {i})."))
+  assertthat::assert_that(!is.na(datasets$experiment[i]),
+                            msg=FormatMessage("Column 'experiment' cannot be empty or NA (row {i})."))
+  assertthat::assert_that(!is.na(datasets$technology[i]),
+                            msg=FormatMessage("Column 'technology' cannot be empty or NA (row {i})."))
+  assertthat::assert_that(!is.na(datasets$assays[i]),
+                            msg=FormatMessage("Column 'assays' cannot be empty or NA (row {i})."))
+  assertthat::assert_that(!is.na(datasets$path[i]),
+                            msg=FormatMessage("Column 'path' cannot be empty or NA (row {i})."))
+  
+  # Default assay must be present in all datasets - potential fix: Add an empty default assay table for each dataset without default assay - but is it neccessary (?)
+  default_assay = param("default_assay")
+  assertthat::assert_that(default_assay %in% (strsplit(datasets$assays[i], ",") %>% unlist() %>% trimws()),
+                            msg=FormatMessage("Each dataset must contain the default assay {default_assay} (dataset {path})."))
+}
+
+# If barcode_suffix is NA, generates suffixes per experiment (-1, -2, ...) 
+if (any(is.na(datasets$barcode_suffix))) {
+  assertthat::assert_that(sum(is.na(datasets$barcode_suffix)) == nrow(datasets),
+                            msg=FormatMessage("If one barcode suffix is empty/NA, all barcode suffixes need to be empty/NA."))
+  datasets$barcode_suffix = factor(datasets$experiment, level=unique(datasets$experiment)) %>% as.integer() %>% paste0("-", .)
+}
+
+
+# Print datasets
+datasets
 ```
 
 
 ```{r}
-# Read counts for datasets
+#| label: read_counts
+
+# Read counts
+
+############################
+# Read counts for datasets #
+############################
+
 counts_lst = list()
 
 for (i in 1:nrow(datasets)) {
-  i = 1
-  
-  # Set sample, path, technology and assays
+  ###############################################################################
+  # Get experiment, sample, dataset path, technology, assays and barcode suffix #
+  ###############################################################################
   sample = datasets$sample[i]
+  experiment = datasets$experiment[i]
   path = datasets$path[i]
   technology = datasets$technology[i]
   assays = strsplit(datasets$assays[i], split=",") %>% unlist() %>% trimws()
-  
-  # Read barcode metadata
+  barcode_suffix = datasets$barcode_suffix[i]
+  if (is.na(barcode_suffix)) {
+    barcode_suffix = paste0("-", i)
+  } else if (barcode_suffix=='NO') {
+    barcode_suffix = NULL
+  }
+
+  #########################
+  # Read barcode metadata #
+  #########################
   barcode_metadata_files = datasets$barcode_metadata_files[i]
   if (is.na(barcode_metadata_files)) {
     barcode_metadata = NULL
@@ -118,7 +175,9 @@ for (i in 1:nrow(datasets)) {
     }
   }
   
-  # Read feature metadata
+  #########################
+  # Read feature metadata #
+  #########################
   feature_metadata_files = datasets$feature_metadata_files[i]
   if (is.na(feature_metadata_files)) {
     feature_metadata = NULL
@@ -130,81 +189,245 @@ for (i in 1:nrow(datasets)) {
     }
   }
   
-  # Read feature metadata
-  rename_features_metadata = datasets$rename_features_metadata[i]
-  if (is.na(rename_features_metadata)) {
-    rename_features_metadata = NULL
-  } else {
-    feature_metadata_files = strsplit(rename_features_metadata, split=",")  %>% unlist() %>% trimws()
-  }
-
-  # Barcode suffix
-  barcode_suffix = datasets$barcode_suffix[i]
-  if (is.na(barcode_suffix)) {
-    barcode_suffix = NULL
-  }
-
-  # Save counts in matrix directory ?
-  if (param("on_disk_counts") ){
-    on_disk_path = file.path(module_dir, "counts", sample)
-  } else {
-    on_disk_path = NULL
-  }
-  on_disk_overwrite = param("on_disk_counts_overwrite")
+  ###############
+  # Read counts #
+  ###############
   
-  
-  # Read counts for dataset
-  counts_lst[[sample]] = ReadCounts(path=path,
+  # Read counts
+  counts_lst[[i]] = ReadCounts(path=path,
                                     technology=technology,
-                                    assay=assays,
-                                    barcode_metadata_file=barcode_metadata_file,
-                                    feature_metadata_file=feature_metadata_file,
-                                    rename_features_metadata=1,
-                                    barcode_suffix=barcode_suffix,
-                                    on_disk_path=on_disk_path,
-                                    on_disk_overwrite=on_disk_overwrite)
+                                    assays=assays,
+                                    barcode_metadata=barcode_metadata,
+                                    feature_metadata=feature_metadata,
+                                    barcode_suffix=barcode_suffix)
+  
+  ########################################
+  # If requested, how to rename features #
+  ########################################
+  
+  # - use NA or 'NO' for no renaming
+  # - use 'ENSEMBL' to fetch gene symbols and information
+  # - use a feature metadata column
+  # - can be specified for all assays or for each assay separately
+
+  rename_features = datasets$rename_features[i]
+  if (is.na(rename_features) | rename_features=='NO') {
+    # No renaming
+    rename_features = 'NO'
+  }
+  
+  if (rename_features != 'NO' ) {
+    # Rename using a feature metadata column or using Ensembl (keyword: "ENSEMBL")
+    rename_features = strsplit(rename_features, split=",")  %>% unlist() %>% trimws()
+    assertthat::assert_that(length(rename_features) == 1 | length(rename_features) == length(counts_lst[[i]]),
+                            msg=FormatMessage("When renaming features, either specify one feature metadata column/ENSEMBL to be used for all assays or specify a feature metadata column/ENSEMBL for each assay (dataset {path})."))
+  }
+  
+  # Make sure there an option for each assay
+  if (length(rename_features) == 1) {
+      rename_features = rep(rename_features, length(counts_lst[[i]]))
+  }
+  
+  # Now loop through assays
+  for (j in seq_along(counts_lst[[i]])) {
+    j = 1
+    assay = attr(counts_lst[[i]][[j]], "assay")
+    
+    # if 'NO', no renaming
+    if (rename_features[j] == 'NO') {
+      next
+    }
+  
+    # If 'ENSEMBL', get ensembl information for features
+    if (rename_features[j] == "ENSEMBL") {
+      # Query Ensembl
+      feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
+      ensembl_annotation = EnsemblFetchGeneInfo(ids=rownames(feature_metadata), 
+                                                species=param("species"),
+                                                ensembl_version=param("ensembl"),
+                                                mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name",
+                                                                     ensembl_biotype="gene_biotype", ensembl_description="description", 
+                                                                     ensembl_chr="chromosome_name",ensembl_start_position="start_position", 
+                                                                     ensembl_end_position="end_position", ensembl_strand="strand"),
+                                                useCache=TRUE)
+      feature_metadata = dplyr::bind_cols(feature_metadata, ensembl_annotation, .name_repair="minimal")
+      attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
+      
+      # Use metadata column 'ensembl_symbol'
+      rename_features[j] = "ensembl_symbol"
+    }
+    
+    # Check that metadata column exists
+    feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
+    feature_name_column = rename_features[j]
+    
+    is_column_index = suppressWarnings(feature_name_column %>% as.numeric() %>% is.na() %>% not())
+    if (is_column_index) {feature_name_column = as.numeric(feature_name_column)}
+    
+    if (is.numeric(feature_name_column)) {
+        assertthat::assert_that(feature_name_column <= ncol(feature_metadata),
+                                msg=FormatMessage("Column number {feature_name_column} exceeds the number of columns in the feature metadata for dataset {path}, assay {assay}."))
+    } else {
+        assertthat::assert_that(feature_name_column %in% colnames(feature_metadata),
+                                msg=FormatMessage("Column {feature_name_column} cannot be found in the feature metadata available for dataset {path}, assay {assay}."))
+    }
+    
+    # Now make new feature names Seurat-compatible and unique
+    new_feature_names = feature_metadata[, feature_name_column, drop=TRUE]
+    new_feature_names = ifelse(is.na(new_feature_names), rownames(feature_metadata), new_feature_names)
+    if (any(grepl(pattern="_", x=new_feature_names, fixed=TRUE))) {
+      warning(FormatMessage("New feature names contain '_' after renaming for dataset {path}, assay {assay}. All occurences will be replaced with '-'."))
+      new_feature_names = gsub(pattern="_", replacement="-", x=new_feature_names, fixed=TRUE)
+    }
+    if (any(duplicated(new_feature_names))) {
+      warning(FormatMessage("New features contains duplicate values after renaming for dataset {path}, assay {assay}. Feature names will be made unique."))
+      new_feature_names = make.unique(new_feature_names)
+    }
+    
+    # Rename
+    rownames(counts_lst[[i]][[j]]) = new_feature_names
+    rownames(feature_metadata) = new_feature_names
+    attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
+  }
+    
+  ##################################################
+  # If requested, write counts to matrix directory #
+  ##################################################
+  
+  # - allows to analyse big datasets
+  # - requires Seurat v5 and BPcells
+  # - else convert to in-memory matrix of type dgCMatrix  
+  
+  for(j in seq_along(counts_lst[[i]])) {
+     # Keep attributes barcode_metadata and feature_metadata
+    barcode_metadata = attr(counts_lst[[i]][[j]], "barcode_metadata")
+    feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
+    assay = attr(counts_lst[[i]][[j]], "assay")
+    image_dir = attr(counts_lst[[i]][[j]], "image_dir")
+    
+    if (param("on_disk_counts")){
+      # Write counts to matrix directory
+      WriteCounts(counts=counts_lst[[i]][[j]], 
+                  path=file.path(module_dir, "counts", sample, assay), 
+                  format="matrix_directory", 
+                  overwrite=param("on_disk_counts_overwrite"))
+      
+      # Then open matrix directory for analysis
+      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "counts", sample, assay))
+    } else {
+      # Convert to in-memory matrix
+      counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
+    }
+    
+    # Add attributes barcode_metadata and feature_metadata, as well as technology and assay
+    attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
+    attr(counts_lst[[i]][[j]], "barcode_metadata") = barcode_metadata
+    attr(counts_lst[[i]][[j]], "technology") = technology
+    attr(counts_lst[[i]][[j]], "assay") = assay
+    attr(counts_lst[[i]][[j]], "sample") = sample
+    attr(counts_lst[[i]][[j]], "orig.ident") = experiment
+    
+    if (!is.null(image_dir)) {
+      attr(counts_lst[[i]][[j]], "image_dir") = image_dir
+    }
+  }
+  
+  #
+  #
+  #
 }
 
-# 
-a = "RNA"
+# Print what we have read
+# TODO
+```
 
-purrr::map(counts_lst, names) %>% unlist() %>% table()
+## Create Seurat object
 
-purrr::map(counts_lst, names)
+```{r}
+#| label: create_seurat_object
 
-n = "RNA"
-has_assay = purrr::map(counts_lst, pluck_exists, n) %>% purrr::flatten_lgl()
-has_assay = c(TRUE, FALSE)
-assay_counts_lst = purrr::map(counts_lst[has_assay], pluck, n)
+# Create Seurat object
 
-assay_barcode_metadata = purrr::map(names(assay_counts_lst), function(n) {
-  metadata = attr(assay_counts_lst[[n]], "barcode_metadata")
-  metadata$orig.ident = n
-  metadata$technology = attr(assay_counts_lst[[n]], "technology")
+# List all assays in all datasets
+all_assays = purrr::map_depth(counts_lst, 2, attr, "assay") %>% 
+  purrr::flatten() %>% 
+  unlist() %>% 
+  unique()
+
+# Create Seurat object with default assay and minimal barcode metadata (add other barcode data later)
+default_assay = param("default_assay")
+has_assay = purrr::map(counts_lst, purrr::pluck_exists, default_assay) %>% purrr::flatten_lgl()
+assay_counts_lst = purrr::map(counts_lst[has_assay], purrr::pluck, default_assay)
+names(assay_counts_lst) = purrr::map(assay_counts_lst, attr, "orig.ident") %>% unlist()
+
+barcode_metadata = purrr::map_dfr(seq_along(counts_lst), function(i) {
+  metadata = data.frame(row.names=colnames(assay_counts_lst[[i]]))
+  metadata$orig.ident = attr(assay_counts_lst[[i]], "orig.ident")
+  metadata$sample = attr(assay_counts_lst[[i]], "orig.ident")
+  metadata$technology = attr(assay_counts_lst[[i]], "orig.ident")
   return(metadata)
-}) %>% dplyr::bind_rows()
+})
+barcode_metadata$orig.ident = factor(barcode_metadata$orig.ident, levels=unique(barcode_metadata$orig.ident))
+barcode_metadata$sample = factor(barcode_metadata$sample, levels=unique(barcode_metadata$sample))
+barcode_metadata$technology = factor(barcode_metadata$technology, levels=unique(barcode_metadata$technology))
 
-merged.object <- CreateSeuratObject(counts=assay_counts_lst, meta.data=assay_barcode_metadata, assay="RNA", names.delim=NULL, names.field=NULL)
+sc = Seurat::CreateSeuratObject(counts=assay_counts_lst, meta.data=barcode_metadata, assay=default_assay, names.delim=NULL, names.field=NULL)
 
-n = "ADT"
-has_assay = purrr::map(counts_lst, pluck_exists, n) %>% purrr::flatten_lgl()
-assay_counts_lst = purrr::map(counts_lst[has_assay], pluck, n)
+# Add other assays
+for(a in setdiff(all_assays, default_assay)) {
+  has_assay = purrr::map(counts_lst, purrr::pluck_exists, a) %>% purrr::flatten_lgl()
+  assay_counts_lst = purrr::map(counts_lst[has_assay], purrr::pluck, a)
+  other_assay = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
+  sc[[a]] = other_assay
+}
 
-assay_barcode_metadata = purrr::map(names(assay_counts_lst), function(n) {
-  metadata = attr(assay_counts_lst[[n]], "barcode_metadata")
-  metadata$orig.ident = n
-  metadata$technology = attr(assay_counts_lst[[n]], "technology")
-  return(metadata)
-}) %>% dplyr::bind_rows()
+# Print what we have read
+# TODO
 
-other_assay <- CreateAssay5Object(counts = assay_counts_lst)
+sc
+```
 
-merged.object[["ADT"]] = other_assay
+```{r}
+#| label: update_metadata
 
+have_images = TRUE
+```
 
-param()
+## Add images
+
+```{r}
+#| label: add_images
+#| eval: !expr "any('10x_visium' %in% datasets$technology)"
+#| include: !expr "any('10x_visium' %in% datasets$technology)"
+#| timeit: !expr "any('10x_visium' %in% datasets$technology)"
+
+# Add images (10x Visium only)
+
+for (i in seq_along(counts_lst)) {
+  # There is only one image per dataset. That means we need to check only the first assay.
+  image_dir = attr(counts_lst[[i]][[1]], "image_dir")
+
+  if (!is.null(image_dir)) {
+    technology = attr(counts_lst[[i]][[1]], "technology")
+    orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
+    default_assay = param("default_assay")
+    
+    # For renaming barcodes in image
+    barcode_metadata = purrr::map_dfr(counts_lst[[i]], attr, "barcode_metadata") %>% dplyr::select(orig_barcode)
+    barcodes = setNames(rownames(barcode_metadata), barcode_metadata$orig_barcode)
+  
+    # Read image
+    image = ReadImage(image_dir=image_dir, technology=technology, barcodes=barcodes)
+    Seurat::DefaultAssay(image) = default_assay
+    
+    # Add image
+    image = image[Seurat::Cells(sc)]
+    sc[[paste0("image.", orig_ident)]] = image
+  }
+}
+
+# Print what we have read, maybe show images?
+# TODO
 ```
 
 
-
-Blah Blah [see @Xie_2014]
