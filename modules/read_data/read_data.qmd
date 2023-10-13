@@ -30,7 +30,7 @@ params:
   #                                   b) Specify 'ENSEMBL' to fetch gene information from Ensembl (gene features only), c) Leave empty or specify 'NO' to not rename features.
   #                                   If a dataset contains multiple assays, this option can be specified multiple times (comma-separated). 
   # - barcode_suffix (can be empty): Suffix to add to the barcodes. If left empty, numeric suffixes will be added ('-1', '-2', etc). If set to 'NO', no suffixes are added.
-  datasets_file: "datasets/10x_pbmc_datasets.xlsx"
+  datasets_file: "datasets/10x_xenium_mouse_brain.xlsx"
   
   # Default assay. All cells must have this assay.
   default_assay: RNA
@@ -308,12 +308,12 @@ for (i in 1:nrow(datasets)) {
     if (param("on_disk_counts")){
       # Write counts to matrix directory
       WriteCounts(counts=counts_lst[[i]][[j]], 
-                  path=file.path(module_dir, "counts", sample, assay), 
+                  path=file.path(module_dir, "counts", experiment, assay), 
                   format="matrix_directory", 
                   overwrite=param("on_disk_counts_overwrite"))
       
       # Then open matrix directory for analysis
-      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "counts", sample, assay))
+      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "counts", experiment, assay))
     } else {
       # Convert to in-memory matrix
       counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
@@ -363,8 +363,11 @@ names(assay_counts_lst) = purrr::map(assay_counts_lst, attr, "orig.ident") %>% u
 barcode_metadata = purrr::map_dfr(seq_along(counts_lst), function(i) {
   metadata = data.frame(row.names=colnames(assay_counts_lst[[i]]))
   metadata$orig.ident = attr(assay_counts_lst[[i]], "orig.ident")
-  metadata$sample = attr(assay_counts_lst[[i]], "orig.ident")
-  metadata$technology = attr(assay_counts_lst[[i]], "orig.ident")
+  metadata$sample = attr(assay_counts_lst[[i]], "sample")
+  metadata$technology = attr(assay_counts_lst[[i]], "technology")
+  
+  bc_meta = attr(assay_counts_lst[[i]], "barcode_metadata")
+  metadata$orig_barcode = bc_meta$orig_barcode
   return(metadata)
 })
 barcode_metadata$orig.ident = factor(barcode_metadata$orig.ident, levels=unique(barcode_metadata$orig.ident))
@@ -390,18 +393,26 @@ sc
 ```{r}
 #| label: update_metadata
 
+#TODO
+
 have_images = TRUE
 ```
 
+## Add metadata
+
+
+
 ## Add images
+
+note: quarto allows to hide content
 
 ```{r}
 #| label: add_images
-#| eval: !expr "any('10x_visium' %in% datasets$technology)"
-#| include: !expr "any('10x_visium' %in% datasets$technology)"
-#| timeit: !expr "any('10x_visium' %in% datasets$technology)"
+#| eval: !expr "have_images"
+#| include: !expr "have_images"
+#| timeit: !expr "have_images"
 
-# Add images (10x Visium only)
+# Add images (10x Visium and 10x Xenium only)
 
 for (i in seq_along(counts_lst)) {
   # There is only one image per dataset. That means we need to check only the first assay.
@@ -412,17 +423,31 @@ for (i in seq_along(counts_lst)) {
     orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
     default_assay = param("default_assay")
     
-    # For renaming barcodes in image
-    barcode_metadata = purrr::map_dfr(counts_lst[[i]], attr, "barcode_metadata") %>% dplyr::select(orig_barcode)
-    barcodes = setNames(rownames(barcode_metadata), barcode_metadata$orig_barcode)
+    # For renaming and reordering of barcodes in image
+    barcodes = purrr::map_dfr(seq_along(counts_lst[[i]]), function(j) {
+      bc_meta = attr(counts_lst[[i]][[j]], "barcode_metadata") %>% 
+        tibble::rownames_to_column("new_barcode") %>% 
+        dplyr::select(orig_barcode, new_barcode)
+      return(bc_meta)
+    }) %>% unique()
+    barcodes = setNames(barcodes$new_barcode, barcodes$orig_barcode)
+    j = match(barcodes, Cells(sc))
+    barcodes = barcodes[j]
   
     # Read image
-    image = ReadImage(image_dir=image_dir, technology=technology, barcodes=barcodes)
-    Seurat::DefaultAssay(image) = default_assay
+    image = ReadImage(image_dir=image_dir, technology=technology, assay=default_assay, barcodes=barcodes)
     
-    # Add image
-    image = image[Seurat::Cells(sc)]
-    sc[[paste0("image.", orig_ident)]] = image
+    # Add image (10x visium) / field of view (10x xenium)
+    if (technology == "10x_visium") {
+      key = "image"
+    } else if (technology == "10x_xenium") {
+      key = "fov"
+    }
+    if (nrow(datasets) > 1) {
+      key = paste0(key, "." , orig_ident)
+    }
+    image@key = paste0(gsub("[^[:alnum:]]", "", key), "_")
+    sc[[key]] = image
   }
 }
 

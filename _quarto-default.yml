@@ -16,7 +16,7 @@ params:
     project_id: "pbmc"
     
     # Species
-    species: "homo_sapiens"
+    species: "mus_musculus"
     
     # Ensembl version
     ensembl: 98

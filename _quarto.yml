@@ -13,9 +13,9 @@ knitr:
     fig.retina: 2
     results: hold
     timeit: true
-    #tidy: styler
-    #tidy-opts:
-    #  strict: false
+    tidy: styler
+    tidy-opts:
+      strict: false
   opts_knit:
     dev: !expr 'c("ragg_png", "cairo_pdf")'
 

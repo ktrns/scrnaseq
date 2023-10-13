@@ -10,7 +10,8 @@ Assays_10x = list("Gene Expression" = "RNA",
                   "Custom" = "CUSTOM",
                   "Negative Control Codeword" = "ControlCodeword",
                   "Negative Control Probe" = "ControlProbe",
-                  "Unassigned Codeword" = "BlankCodeword")
+                  "Unassigned Codeword" = "BlankCodeword",
+                  "Blank Codeword" = "BlankCodeword")
 
 Assays_Scale = list("Gene Expression" = "RNA",
                   "Antibody Capture" = "ADT",
@@ -195,8 +196,6 @@ ReadMetadata = function(file) {
 #' @param file Path to a character-separated file (csv, tsv, csv.gz, tsv.gz) or an Excel file (xls, xslx). For Excel files, a sheet can be specified by appending ':<sheet_number>'. Needs to contain the following columns:
 #' @return Metadata (data.frame format)
 ReadDatasetsTable = function(file) {
-  #file ="datasets/pbmc_datasets.xlsx"
-  
   # Sheet number appended?
   sheet = 1
   if (grepl(":\\d+$", file)) {
@@ -320,12 +319,10 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
   if (!is.null(feature_type_column)) {
     feature_types = unique(features_data[, feature_type_column, drop=TRUE])
     
-    if (length(feature_types) > 1) {
-      feature_sets = purrr::map(feature_types, function(f) {
-        return(features_data[, feature_type_column, drop=TRUE] == f)
-      })
-      names(feature_sets) = feature_types
-    }
+    feature_sets = purrr::map(feature_types, function(f) {
+      return(features_data[, feature_type_column, drop=TRUE] == f)
+    })
+    names(feature_sets) = feature_types
   }
   
   # Generate list of matrix (matrices)
@@ -387,15 +384,11 @@ ReadCounts_h5ad = function(h5ad_file) {
 #' Reads counts data produced by plate-based methods like SmartSeq.
 #' 
 #' @param path Path to counts data. Can be a character-separated file or a matrix exchange format directory (with files matrix.mtx.gz, barcodes.tsv.gz and features.tsv.gz).
-#' @param assay This simply sets the assay type.
+#' @param assays This simply sets the assay. Smartseq technologies currently do not support multi-assay datasets.
 #' @param version Set to '2' for Smartseq2 or '3' for Smartseq3.
 #' @param transpose  If TRUE then rows are cells and columns are genes (default: FALSE)
 #' @return A sparse counts matrix (dgCMatrix format)
-ReadCounts_SmartSeq = function(path, assay, version, transpose=FALSE) {
-  #path = "./test.csv.gz"
-  #assay = "RNA"
-  #version = "2"
-  
+ReadCounts_SmartSeq = function(path, assays, version, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
   assertthat::assert_that(version %in% c("2", "3"),
@@ -405,8 +398,8 @@ ReadCounts_SmartSeq = function(path, assay, version, transpose=FALSE) {
   # Convert to feature type in dataset
   assay_to_feature_type = setNames(names(Assays_Smartseq), Assays_Smartseq)
   valid_assays = names(assay_to_feature_type)
-  assertthat::assert_that(assay %in% valid_assays,
-                          msg=FormatMessage("'{assay} must be: {valid_assays*}."))
+  assertthat::assert_that(assays %in% valid_assays,
+                          msg=FormatMessage("'{assays*} must be: {valid_assays*}."))
 
   if (dir.exists(path)) {
     # market exchange format
@@ -596,22 +589,23 @@ ReadCounts_10x_h5 = function(h5_file) {
 #' Reads counts data produced by 10x (non-spatial datasets).
 #' 
 #' @param path Path to 10x counts data. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
-#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @param assays Which assays to read. If NULL, read all assays.
 #' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
-ReadCounts_10x = function(path, assays, transpose=FALSE) {
-  #path = "/projects/seq-work/analysis/SCdev/bfx2327/XETG00051/20230727__145230__LAB4872_RebekkaW/output-XETG00051__0003507__S146470__20230727__145352/cell_feature_matrix.h5"
-  #assays = c("RNA")
-  
+ReadCounts_10x = function(path, assays=NULL, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
   
-  # Convert to feature type in dataset
+  # Converts assay to feature type in dataset
   assay_to_feature_type = setNames(names(Assays_10x), Assays_10x)
+  feature_type_to_assay = unlist(Assays_10x)
   valid_assays = names(assay_to_feature_type)
-  assertthat::assert_that(all(assays %in% valid_assays),
-                          msg=FormatMessage("'{assays} must be: {valid_assays*}."))
-  feature_types = assay_to_feature_type[assays]
   
+  # If assays are specified, check that they are valid
+  if (!is.null(assays)) {
+    assertthat::assert_that(all(assays %in% valid_assays),
+                            msg=FormatMessage("'{assays} must be: {valid_assays*}."))
+  }
+
   # Read counts
   if (dir.exists(path)) {
     # 10x market exchange format
@@ -621,21 +615,31 @@ ReadCounts_10x = function(path, assays, transpose=FALSE) {
     counts_lst = ReadCounts_10x_h5(h5_file=path)
   }
   
-  # Rename/prepare
-  if (length(counts_lst) == 1) {
-    assertthat::assert_that(length(assays) == 1,
-                            msg=FormatMessage("Dataset {path} contains only one assay but at least two assays ({assays*}) were requested."))
-    
-    # Only one type
-    names(counts_lst) = assays[1]
-  } else {
-    # Multiple types
+  # 10x Xenium hack: the assay BlankCodeword can be feature type "Unassigned Codeword" (old) and "Blank Codeword" (new)
+  if ("BlankCodeword" %in% assays) {
+    if ("Unassigned Codeword" %in% names(counts_lst)) {
+      d = assay_to_feature_type == "Blank Codeword"
+    } else if ("Blank Codeword" %in% names(counts_lst)) {
+      d = assay_to_feature_type == "Unassigned Codeword"
+    }
+    assay_to_feature_type = assay_to_feature_type[!d]
+  }
+  
+  # Subset feature types (which correspond to assays)
+  if (!is.null(assays)) {
+    feature_types = assay_to_feature_type[assays]
     f = feature_types %in% names(counts_lst)
     assertthat::assert_that(all(f),
                             msg=FormatMessage("Dataset {path} does not contain the following types of data: {assays[!f]*} (named {feature_types[!f]*} in the dataset)."))
     counts_lst = counts_lst[feature_types]
-    names(counts_lst) = assays
   }
+  
+  # Change names from feature type to assay
+  feature_types = names(counts_lst)
+  f = feature_types %in% names(feature_type_to_assay)
+  assertthat::assert_that(all(f),
+                          msg=FormatMessage("Dataset {path} contains a type of data that was not recognized as an assay: {feature_types[!f]*}. Check list Assays_10x in functions_io.R."))
+  names(counts_lst) = feature_type_to_assay[names(counts_lst)]
   
   # Add attributes technology and assay
   for(n in names(counts_lst)) {
@@ -649,9 +653,9 @@ ReadCounts_10x = function(path, assays, transpose=FALSE) {
 #' Reads counts data produced by 10x Visium.
 #' 
 #' @param path Path to 10x counts data for 10x Visium. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
-#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @param assays Which assays to read. If NULL, read all assays.
 #' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes. Path to a directory with image information is attached as attribute.
-ReadCounts_10xVisium = function(path, assays, transpose=FALSE) {
+ReadCounts_10xVisium = function(path, assays=NULL, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
   image_dir = file.path(dirname(path), "spatial")
@@ -661,9 +665,10 @@ ReadCounts_10xVisium = function(path, assays, transpose=FALSE) {
   # Read counts
   counts_lst = ReadCounts_10x(path, assays=assays)
   
-  # Attach spatial information
+  # Attach spatial information and update technology
   for (i in seq_along(counts_lst)) {
     attr(counts_lst[[i]], "image_dir") = image_dir
+    attr(counts_lst[[i]], "technology") = "10x_visium"
   }
   
   return(counts_lst)
@@ -671,11 +676,26 @@ ReadCounts_10xVisium = function(path, assays, transpose=FALSE) {
 
 #' Reads counts data produced by 10x Xenium.
 #' 
-#' @param path Path to 10x counts data for 10x Xenium. Can be a 10x hdf5 file (recommended for big datasets) or a 10x matrix exchange format directory.
-#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @param path Path to 10x counts data for 10x Xenium. Can be a 10x h5 file (recommended for big datasets) or a 10x matrix exchange format directory.
+#' @param assays Which assays to read. If NULL, read all assays.
 #' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
-ReadCounts_10xXenium = function(path, assays, transpose=FALSE) {
-  return(ReadCounts_10x(path, assays=assays))
+ReadCounts_10xXenium = function(path, assays=NULL, transpose=FALSE) {
+  path = "datasets/10x_xenium_mouse_brain/cell_feature_matrix.h5"
+  
+  # Checks
+  assertthat::is.readable(path)
+  image_dir = file.path(dirname(path))
+  
+  # Read counts
+  counts_lst = ReadCounts_10x(path, assays=assays)
+  
+  # Attach spatial information and update technology
+  for (i in seq_along(counts_lst)) {
+    attr(counts_lst[[i]], "image_dir") = image_dir
+    attr(counts_lst[[i]], "technology") = "10x_xenium"
+  }
+  
+  return(counts_lst)
 }
 
 #' Reads Parse Biosciences counts that are in market exchange format.
@@ -724,46 +744,46 @@ ReadCounts_ParseBio_h5ad = function(h5ad_file) {
 #' Reads counts data produced by Parse Biosciences.
 #' 
 #' @param path Path to Parse Biosciences counts data. Can be a Parse Biosciences anndata.h5ad file (recommended for big datasets) or a Parse Biosciences matrix exchange format directory.
-#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @param assays This simply sets the assay. Parse Bioscience currently does not support multi-assay datasets.
 #' @return One sparse counts matrix. Format is either IterableMatrix (when reading an anndata.h5ad file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes, features, technology and assays is attached as attributes.
 ReadCounts_ParseBio = function(path, assays, transpose=FALSE) {
-  #path = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered"
-  #assays = "RNA"
-  
   # Checks
   assertthat::is.readable(path)
   
-  # Convert to feature type in dataset
+  # If assays are specified, check that they are valid
   assay_to_feature_type = setNames(names(Assays_Parse), Assays_Parse)
   valid_assays = names(assay_to_feature_type)
-  assertthat::assert_that(all(assays %in% valid_assays),
-                          msg=FormatMessage("'{assays} must be: {valid_assays*}."))
-  feature_types = assay_to_feature_type[assays]
+  assertthat::assert_that(assay %in% valid_assays,
+                          msg=FormatMessage("'{assay} must be: {valid_assays*}."))
   
   # Read counts
   if (dir.exists(path)) {
-    # 10x market exchange format
+    # Parse Bio market exchange format
     counts_lst = ReadCounts_ParseBio_mtx(mtx_directory=path)
   } else {
-    # 10x hdf5 file
+    # Parse Bio anndata h5 file
     counts_lst = ReadCounts_ParseBio_h5ad(h5ad_file=path)
   }
   
-  # Rename/prepare
-  if (length(counts_lst) == 1) {
-    assertthat::assert_that(length(assays) == 1,
-                            msg=FormatMessage("Dataset {path} contains only one assay but at least two assays ({assays*}) were requested."))
-    
-    # Only one type
-    names(counts_lst) = assays[1]
-  } else {
-    # Multiple types
-    f = feature_types %in% names(counts_lst)
-    assertthat::assert_that(all(f),
-                            msg=FormatMessage("Dataset {path} does not contain the following types of data: {assays[!f]*} (named {feature_types[!f]*} in the dataset)."))
-    counts_lst = counts_lst[feature_types]
-    names(counts_lst) = assays
-  }
+  # No multi-assay datasets but keep for now
+  #
+  # Subset feature types (which correspond to assays)
+  #if (!is.null(assays)) {
+  #  feature_types = assay_to_feature_type[assays]
+  #  f = feature_types %in% names(counts_lst)
+  #  assertthat::assert_that(all(f),
+  #                          msg=FormatMessage("Dataset {path} does not contain the following types of data: {assays[!f]*} (named {feature_types[!f]*} in the dataset)."))
+  #  counts_lst = counts_lst[feature_types]
+  #}
+  
+  # Change names from feature type to assay
+  #feature_types = names(counts_lst)
+  #f = feature_types %in% names(feature_type_to_assay)
+  #assertthat::assert_that(all(f),
+  #                        msg=FormatMessage("Dataset {path} contains a type of data that was not recognized as an assay: {feature_types[!f]*}. Check list Assays_Parse in functions_io.R."))
+  #names(counts_lst) = feature_type_to_assay[names(counts_lst)]
+  counts_lst = counts_lst[1]
+  names(counts_lst) = assays[1]
   
   # Add attributes technology and assay
   for(n in names(counts_lst)) {
@@ -807,40 +827,41 @@ ReadCounts_ScaleBio_mtx = function(mtx_directory) {
 #' Reads counts data produced by Scale Bio
 #' 
 #' @param path Path to Scale Bio counts data. Must be a Scale Bio matrix exchange format directory.
-#' @param assays If there are multiple assays in the dataset, which assay to read. Multiple assays can be specified. If there is only one assay, this simply sets the assay type.
+#' @param assays Which assays to read. If NULL, read all assays.
 #' @return  One sparse counts matrix per assay (dgCMatrix format). Additional information on barcodes, features, technology and assay is attached as attributes.
-ReadCounts_ScaleBio = function(path, assays, transpose=FALSE) {
-  #path = "/projects/seq-work/analysis/SCdev/bfx2279/scalerna/output/samples/BC238.filtered/"
-  #assays = "RNA"
-
+ReadCounts_ScaleBio = function(path, assays) {
   # Checks
   assertthat::is.readable(path)
   
-  # Convert to feature type in dataset
+  # Converts assay to feature type in dataset
   assay_to_feature_type = setNames(names(Assays_Scale), Assays_Scale)
+  feature_type_to_assay = unlist(Assays_Scale)
   valid_assays = names(assay_to_feature_type)
-  assertthat::assert_that(all(assays %in% valid_assays),
-                          msg=FormatMessage("'{assays} must be: {valid_assays*}."))
-  feature_types = assay_to_feature_type[assays]
+  
+  # If assays are specified, check that they are valid
+  if (!is.null(assays)) {
+    assertthat::assert_that(all(assays %in% valid_assays),
+                            msg=FormatMessage("'{assays} must be: {valid_assays*}."))
+  }
 
   # Read counts
   counts_lst = ReadCounts_ScaleBio_mtx(mtx_directory=path)
   
-  # Rename/prepare
-  if (length(counts_lst) == 1) {
-    assertthat::assert_that(length(assays) == 1,
-                            msg=FormatMessage("Dataset {path} contains only one assay but at least two assays ({assays*}) were requested."))
-    
-    # Only one type
-    names(counts_lst) = assays[1]
-  } else {
-    # Multiple types
+  # Subset feature types (which correspond to assays)
+  if (!is.null(assays)) {
+    feature_types = assay_to_feature_type[assays]
     f = feature_types %in% names(counts_lst)
     assertthat::assert_that(all(f),
                             msg=FormatMessage("Dataset {path} does not contain the following types of data: {assays[!f]*} (named {feature_types[!f]*} in the dataset)."))
     counts_lst = counts_lst[feature_types]
-    names(counts_lst) = assays
   }
+  
+  # Change names from feature type to assay
+  feature_types = names(counts_lst)
+  f = feature_types %in% names(feature_type_to_assay)
+  assertthat::assert_that(all(f),
+                          msg=FormatMessage("Dataset {path} contains a type of data that was not recognized as an assay: {feature_types[!f]*}. Check list Assays_Scale in functions_io.R."))
+  names(counts_lst) = feature_type_to_assay[names(counts_lst)]
   
   # Add attributes technology and assay
   for(n in names(counts_lst)) {
@@ -1079,8 +1100,6 @@ WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
 #' @param path Path to the 'spatial' directory produced by 10x Visium.
 #' @return A Seurat VisiumV1 object.
 ReadImage_10xVisium = function(image_dir) {
-  #image_dir = "/group/sequencing/Bfx/scripts/andreasp/scrnaseq/datasets/10x_visium_human_brain_cancer/spatial/"
-  
   # Checks
   assertthat::is.readable(image_dir)
   for (f in c("tissue_lowres_image.png", "scalefactors_json.json")) {
@@ -1094,15 +1113,67 @@ ReadImage_10xVisium = function(image_dir) {
   return(image)
 }
 
+#' Reads "image data" produced by 10x Xenium.
+#' 
+#' Note that this is not an actual image but rather a set of pixel coordinates (field of vision = FOV)
+#' 
+#' @param path Path to the 10x Xenium data directory.
+#' @return A Seurat FOV object.
+ReadImage_10xXenium = function(image_dir) {
+  # Checks
+  assertthat::is.readable(image_dir)
+  assertthat::assert_that(file.exists(file.path(image_dir, "cells.csv.gz")),
+                          msg=FormatMessage("10x Xenium image directory {image_dir} misses the file 'cells.csv.gz'."))
+  assertthat::assert_that(file.exists(file.path(image_dir, "cell_boundaries.csv.gz")),
+                          msg=FormatMessage("10x Xenium image directory {image_dir} misses the file 'cell_boundaries.csv.gz'."))
+  assertthat::assert_that(file.exists(file.path(image_dir, "transcripts.csv.gz")),
+                          msg=FormatMessage("10x Xenium image directory {image_dir} misses the file 'transcripts.csv.gz'."))
+  
+  mols.qv.threshold = 20
+  options(stringsAsFactors=FALSE)
+  
+  # Read centroids (center of cells/nuclei)
+  cell_centroids = data.table::fread(file.path(image_dir, "cells.csv.gz"), stringsAsFactors=FALSE, select=c("cell_id", "x_centroid", "y_centroid"))
+  cell_centroids = cell_centroids[, c("cell_id", "x_centroid", "y_centroid")]
+  #cell_centroids = as.data.frame(cell_centroids)
+  names(cell_centroids) = c("cell", "x", "y")
+  
+  # Read segmentations (area of cells)
+  cell_boundaries = data.table::fread(file.path(image_dir, "cell_boundaries.csv.gz"), stringsAsFactors=FALSE)
+  cell_boundaries = cell_boundaries[, c("cell_id", "vertex_x", "vertex_y")]
+  #cell_boundaries = as.data.frame(cell_boundaries)
+  names(cell_boundaries) = c("cell", "x", "y")
+  
+  # Load microns (molecule coordinates)
+  transcripts = data.table::fread(file.path(image_dir, "transcripts.csv.gz"), stringsAsFactors=FALSE, select=c("x_location", "y_location", "feature_name", "qv"))
+  transcripts = transcripts[qv >= mols.qv.threshold, ]
+  transcripts = transcripts[, c("feature_name", "x_location", "y_location")]
+  #transcripts = as.data.frame(transcripts)
+  names(transcripts) = c("gene", "x", "y")
+  
+  # Create segmentation data
+  segmentations = list(centroids=SeuratObject::CreateCentroids(cell_centroids),
+                       segmentation = SeuratObject::CreateSegmentation(cell_boundaries))
+  
+  # Create FOV (coordinates plus transcript info)
+  image = CreateFOV(coords=segmentations,
+                    type=c("segmentation", "centroids"),
+                    molecules=transcripts)
+  
+  return(image)
+}
+
 #' Reads image data produced by 10x Visium and 10x Xenium.
 #' 
 #' @param image_dir Path to the 'spatial' directory produced by 10x Visium.
 #' @param technology Technology. Can be: 10x_visium', '10x_xenium'.
-#' @param barcodes Named vector with barcodes to keep. Names are original barcodes and values are barcodes after renaming.
+#' @param assay Default assay for this image.
+#' @param barcodes Named vector with barcodes to keep, order and rename. Names are original barcodes and values are barcodes after renaming. Barcodes will be re-ordered.
 #' @return A Seurat VisiumV1 object.
-ReadImage = function(image_dir, technology, barcodes) {
+ReadImage = function(image_dir, technology, assay, barcodes) {
+  library(magrittr)
   #image_dir = "/group/sequencing/Bfx/scripts/andreasp/scrnaseq/datasets/10x_visium_human_brain_cancer/spatial/"
-  #technology = "10x_visium"
+  #technology = "10x_xenium"
   #barcodes = colnames(counts_lst[[1]][[1]])
   
   # Checks
@@ -1112,14 +1183,35 @@ ReadImage = function(image_dir, technology, barcodes) {
   
   # Read image
   if(technology == "10x_visium") {
+    # Visium
     image = ReadImage_10xVisium(image_dir=image_dir)
+    
+    # Keep only spots that are also present in the assay data (under tissue)
+    spots_to_keep = image@coordinates %>% dplyr::filter(tissue==1) %>% row.names()
+    image = image[spots_to_keep]
+    
+    # Subset and re-order
+    image = image[names(barcodes) %>% as.character()]
+    
+    # Rename
+    new_barcode_names = barcodes[Seurat::Cells(image) %>% as.character()]
+    image = Seurat::RenameCells(image, new.names=new_barcode_names %>% as.character())
+
   } else if(technology == "10x_xenium") {
+    
+    # Xenium
     image = ReadImage_10xXenium(image_dir=image_dir)
+    
+    # Subset and re-order
+    image = image[names(barcodes) %>% as.character()]
+    
+    # Rename
+    new_barcode_names = barcodes[Seurat::Cells(image) %>% as.character()]
+    image = Seurat::RenameCells(image, new.names=new_barcode_names %>% as.character())
   }
   
-  # Keep only spots that are also present in the assay data (under tissue)
-  spots_to_keep = image@coordinates %>% dplyr::filter(tissue==1) %>% row.names()
-  image = image[spots_to_keep]
+  # Set default assay for image
+  Seurat::DefaultAssay(image) = assay
   
   return(image)
 }
