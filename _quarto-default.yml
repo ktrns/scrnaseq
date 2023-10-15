@@ -1,5 +1,6 @@
 project:
   type: book
+  output-dir: "default_book"
   
 book:
   title: "Single-cell analysis results"
@@ -16,7 +17,7 @@ params:
     project_id: "pbmc"
     
     # Species
-    species: "mus_musculus"
+    species: "homo_sapiens"
     
     # Ensembl version
     ensembl: 98

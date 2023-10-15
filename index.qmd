@@ -1,31 +1,40 @@
 ---
+# Module title
 title: Start
 
-author: 
-  - name: "Bfx"
-    email: genomecenter@tu-dresden.de
-    url: www.genomecenter.de
-    affiliations:
-      - name: DRESDEN-concept Genome Center
-        address: Fetscherstrasse 105  
-        city: Dresden
-        state: Saxony
-        postal-code: 01307
+# Module-specific parameters (that are not already in the profile yaml)
+params:
+  # Name of the module. Must be the same as name of qmd file.
+  module: "index"
 ---
-# A
-
--   Introduction
-
--   Documentation
-
--   References
-
--   How to cite (doi at zenodo)
-
-# B
 
 ```{r}
-getOption("kableExtra_view_html")
+#| label: setup
+#| timeit: null
+
+# If running code interactively in rstudio, set profile here
+# When rendering with quarto, profile is already set and should not be overwritten
+if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
+
+# Source general configurations (always)
+source("R/general_configuration.R")
+
+# Source required R functions
+source("R/functions_util.R")
+source("R/functions_io.R")
+
+# Load libraries
+library(magrittr)
+suppressMessages(library(Seurat))
+
+# Get module name and directory (needed to access files within the module directory)
+module_name = param("module")
+module_dir = file.path("modules", module_name)
 ```
 
-c
+## Content
+
+-   Introduction
+-   Documentation
+-   References
+-   How to cite (doi at zenodo)

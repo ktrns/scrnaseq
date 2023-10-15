@@ -5,6 +5,7 @@ Assays_10x = list("Gene Expression" = "RNA",
                   "VDJ B" = "VDJB",
                   "Antibody Capture" = "ADT",
                   "Peaks" = "ATAC",
+                  "Motifs" = "TFMotifs",
                   "CRISPR Guide Capture" = "CRISPR",
                   "Antigen Capture" = "BEAM",
                   "Custom" = "CUSTOM",
@@ -658,16 +659,12 @@ ReadCounts_10x = function(path, assays=NULL, transpose=FALSE) {
 ReadCounts_10xVisium = function(path, assays=NULL, transpose=FALSE) {
   # Checks
   assertthat::is.readable(path)
-  image_dir = file.path(dirname(path), "spatial")
-  assertthat::assert_that(dir.exists(image_dir),
-                          msg=FormatMessage("Visium dataset {path} needs a 'spatial' directory at the same location."))
   
   # Read counts
   counts_lst = ReadCounts_10x(path, assays=assays)
   
-  # Attach spatial information and update technology
+  # Update technology
   for (i in seq_along(counts_lst)) {
-    attr(counts_lst[[i]], "image_dir") = image_dir
     attr(counts_lst[[i]], "technology") = "10x_visium"
   }
   
@@ -684,14 +681,12 @@ ReadCounts_10xXenium = function(path, assays=NULL, transpose=FALSE) {
   
   # Checks
   assertthat::is.readable(path)
-  image_dir = file.path(dirname(path))
-  
+
   # Read counts
   counts_lst = ReadCounts_10x(path, assays=assays)
   
-  # Attach spatial information and update technology
+  # Update technology
   for (i in seq_along(counts_lst)) {
-    attr(counts_lst[[i]], "image_dir") = image_dir
     attr(counts_lst[[i]], "technology") = "10x_xenium"
   }
   

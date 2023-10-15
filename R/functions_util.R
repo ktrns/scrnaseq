@@ -141,11 +141,19 @@ EnsemblFetchGeneInfo = function(ids, species, ensembl_version, mart_attributes =
   # Get species mart
   species_mart = GetBiomaRt(species, ensembl_version)
   
+  # Check that we have Ensembl ids
+  assertthat::assert_that(any(grepl("^ENS", ids)),
+                          msg = FormatMessage(
+                            "None of the ids in this dataset is Ensembl. Cannot fetch gene information with this method."))  
+  
   # Fetch attributes from Ensembl (use cache to allow multiple fetches)
   species_annotation = biomaRt::getBM(mart=species_mart, filters="ensembl_gene_id", values=ids,attributes=mart_attributes, useCache=useCache)
   if (!is.null(names(mart_attributes))) {
     colnames(species_annotation) = names(mart_attributes)
   }
+  assertthat::assert_that(nrow(species_annotation)>0,
+    msg = FormatMessage(
+      "Could not find fetch any gene information for this dataset. Is the species {species} correct?"))
   
   # Add rows for ids that were not found
   first_y_col = colnames(species_annotation)[1]
