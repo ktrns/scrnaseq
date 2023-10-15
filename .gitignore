@@ -11,7 +11,7 @@ scrnaseq.Rproj
 /*_freeze/
 
 # Ignore files and directories produced in datasets directories (except download.R files and pbmc_datasets.xlsx)
-!/datasets/**
+/datasets/**
 /test_datasets
 !/datasets/**/download.R
 !/datasets/pbmc_datasets.xlsx
