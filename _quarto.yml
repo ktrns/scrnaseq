@@ -3,7 +3,7 @@ project:
   output-dir: "_book"
   execute-dir: project
   post-render: 
-    - R/collect_module_output.R
+    - R/collect_module_results.R
 
 bibliography: "misc/references.bib"
 

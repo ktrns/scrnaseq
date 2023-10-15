@@ -42,6 +42,21 @@ if (nchar(quarto_output_files) > 0 & nchar(quarto_project_output_dir) > 0) {
     return(m)
   }) %>% purrr::flatten_chr() %>% unique()
   
-  print(paste("Module", modules_rendered, collapse = "\n"))
+  # Clear and make 'results' directory
+  results_dir = file.path(quarto_project_output_dir, "results")
+  unlink(results_dir, recursive=TRUE)
+  dir.create(results_dir, showWarnings=FALSE)
+  
+  # Now copy files located in the 'results'  directories of the rendered modules
+  for (module in modules_rendered) {
+    module_results_files = list.files(file.path("modules", module, "results"), full.names=TRUE)
+    module_results_dir = file.path(results_dir, module)
+    
+    if (length(module_results_files) > 0) {
+      dir.create(module_results_dir)
+      file.copy(module_results_files, module_results_dir, recursive=TRUE)
+    }
+  }
+  
 
 }

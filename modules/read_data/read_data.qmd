@@ -87,6 +87,21 @@ module_name = param("module")
 module_dir = file.path("modules", module_name)
 ```
 
+```{r}
+#| label: preparation
+#| timeit: null
+
+# Module directory 'results' contains all output that should be provided together with the final report of the project
+dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
+
+# Module directory 'tmp' contains all intermediate files only used for this module
+dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+
+# Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
+dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
+```
+
+
 ## Read counts
 
 ```{r}
@@ -128,6 +143,8 @@ if (any(is.na(datasets$barcode_suffix))) {
   datasets$barcode_suffix = factor(datasets$experiment, level=unique(datasets$experiment)) %>% as.integer() %>% paste0("-", .)
 }
 
+# Demonstration: write to 'results' directory, will then provided with the final report
+write.table(datasets, file=file.path(module_dir, "results", "datasets.txt"))
 
 # Print datasets
 datasets
