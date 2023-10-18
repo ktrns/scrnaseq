@@ -328,13 +328,23 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
   
   # Generate list of matrix (matrices)
   counts_lst = purrr::map(feature_sets, function(f) {
+    # Add counts
     cts = counts_data[f, ]
     col_ids = rownames(barcodes_data[, 1, drop=FALSE])
     row_ids = rownames(features_data[f, 1, drop=FALSE])
     dimnames(cts) = list(row_ids, col_ids)
     
-    attr(cts, "barcode_metadata") = barcodes_data
-    attr(cts, "feature_metadata") = features_data[f,, drop=FALSE]
+    # Add barcode metadata
+    bc_meta = barcodes_data[colnames(cts), , drop=FALSE]
+    attr(cts, "barcode_metadata") = bc_meta
+    
+    # Add feature metadata
+    fc_meta = features_data[f, , drop=FALSE]
+    keep = purrr::map_lgl(colnames(fc_meta), function(n) {
+      return(all(!is.na(fc_meta[, n, drop=TRUE]) & nchar(fc_meta[, n, drop=TRUE]) > 0))
+    })
+    attr(cts, "feature_metadata") = fc_meta[, keep, drop=FALSE]
+    
     return(cts)
   })
   names(counts_lst) = names(counts_lst)
@@ -574,11 +584,20 @@ ReadCounts_10x_h5 = function(h5_file) {
   
   feature_types = unique(features_data$feature_type)
   counts_lst = purrr::map(feature_types, function(f) {
+    # Subset counts
     cts = BPCells::open_matrix_10x_hdf5(h5_file, feature_type=f)
     colnames(cts) = trimws(colnames(cts), which="right", whitespace="-1")
     
-    attr(cts, "barcode_metadata") = barcodes_data
-    attr(cts, "feature_metadata") = features_data[features_data$feature_type == f, , drop=FALSE]
+    # Add barcode metadata
+    bc_meta = barcodes_data[colnames(cts), , drop=FALSE]
+    attr(cts, "barcode_metadata") = bc_meta
+    
+    # Add feature metadata
+    fc_meta = features_data[features_data$feature_type == f, , drop=FALSE]
+    keep = purrr::map_lgl(colnames(fc_meta), function(n) {
+      return(all(!is.na(fc_meta[, n, drop=TRUE]) & nchar(fc_meta[, n, drop=TRUE]) > 0))
+    })
+    attr(cts, "feature_metadata") = fc_meta[, keep, drop=FALSE]
     
     return(cts)
   })
@@ -677,8 +696,6 @@ ReadCounts_10xVisium = function(path, assays=NULL, transpose=FALSE) {
 #' @param assays Which assays to read. If NULL, read all assays.
 #' @return One sparse counts matrix per assay. Format is either IterableMatrix (when reading a h5 file) or dgCMatrix (when reading from a matrix exchange format directory). Additional information on barcodes and features is attached as attributes.
 ReadCounts_10xXenium = function(path, assays=NULL, transpose=FALSE) {
-  path = "datasets/10x_xenium_mouse_brain/cell_feature_matrix.h5"
-  
   # Checks
   assertthat::is.readable(path)
 
@@ -1108,6 +1125,39 @@ ReadImage_10xVisium = function(image_dir) {
   return(image)
 }
 
+#' Improved version of SeuratObject::CreateSegmentation.
+#' 
+#' Further improvements might be possible by parallelisation of purrr.
+#' #' 
+#' @param coords A coordinate table with columns 'cell', 'x' and 'y'.
+#' @return A Seurat Segmentation object.
+CreateSegmentationImproved = function(coords) {
+  library(sp)
+  library(SeuratObject)
+  
+  assertthat::assert_that(all(colnames(coords) == c("cell", "x", "y")),
+                          msg=FormatMessage("Function 'CreateSegmentationImproved' requires a table with columns 'cell', 'x' and 'y'."))
+  
+  coords_cell_names = coords[[1]]
+  coords_cell_names = factor(coords_cell_names, levels=unique(coords_cell_names))
+  
+  coords = as.matrix(coords[, 2:3])
+  coords = split(x=coords, f=coords_cell_names)
+  coords = purrr::map(coords, .f=matrix, ncol=2, dimnames=list(NULL, c("x", "y")))
+  
+  polygons_names = names(coords)
+  polygons = purrr::map(seq_along(coords), function(i) {
+    return(Polygons(
+      srl=list(Polygon(coords=coords[[i]])),
+      ID=polygons_names[i])
+    )
+  })
+  polygons = SpatialPolygons(Srl=polygons)
+  polygons = as(polygons, "Segmentation")
+  CheckGC()
+  return(polygons)
+}
+
 #' Reads "image data" produced by 10x Xenium.
 #' 
 #' Note that this is not an actual image but rather a set of pixel coordinates (field of vision = FOV)
@@ -1147,14 +1197,18 @@ ReadImage_10xXenium = function(image_dir) {
   names(transcripts) = c("gene", "x", "y")
   
   # Create segmentation data
-  segmentations = list(centroids=SeuratObject::CreateCentroids(cell_centroids),
-                       segmentation = SeuratObject::CreateSegmentation(cell_boundaries))
+  centroids = SeuratObject::CreateCentroids(cell_centroids)
+  segmentation = CreateSegmentationImproved(cell_boundaries)
+  
+  # Create molecule data
+  molecules = SeuratObject::CreateMolecules(transcripts, key='mols_')
   
   # Create FOV (coordinates plus transcript info)
-  image = CreateFOV(coords=segmentations,
-                    type=c("segmentation", "centroids"),
-                    molecules=transcripts)
-  
+  image = SeuratObject::CreateFOV(coords=list(centroids=centroids, segmentation=segmentation),
+                                  molecules=molecules,
+                                  assay = 'Spatial',
+                                  key = 'fov_')
+                                  
   return(image)
 }
 

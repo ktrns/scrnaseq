@@ -46,37 +46,37 @@ format:
     knitr:
       opts_chunk: 
         dev: ragg_png
-  pdf:
-    documentclass: scrreprt
-    toc: true
-    lof: true
-    lot: true
-    fig-format: pdf
-    keep-tex: false
-    df-print: kable
-    execute:
-      echo: false
-      warning: false
-    knitr:
-      opts_chunk:
-        dev: pdf
-    code-block-bg: true
-    include-in-header:
-      text: |
-        \usepackage{fvextra}
-        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
-  docx:
-    reference-doc: misc/template.docx
-    page-width: 8.3
-    toc: true
-    fig-format: png
-    df-print: kable
-    execute:
-      echo: false
-      warning: false
-    knitr:
-      opts_chunk:
-        dev: ragg_png
+  # pdf:
+  #   documentclass: scrreprt
+  #   toc: true
+  #   lof: true
+  #   lot: true
+  #   fig-format: pdf
+  #   keep-tex: false
+  #   df-print: kable
+  #   execute:
+  #     echo: false
+  #     warning: false
+  #   knitr:
+  #     opts_chunk:
+  #       dev: pdf
+  #   code-block-bg: true
+  #   include-in-header:
+  #     text: |
+  #       \usepackage{fvextra}
+  #       \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+  # docx:
+  #   reference-doc: misc/template.docx
+  #   page-width: 8.3
+  #   toc: true
+  #   fig-format: png
+  #   df-print: kable
+  #   execute:
+  #     echo: false
+  #     warning: false
+  #   knitr:
+  #     opts_chunk:
+  #       dev: ragg_png
 
 profile: 
   default: default

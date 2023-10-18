@@ -30,10 +30,10 @@ params:
   #                                   b) Specify 'ENSEMBL' to fetch gene information from Ensembl (gene features only), c) Leave empty or specify 'NO' to not rename features.
   #                                   If a dataset contains multiple assays, this option can be specified multiple times (comma-separated). 
   # - barcode_suffix (can be empty): Suffix to add to the barcodes. If left empty, numeric suffixes will be added ('-1', '-2', etc). If set to 'NO', no suffixes are added.
-  datasets_file: "datasets/10x_pbmc_atac.xlsx"
+  datasets_file: "datasets/test_xenium.xlsx"
   
   # Default assay. All cells must have this assay.
-  default_assay: ATAC
+  default_assay: RNA
   
   # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
   #   NULL to deactivate
@@ -246,7 +246,6 @@ for (i in 1:nrow(datasets)) {
   
   # Now loop through assays
   for (j in seq_along(counts_lst[[i]])) {
-    j = 1
     assay = attr(counts_lst[[i]][[j]], "assay")
     
     # if 'NO', no renaming
@@ -341,7 +340,7 @@ for (i in 1:nrow(datasets)) {
     attr(counts_lst[[i]][[j]], "assay") = assay
     attr(counts_lst[[i]][[j]], "sample") = sample
     attr(counts_lst[[i]][[j]], "orig.ident") = experiment
-    attr(counts_lst[[i]][[j]], "dataset") = path
+    attr(counts_lst[[i]][[j]], "path") = path
   }
   
   #
@@ -358,13 +357,15 @@ for (i in 1:nrow(datasets)) {
 ```{r}
 #| label: create_seurat_object
 
-# Create Seurat object
-
 # List all assays in all datasets
 all_assays = purrr::map_depth(counts_lst, 2, attr, "assay") %>% 
   purrr::flatten() %>% 
   unlist() %>% 
   unique()
+
+#################
+# Default assay #
+#################
 
 # Collect default assay datasets
 default_assay = param("default_assay")
@@ -372,7 +373,28 @@ has_assay = purrr::map(counts_lst, purrr::pluck_exists, default_assay) %>% purrr
 assay_counts_lst = purrr::map(counts_lst[has_assay], purrr::pluck, default_assay)
 names(assay_counts_lst) = purrr::map(assay_counts_lst, attr, "orig.ident") %>% unlist()
 
-# Collect barcode metadata (from all assays)
+# Create Seurat default assay object
+assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
+rownames(assay_obj@meta.data) = rownames(assay_obj)
+
+# Collect feature metadata for default assay datasets
+feature_metadata = purrr::map(seq_along(assay_counts_lst), function(i) {
+  metadata = attr(assay_counts_lst[[i]], "feature_metadata") %>% tibble::rownames_to_column()
+  return(metadata)
+}) %>% dplyr::bind_rows()
+
+# Group by feature name and make unique values
+feature_metadata = feature_metadata %>% 
+  dplyr::group_by(rowname) %>%
+  dplyr::summarise_all(dplyr::first, na_rm=TRUE) %>% 
+  as.data.frame()
+rownames(feature_metadata) = feature_metadata$rowname
+feature_metadata = feature_metadata %>% dplyr::select(-rowname)
+
+# Add to Seurat default assay object
+assay_obj = AddFeatureMetadata(assay_obj, metadata=feature_metadata)
+
+# Collect barcode metadata (from all assays/datasets)
 barcode_metadata = purrr::map_dfr(seq_along(counts_lst), function(i) {
   metadata = data.frame(rowname=colnames(assay_counts_lst[[i]]))
   metadata$orig.ident = attr(assay_counts_lst[[i]], "orig.ident")
@@ -390,18 +412,40 @@ barcode_metadata$orig.ident = factor(barcode_metadata$orig.ident, levels=unique(
 barcode_metadata$sample = factor(barcode_metadata$sample, levels=unique(barcode_metadata$sample))
 barcode_metadata$technology = factor(barcode_metadata$technology, levels=unique(barcode_metadata$technology))
 
-# Create Seurat assay object
-assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
-
 # Create Seurat object
 sc = Seurat::CreateSeuratObject(counts=assay_obj, meta.data=barcode_metadata, assay=default_assay, names.delim=NULL, names.field=NULL)
 
-# Add other assays
+################
+# Other assays #
+################
+
+# Add other assays to Seurat object
 for(a in setdiff(all_assays, default_assay)) {
+  # Collect assay datasets
   has_assay = purrr::map(counts_lst, purrr::pluck_exists, a) %>% purrr::flatten_lgl()
   assay_counts_lst = purrr::map(counts_lst[has_assay], purrr::pluck, a)
-  other_assay = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
-  sc[[a]] = other_assay
+  
+  # Create Seurat default assay object
+  assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
+  rownames(assay_obj@meta.data) = rownames(assay_obj)
+  
+  # Collect feature metadata for default assay datasets
+  feature_metadata = purrr::map(seq_along(assay_counts_lst), function(i) {
+    metadata = attr(assay_counts_lst[[i]], "feature_metadata") %>% tibble::rownames_to_column()
+    return(metadata)
+  }) %>% dplyr::bind_rows()
+
+  # Group by feature name and make unique values
+  feature_metadata = feature_metadata %>% 
+    dplyr::group_by(rowname) %>%
+    dplyr::summarise_all(dplyr::first, na_rm=TRUE) %>% 
+    as.data.frame()
+  rownames(feature_metadata) = feature_metadata$rowname
+  feature_metadata = feature_metadata %>% dplyr::select(-rowname)
+
+  # Add to Seurat default assay object
+  assay_obj = AddFeatureMetadata(assay_obj, metadata=feature_metadata)
+  sc[[a]] = assay_obj
 }
 
 # Print what we have read
@@ -409,15 +453,7 @@ for(a in setdiff(all_assays, default_assay)) {
 
 sc
 ```
-
-```{r}
-#| label: update_metadata
-
-#TODO
-
-```
-
-## Add metadata
+W
 
 ## Add images
 
@@ -429,6 +465,7 @@ note: quarto allows to hide content - use here ?
 
 # Add images (10x Visium and 10x Xenium only)
 for (i in seq_along(counts_lst)) {
+  i = 1
   technology = attr(counts_lst[[i]][[1]], "technology")
   orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
   path = attr(counts_lst[[i]][[1]], "path")
@@ -437,12 +474,12 @@ for (i in seq_along(counts_lst)) {
   # Two technologies have image data
   if (technology == "10x_visium") {
     # 10x Visium: image is in subdirectory 'spatial'
-    image_dir = file.path(path, "spatial")
+    image_dir = file.path(dirname(path), "spatial")
     assertthat::assert_that(dir.exists(image_dir),
                                 msg=FormatMessage("10x Visium dataset {path} does not have a directory 'spatial' with spatial data."))
   } else if (technology == "10x_xenium") {
     # 10x Xenium_ image is in the same directory
-    image_dir = path
+    image_dir = dirname(path)
   } else {
     # other: skip
     next

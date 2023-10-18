@@ -164,7 +164,47 @@ EnsemblFetchGeneInfo = function(ids, species, ensembl_version, mart_attributes =
   return(annotation_ensembl)
 }
 
-
+#' Adds feature metadata to an Seurat object or an Assay object.
+#' 
+#' Note: Seurat::AddMetaData does not seem to work for features in Seurat v5.
+#' 
+#' @param obj A Seurat or Assay object.
+#' @param assay The assay to which to add the feature metadata. Will be ignored if adding to an Assay object.
+#' @param metadata A table with feature metadata with feature names being row names.
+#' @return The Seurat (v5) or Assay object with updated feature metadata.
+AddFeatureMetadata = function(obj, assay=NULL, metadata) {
+  # Checks
+  valid_objs = c("Seurat", "Assay5", "Assay")
+  assertthat::assert_that(class(obj) %in% valid_objs,
+                          msg = FormatMessage(
+                            "AddFeatureMetadata works only for 'Seurat v5' or 'Assay5' objects"))
+  
+  # Prepare metadata tables for join
+  metadata = metadata %>% tibble::rownames_to_column()
+  
+  if (is(obj, "Seurat")) {
+    feature_metadata = obj[[assay]]@meta.data
+  } else if (is(obj, "Assay5") | is(obj, "Assay")) {
+    feature_metadata = obj@meta.data
+  }
+  feature_metadata = feature_metadata %>% tibble::rownames_to_column()
+ 
+  # Join
+  feature_metadata = dplyr::left_join(feature_metadata, metadata, by="rowname") %>% as.data.frame()
+  rownames(feature_metadata) = feature_metadata$rowname
+  feature_metadata = feature_metadata %>% dplyr::select(-rowname)
+  
+  # Add again
+  if (is(obj, "Seurat")) {
+    feature_metadata = feature_metadata[rownames(obj[[assay]]), , drop=FALSE]
+    obj[[assay]]@meta.data = feature_metadata
+  } else if (is(obj, "Assay5") | is(obj, "Assay")) {
+    feature_metadata = feature_metadata[rownames(obj), , drop=FALSE]
+    obj@meta.data = feature_metadata
+  }
+  
+  return(obj)
+}
 
 ######################
 ######################
