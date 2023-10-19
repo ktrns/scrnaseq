@@ -26,7 +26,6 @@ params:
     read_data:
       paramB: "E"
 
-
 # params:
 #   # Author
 #   author: !r Sys.info()[["user"]]

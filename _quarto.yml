@@ -35,7 +35,7 @@ format:
     code-link: true
     code-block-bg: true
     css: css/style.css
-    df-print: paged
+    df-print: kable
     toc: true
     fig-format: png
     keep-md: false

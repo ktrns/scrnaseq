@@ -30,7 +30,7 @@ params:
   #                                   b) Specify 'ENSEMBL' to fetch gene information from Ensembl (gene features only), c) Leave empty or specify 'NO' to not rename features.
   #                                   If a dataset contains multiple assays, this option can be specified multiple times (comma-separated). 
   # - barcode_suffix (can be empty): Suffix to add to the barcodes. If left empty, numeric suffixes will be added ('-1', '-2', etc). If set to 'NO', no suffixes are added.
-  datasets_file: "datasets/test_xenium.xlsx"
+  datasets_file: "datasets/10x_pbmc_datasets.xlsx"
   
   # Default assay. All cells must have this assay.
   default_assay: RNA
@@ -101,8 +101,7 @@ dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
 dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
 ```
 
-
-## Read counts
+## Datasets
 
 ```{r}
 #| label: datasets_table
@@ -147,8 +146,16 @@ if (any(is.na(datasets$barcode_suffix))) {
 write.table(datasets, file=file.path(module_dir, "results", "datasets.txt"))
 
 # Print datasets
-datasets
+rmarkdown::paged_table(datasets)
 ```
+
+```{r}
+#| label: read_metrics
+
+
+```
+
+## Read counts
 
 ```{r}
 #| label: read_counts
@@ -322,12 +329,12 @@ for (i in 1:nrow(datasets)) {
     if (param("on_disk_counts")){
       # Write counts to matrix directory
       WriteCounts(counts=counts_lst[[i]][[j]], 
-                  path=file.path(module_dir, "counts", experiment, assay), 
+                  path=file.path(module_dir, "counts", paste(experiment, assay, sep=".")), 
                   format="matrix_directory", 
                   overwrite=param("on_disk_counts_overwrite"))
       
       # Then open matrix directory for analysis
-      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "counts", experiment, assay))
+      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "counts", paste(experiment, assay, sep=".")))
     } else {
       # Convert to in-memory matrix
       counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
@@ -342,14 +349,17 @@ for (i in 1:nrow(datasets)) {
     attr(counts_lst[[i]][[j]], "orig.ident") = experiment
     attr(counts_lst[[i]][[j]], "path") = path
   }
-  
-  #
-  #
-  #
 }
 
-# Print what we have read
-# TODO
+# Print summary of feature and barcodes
+counts_summary = data.frame(
+  sample = purrr::map_depth(counts_lst, 2, attr, "sample") %>% purrr::flatten() %>% unlist(),
+  dataset = purrr::map_depth(counts_lst, 2, attr, "orig.ident") %>% purrr::flatten() %>% unlist(),
+  assay = purrr::map_depth(counts_lst, 2, attr, "assay") %>% purrr::flatten() %>% unlist(),
+  barcodes = purrr::map_depth(counts_lst, 2, ncol) %>% purrr::flatten() %>% unlist(),
+  features = purrr::map_depth(counts_lst, 2, nrow) %>% purrr::flatten() %>% unlist())
+
+rmarkdown::paged_table(counts_summary)
 ```
 
 ## Create Seurat object
@@ -449,15 +459,43 @@ for(a in setdiff(all_assays, default_assay)) {
 }
 
 # Print what we have read
-# TODO
-
 sc
 ```
-W
 
-## Add images
+The following table shows available metadata (columns) of the first five barcodes (rows). These metadata provide additional information such as:
 
-note: quarto allows to hide content - use here ?
+-   the dataset it belongs to ("orig.ident")
+-   the sample it belongs to
+-   the technology with which it was produced
+-   its original name in the dataset
+-   additional metadata provided together with it
+-   the total number of counts and features for each assay
+
+```{r}
+#| label: barcode_metadata
+#| timeit: null
+
+sc[[]] %>% head(5) %>% rmarkdown::paged_table()
+```
+
+The next table shows available metadata (columns) of the first five features (rows) for each assay.
+
+::: panel-tabset
+```{r}
+#| label: feature_metadata
+#| timeit: null
+#| results: asis
+
+for(a in Seurat::Assays(sc)) {
+  cat('#### ',a,'\n \n')
+  df = sc[[a]][] %>% head(5) %>% rmarkdown::paged_table()
+  cat(knitr::knit_print(df))
+  cat(' \n \n')
+}
+```
+:::
+
+## Add Images
 
 ```{r}
 #| label: add_images
@@ -465,7 +503,7 @@ note: quarto allows to hide content - use here ?
 
 # Add images (10x Visium and 10x Xenium only)
 for (i in seq_along(counts_lst)) {
-  i = 1
+  i = 2
   technology = attr(counts_lst[[i]][[1]], "technology")
   orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
   path = attr(counts_lst[[i]][[1]], "path")
@@ -494,7 +532,7 @@ for (i in seq_along(counts_lst)) {
   }) %>% unique()
   barcodes = setNames(barcodes$new_barcode, barcodes$orig_barcode)
   j = match(barcodes, Cells(sc))
-  barcodes = barcodes[j]
+  barcodes = barcodes[order(j)]
   
   # Read image
   image = ReadImage(image_dir=image_dir, technology=technology, assay=default_assay, barcodes=barcodes)
@@ -514,4 +552,11 @@ for (i in seq_along(counts_lst)) {
 
 # Print what we have read, maybe show images?
 # TODO
+```
+
+## Save Seurat object
+
+```{r}
+#| label: save_seurat_object
+saveRDS(object=sc, file=file.path(module_dir, "sc.rds"))
 ```
