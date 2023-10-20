@@ -35,15 +35,6 @@ params:
   # Default assay. All cells must have this assay.
   default_assay: RNA
   
-  # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
-  #   NULL to deactivate
-  downsample_cells_n: NULL
-  
-  # Downsample all samples equally according to the smallest sample
-  #   TRUE/FALSE
-  #   Overwritten by downsample_cells_n
-  downsample_cells_equally: false
-  
   # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. TThis will create a a 'counts' directory within the module directory with one matrix directory per sample and assay.
   on_disk_counts: true
   
@@ -79,7 +70,9 @@ source("R/functions_util.R")
 source("R/functions_io.R")
 
 # Load libraries
+library(knitr)
 library(magrittr)
+library(gt)
 suppressMessages(library(Seurat))
 
 # Get module name and directory (needed to access files within the module directory)
@@ -99,22 +92,10 @@ dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
 
 # Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
 dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
-```
-
-## Datasets
-
-```{r}
-#| label: datasets_table
-#| timeit: null
 
 # Read table with datasets
-
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
-
-##########
-# Checks #
-##########
 
 for (i in 1:nrow(datasets)) {
   # Required columns
@@ -141,17 +122,55 @@ if (any(is.na(datasets$barcode_suffix))) {
                             msg=FormatMessage("If one barcode suffix is empty/NA, all barcode suffixes need to be empty/NA."))
   datasets$barcode_suffix = factor(datasets$experiment, level=unique(datasets$experiment)) %>% as.integer() %>% paste0("-", .)
 }
+```
 
-# Demonstration: write to 'results' directory, will then provided with the final report
-write.table(datasets, file=file.path(module_dir, "results", "datasets.txt"))
+## Datasets
+
+The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell.
+
+Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
+
+<details>
+
+<summary>Pre-processing of 10x data with Cell Ranger</summary>
+
+We use the 10x Genomics Cell Ranger software to map 10x sequencing reads. The result is a count matrix that contains the number of unique transcripts per gene (rows) and cell (columns). To save storage space, the matrix is converted into a condensed format and described by the following 3 files:\
+
+<ul>
+
+<li>"features.tsv.gz": Tabular file with gene annotation (Ensembl gene ID and the gene symbol) to identify genes</li>
+
+<li>"barcodes.tsv.gz": File with cell barcodes to identify cells</li>
+
+<li>"matrix.mtx.gz": A condensed version of the count matrix</li>
+
+</ul>
+
+</details>
+
+<details>
+
+<summary>Pre-processing of SmartSeq-2 data</summary>
+
+Sequencing reads from SmartSeq-2 (and other) experiments can be mapped with any suitable mapping software as long as a count matrix is generated that contains the number of mapped reads per gene (rows) and cell (columns). The first row of the count matrix should contain cell barcodes or names, the first column of the matrix should contain Ensembl gene IDs.
+
+</details>
+
+```{r}
+#| label: tbl-datasets
+#| tbl-cap: "Datasets to be read"
+#| timeit: null
 
 # Print datasets
-rmarkdown::paged_table(datasets)
+gt(datasets)
 ```
 
 ```{r}
-#| label: read_metrics
+#| label: tbl-dataset_metrics
+#| tbl-cap: "Metrics per dataset"
 
+# Print datasets
+gt(datasets)
 
 ```
 
@@ -350,6 +369,11 @@ for (i in 1:nrow(datasets)) {
     attr(counts_lst[[i]][[j]], "path") = path
   }
 }
+```
+
+```{r}
+#| label: tbl-counts_summary
+#| tbl-cap: "Counts for each dataset"
 
 # Print summary of feature and barcodes
 counts_summary = data.frame(
@@ -359,7 +383,7 @@ counts_summary = data.frame(
   barcodes = purrr::map_depth(counts_lst, 2, ncol) %>% purrr::flatten() %>% unlist(),
   features = purrr::map_depth(counts_lst, 2, nrow) %>% purrr::flatten() %>% unlist())
 
-rmarkdown::paged_table(counts_summary)
+gt(counts_summary)
 ```
 
 ## Create Seurat object
@@ -472,27 +496,33 @@ The following table shows available metadata (columns) of the first five barcode
 -   the total number of counts and features for each assay
 
 ```{r}
-#| label: barcode_metadata
+#| label: tbl-barcode_metadata
 #| timeit: null
+#| tbl-cap: "Barcode metadata"
 
-sc[[]] %>% head(5) %>% rmarkdown::paged_table()
+df = sc[[]] %>% head(5)
+gt(df)
 ```
 
 The next table shows available metadata (columns) of the first five features (rows) for each assay.
 
 ::: panel-tabset
+
 ```{r}
-#| label: feature_metadata
+#| label: tbl-feature_metadata
 #| timeit: null
 #| results: asis
+#| tbl-cap: "Feature metadata"
+
 
 for(a in Seurat::Assays(sc)) {
   cat('#### ',a,'\n \n')
-  df = sc[[a]][] %>% head(5) %>% rmarkdown::paged_table()
+  df = sc[[a]][] %>% head(5) %>% gt()
   cat(knitr::knit_print(df))
   cat(' \n \n')
 }
 ```
+
 :::
 
 ## Add Images
@@ -503,7 +533,6 @@ for(a in Seurat::Assays(sc)) {
 
 # Add images (10x Visium and 10x Xenium only)
 for (i in seq_along(counts_lst)) {
-  i = 2
   technology = attr(counts_lst[[i]][[1]], "technology")
   orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
   path = attr(counts_lst[[i]][[1]], "path")

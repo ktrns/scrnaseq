@@ -1265,10 +1265,11 @@ ReadImage = function(image_dir, technology, assay, barcodes) {
   return(image)
 }
 
+#' Reads summary metrics files produced by 10x, 10x Visium, 10x Xenium.
+#' 
+#' @param metrics_file Path to a metrics_summary.csv file produced by the 10x pipelines cellranger, spaceranger and xenium ranger.
+#' @return One table with summary metrics per library type (only cellranger multi) or a table with summary metrics for the entire 10x experiment (all other 10x pipelines).
 ReadMetrics_10x = function(metrics_file) {
-  metrics_file = "/projects/seq-work/analysis/annac/bfx2337/cellranger_rnaseq/Newt_control/outs/metrics_summary.csv"
-  metrics_file = "/projects/seq-work/analysis/joseg/bfx2306/cellranger_multi/bfx2306.LAB4821_Pre-amp-cDNA.s4-CEL105008.cellranger_multi_metrics_summary.csv"
-  
   # Checks
   assertthat::is.readable(metrics_file)
   
