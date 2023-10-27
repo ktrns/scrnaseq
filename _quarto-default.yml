@@ -7,8 +7,7 @@ book:
   subtitle: "Sub"
   chapters:
   - index.qmd
-  - modules/read_data/read_data.qmd
-  - modules/visualisation/visualisation.qmd
+  - modules/1_read_data/read_data.qmd
   - references.qmd
 
 params:

@@ -1265,41 +1265,133 @@ ReadImage = function(image_dir, technology, assay, barcodes) {
   return(image)
 }
 
-#' Reads summary metrics files produced by 10x, 10x Visium, 10x Xenium.
+#' Reads summary metrics files produced for SmartSeq data. 
 #' 
-#' @param metrics_file Path to a metrics_summary.csv file produced by the 10x pipelines cellranger, spaceranger and xenium ranger.
-#' @return One table with summary metrics per library type (only cellranger multi) or a table with summary metrics for the entire 10x experiment (all other 10x pipelines).
+#' Note: Since there is no generally accepted pipeline for SmartSeq data, a metrics file can contain all kinds of information and 
+#' can have any format. Therefore, this function just reads and returns a character-separated table. First column must be the cell name 
+#' and all other columns can contain metrics.
+#' 
+#' @param metrics_file Path to a character-separated metrics file.
+#' @return A summary metrics table.
+ReadMetrics_Smartseq = function(metrics_file) {
+  # Checks
+  assertthat::is.readable(metrics_file)
+  
+  # Read file
+  metrics_table = readr::read_delim(metrics_file, col_names=TRUE, show_col_types=FALSE)
+  
+  return(metrics_table)
+}
+
+#' Reads summary metrics files produced for 10x, 10x Visium, 10x Xenium data.
+#' 
+#' @param metrics_file Path to a "metrics_summary.csv" file produced by the 10x pipelines cellranger, spaceranger and xenium ranger.
+#' @return One or more tables with summary metrics per library type (only cellranger multi) or a table with summary metrics for the entire 10x experiment (all other 10x pipelines).
 ReadMetrics_10x = function(metrics_file) {
+  #metrics_file = "/projects/seq-work/analysis/konstantint/bfx2278/cellranger_multi/Pwl3_CMO311_A1_CMO312_alt/outs/per_sample_outs/A1/metrics_summary.csv"
+  #metrics_file = "/projects/seq-work/analysis/yuliiah/bfx2322/cellranger_arc/m194T/outs/summary.csv"
+  library(magrittr)
+  
   # Checks
   assertthat::is.readable(metrics_file)
   
   # Read file
   metrics_table = readr::read_delim(metrics_file, col_names=TRUE, show_col_types=FALSE)
   metrics_table_colnms = colnames(metrics_table)
+  metrics_table = as.data.frame(metrics_table)
   
   if (metrics_table_colnms[1] == "Category") {
     # Produced by cellranger multi
     # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/output/metrics-summary-csv
     
-    # Subset per-sample metrics (get rid of per-library metrics)
+    # Subset per-sample metrics
     # Also only keep overall metrics but not the ones calculated for various groups
     metrics_table = metrics_table %>% 
       dplyr::filter(Category=="Cells", is.na(`Grouped By`)) %>%
-      dplyr::select(library_type=`Library Type`, metric_name=`Metric Name`, metric_value=`Metric Value`)
+      dplyr::select(library_type=`Library Type`, Metric=`Metric Name`, Value=`Metric Value`)
     
     # Split by library type and convert into wide table
     metrics_table = split(metrics_table, metrics_table$library_type)
     metrics_table = purrr::map(metrics_table, function(tbl) {
-      tbl = tbl %>% dplyr::select(-library_type)
-      tbl = tidyr::pivot_wider(tbl, names_from="metric_name", values_from="metric_value")
+      tbl = tbl %>% dplyr::select(-library_type) %>% tidyr::pivot_wider(names_from="Metric", values_from="Value") %>% as.data.frame()
       return(tbl)
     })
-    
-    # Map types to assay names
-    #
   } else {
     # Produced by other cellranger pipelines (standard, multiome, atac, visium, xenium)
     metrics_table = list(Overall=metrics_table)
+  }
+  
+  return(metrics_table)
+}
+
+#' Reads summary metrics files produced for Parse Biosciences data. 
+#' 
+#' @param metrics_file Path to an "analysis_summary.csv" file produced by the splitpipe pipeline.
+#' @return A summary metrics table.
+ReadMetrics_ParseBio = function(metrics_file) {
+  #metrics_file = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/L132590_Sl_1_62500cells/BC001/report/analysis_summary.csv"
+  
+  # Checks
+  assertthat::is.readable(metrics_file)
+  
+  # Read file
+  metrics_table = readr::read_delim(metrics_file, col_names=c("Metric", "Value"), show_col_types=FALSE, skip=1)
+  metrics_table = metrics_table %>% 
+    tidyr::pivot_wider(names_from=1, values_from=2) %>%
+    as.data.frame()
+  metrics_table = list(metrics_table)
+  
+  return(metrics_table)
+}
+
+#' Reads summary metrics files produced for Scale Bio data. 
+#'
+#' @param metrics_file Path to a "reportStatistics.csv" file produced by the ScaleRna pipeline.
+#' @return A summary metrics table.
+ReadMetrics_ScaleBio = function(metrics_file) {
+  #metrics_file = "/projects/seq-work/analysis/SCdev/bfx2279/scalerna/output/reports/csv/BC238.reportStatistics.csv"
+  library(magrittr)
+  
+  # Checks
+  assertthat::is.readable(metrics_file)
+  
+  # Read file
+  metrics_table = readr::read_delim(metrics_file, col_names=TRUE, show_col_types=FALSE)
+
+  # Only keep sections "Reads" and "Cells"
+  metrics_table = metrics_table %>% dplyr::filter(Sample %in% c("Reads", "Cells"))
+  metrics_table = metrics_table %>% 
+    dplyr::select(-Sample) %>%
+    tidyr::pivot_wider(names_from=1, values_from=2) %>%
+    as.data.frame()
+  
+  metrics_table = list(Overall=metrics_table)
+  return(metrics_table)
+}
+
+#' Reads summary metrics files produced by Smartseq, 10x, 10x Visium, 10x Xenium, Parse Biosciences, Scale Bio.
+#' 
+#' @param metrics_file Path to a metrics file.
+#' @param technology Technology. Can be: 'smartseq2', 'smartseq3', '10x', '10x_visium', '10x_xenium', 'parse' or 'scale'.
+#' @return One or more tables with summary metrics.
+ReadMetrics = function(metrics_file, technology) {
+  #metrics_file = datasets$metrics_file[1]
+  #technology = "10x"
+  
+  # Checks
+  valid_technologies = c("smartseq2", "smartseq3", "10x", "10x_visium", "10x_xenium", "parse", "scale")
+  assertthat::assert_that(technology %in% valid_technologies,
+                          msg=FormatMessage("Technology is {technology} but must be one of: {valid_technologies*}."))
+  
+  # Read metrics file
+  if (technology %in% c("smartseq2", "smartseq3")) {
+    metrics_table = ReadMetrics_SmartSeq(metrics_file=metrics_file)
+  } else if(technology %in% c("10x", "10x_visium", "10x_xenium")) {
+    metrics_table = ReadMetrics_10x(metrics_file=metrics_file)
+  } else if(technology == "parse") {
+    metrics_table = ReadMetrics_ParseBio(metrics_file=metrics_file)
+  } else if(technology == "scale") {
+    metrics_table = ReadMetrics_ScaleBio(metrics_file=metrics_file)
   }
   
   return(metrics_table)

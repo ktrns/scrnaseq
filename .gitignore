@@ -18,7 +18,7 @@ scrnaseq.Rproj
 
 # Ignore files and directories produced in workflow directories (except qmd files)
 /modules/**
-!/modules/*/
+/modules/*/
 !/modules/**/*.qmd
 
 # Ignore files and directories produced at the project level
