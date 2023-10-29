@@ -5,7 +5,7 @@ title: Read data
 # Module-specific parameters (that are not already in the profile yaml)
 params:
   # Name of the module. Must be the same as name of qmd file.
-  module: "read_data"
+  module: "1_read_data"
   
   # Path to a csv or Excel file containing a table with single-cell datasets. For Excel files, a sheet can be specified by appending ':<sheet_number>'.
   # The table must contain the following columns:
@@ -41,7 +41,14 @@ params:
   # For large datasets: Overwrite existing matrix directories. The counts files will still be read though.
   on_disk_counts_overwrite: true
   
+  # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
+  #   NULL to deactivate
+  downsample_cells_n: NULL
   
+  # Downsample all samples equally according to the smallest sample
+  #   TRUE/FALSE
+  #   Overwritten by downsample_cells_n
+  downsample_cells_equally: FALSE
   
 # Module execution
 execute:
@@ -49,14 +56,13 @@ execute:
   # - auto: only when code changes
   # - true/false: always/never
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
-  freeze: false
+  freeze: auto
 ---
-
-# Read data
 
 ```{r}
 #| label: setup
-#| timeit: null
+#| message: false
+#| warning: false
 
 # If running code interactively in rstudio, set profile here
 # When rendering with quarto, profile is already set and should not be overwritten
@@ -73,7 +79,8 @@ source("R/functions_io.R")
 library(knitr)
 library(magrittr)
 library(gt)
-suppressMessages(library(Seurat))
+library(Seurat)
+library(BPCells)
 
 # Get module name and directory (needed to access files within the module directory)
 module_name = param("module")
@@ -81,8 +88,7 @@ module_dir = file.path("modules", module_name)
 ```
 
 ```{r}
-#| label: preparation
-#| timeit: null
+#| label: read_data_preparation
 
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
@@ -92,6 +98,21 @@ dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
 
 # Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
 dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
+```
+
+## Overview
+
+In this chapter, we read in counts data as "features x barcodes" matrices where features are typically genes (but can also be peaks, protein antibody, ...) and barcodes are typically cells (but can also be nuclei or spots). If provided, we also read in additional metadata for features and barcodes. For spatial data, we additionally import the image data. All data is saved as an Seurat object which is then processed in the next chapters.
+
+## Datasets
+
+The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell.
+
+Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
+
+```{r}
+#| label: tbl-read_data_datasets
+#| tbl-cap: "Datasets to be read"
 
 # Read table with datasets
 datasets_file = param("datasets_file")
@@ -122,18 +143,6 @@ if (any(is.na(datasets$barcode_suffix))) {
                             msg=FormatMessage("If one barcode suffix is empty/NA, all barcode suffixes need to be empty/NA."))
   datasets$barcode_suffix = factor(datasets$experiment, level=unique(datasets$experiment)) %>% as.integer() %>% paste0("-", .)
 }
-```
-
-## Datasets
-
-The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell.
-
-Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
-
-```{r}
-#| label: tbl-datasets
-#| tbl-cap: "Datasets to be read"
-#| timeit: null
 
 # Print datasets
 gt(datasets)
@@ -142,8 +151,7 @@ gt(datasets)
 Individual stats by technology are:
 
 ```{r}
-#| label: read_metrics
-#| timeit: null
+#| label: read_data_metrics
 
 # Read metrics tables into list
 metrics_tables = purrr::map(1:nrow(datasets), function(i) {
@@ -172,10 +180,8 @@ metrics_tables_by_tech = purrr::map(dataset_rows_by_tech, function(rows) {
 
 Individual stats by technology are:
 
-::: {.panel-tabset}
-
+::: panel-tabset
 ```{r}
-#| timeit: null
 #| results: asis
 
 if (interactive()) {
@@ -193,7 +199,7 @@ if (interactive()) {
 ### {{technology}}
 
 \`\`\`{r}
-#| label: tbl-metrics_{{technology}}
+#| label: tbl-read_data_metrics_{{technology}}
 #| tbl-cap: 'Metrics for technology {{technology}}'
 #| echo: false
 #| timeit: null
@@ -211,13 +217,13 @@ metrics_tables_by_tech[['{{technology}}']] %>% gt()
   cat(chunk_code, sep = '\n')
 }
 ```
-
 :::
 
 ## Read counts
 
 ```{r}
-#| label: read_counts
+#| label: read_data_read_counts
+#| timeit: true
 
 # Read counts
 
@@ -429,7 +435,8 @@ gt(counts_summary)
 ## Create Seurat object
 
 ```{r}
-#| label: create_seurat_object
+#| label: read_data_seurat_object
+#| timeit: true
 
 # List all assays in all datasets
 all_assays = purrr::map_depth(counts_lst, 2, attr, "assay") %>% 
@@ -536,8 +543,7 @@ The following table shows available metadata (columns) of the first five barcode
 -   the total number of counts and features for each assay
 
 ```{r}
-#| label: tbl-barcode_metadata
-#| timeit: null
+#| label: tbl-read_data_barcode_metadata
 #| tbl-cap: "Barcode metadata"
 
 df = sc[[]] %>% head(5)
@@ -546,10 +552,8 @@ gt(df)
 
 The next table shows available metadata (columns) of the first five features (rows) for each assay.
 
-::: {.panel-tabset}
-
+::: panel-tabset
 ```{r}
-#| timeit: null
 #| results: asis
 
 if (interactive()) {
@@ -567,7 +571,7 @@ if (interactive()) {
 ### {{assay}}
 
 \`\`\`{r}
-#| label: tbl-feature_metadata_{{assay}}
+#| label: tbl-read_data_feature_metadata_{{assay}}
 #| tbl-cap: 'Feature metadata for assay {{assay}}'
 #| echo: false
 #| timeit: null
@@ -585,13 +589,12 @@ sc[['{{assay}}']] %>% head(5) %>% gt()
   cat(chunk_code, sep = '\n')
 }
 ```
-
 :::
 
 ## Add Images
 
 ```{r}
-#| label: add_images
+#| label: read_data_read_images
 #| timeit: true
 
 # Add images (10x Visium and 10x Xenium only)
@@ -646,9 +649,119 @@ for (i in seq_along(counts_lst)) {
 # TODO
 ```
 
+## Basic Stats
+
+```{r}
+#| label: read_data_basic_stats
+
+############
+# Barcodes #
+############
+
+# Calculate for each assay
+for (a in Seurat::Assays(sc)) {
+  # And each layer (dataset)
+  for (l in SeuratObject::Layers(sc[[a]])) {
+    
+    a = "RNA"
+    l = "counts.pbmc_5k"
+    
+    # Get data for layer (sample)
+    counts = sc[[a]][[l]]
+    bcs = counts %>% colnames()
+    total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
+    counts_perc = BPCells::t(BPCells::t(counts)/total_counts)*100
+    
+    counts_perc_rnks = BPCells:::rank_transform(counts_perc, axis="col") %>%
+      as("dgCMatrix")
+    top50_cutoffs = counts_perc_rnks %>% 
+      sparseMatrixStats::colMaxs()
+    top50_cutoffs = top50_cutoffs - 50
+    counts_perc_rnks_top50 = counts_perc_rnks < top50_cutoffs
+    
+    
+    counts_perc_top50_rnks = counts_perc_top50_rnks > 50
+    counts_perc_top50_rnks = BPCells::min_scalar(counts_perc_top50_rnks, 1)
+    
+    #counts_perc_top50_rnks = counts_perc_top50_rnks %>% as("dgCMatrix")
+    
+    counts_perc_top50 = BPCells:::mask_matrix(counts_perc, counts_perc_top50_rnks, invert=FALSE)
+    
+    
+    BPCells::mask_matrix
+    
+    # Perc counts in top 50 genes
+    col_indices = 1:ncol(counts_perc)
+    chunk_size = 100
+    chunks = split(col_indices, ceiling(seq_along(col_indices)/chunk_size)) 
+
+    top50_counts = purrr::map(chunks, function(c) {
+      c = chunks[[1]]
+      cts = counts_perc[, c] %>%
+        BPCells:::rank_transform(axis="col")
+      
+      
+        as("dgCMatrix")
+      top50_cts = purrr::map_dbl(1:ncol(cts), function(i) {
+        order(cts[, i, drop=TRUE], decreasing=TRUE) %>% 
+          head(50) %>% 
+          sum() %>%
+          return()
+      })
+      return(top50_cts)
+    }, .progress=TRUE) %>% purrr::flatten_dbl()
+  }
+}
+
+
+############
+# Features #
+############
+
+# Calculate for each assay
+for (a in Seurat::Assays(sc)) {
+  # And each layer (dataset)
+  for (l in SeuratObject::Layers(sc[[a]])) {
+    
+    a = "RNA"
+    l = "counts.pbmc_5k"
+    
+    # Get data for layer (sample)
+    counts = sc[[a]][[l]]
+    bcs = counts %>% colnames()
+    total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
+    counts_perc = t(t(counts)/total_counts)*100
+    
+    # Calculate feature filters
+    num_bcs_expr = rowSums(counts >= 1)
+    num_bcs_expr_threshold = rowSums(counts >= 1)
+    
+    # Calculate mean of counts_perc per gene
+    row_indices = 1:nrow(counts_perc)
+    chunk_size = 50
+    chunks = split(row_indices, ceiling(seq_along(row_indices)/chunk_size)) 
+    
+    counts_median = purrr::map(chunks, function(c) {
+      counts_perc[c, ] %>% 
+        as("dgCMatrix") %>% 
+        sparseMatrixStats::rowMedians() %>%
+        return()
+    }) %>% purrr::flatten_dbl()
+    
+    # Add to metadata
+    n = gsub(x=l, pattern="counts\\.", replacement="")
+    sc[[a]][paste("nBcs", n, sep="_")] = num_bcs_expr
+    sc[[a]][paste("nBcsThreshold", n, sep="_")] = num_bcs_expr_threshold
+    sc[[a]][paste("meanPerc", n, sep="_")] = counts_mean
+  }
+}
+```
+
 ## Save Seurat object
 
 ```{r}
-#| label: save_seurat_object
+#| label: read_data_save_object
+#| timeit: true
+
 saveRDS(object=sc, file=file.path(module_dir, "sc.rds"))
 ```

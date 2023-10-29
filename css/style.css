@@ -75,3 +75,10 @@ summary.details_box {
     display: none;
   }
 }
+
+/* Left-align table captions 
+https://github.com/quarto-dev/quarto-cli/discussions/1042
+*/
+caption, .table-caption {
+  text-align: left;
+}

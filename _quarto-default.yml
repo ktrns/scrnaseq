@@ -8,6 +8,7 @@ book:
   chapters:
   - index.qmd
   - modules/1_read_data/read_data.qmd
+  - modules/2_preprocessing/preprocessing.qmd
   - references.qmd
 
 params:

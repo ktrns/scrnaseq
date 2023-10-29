@@ -15,7 +15,7 @@ knitr:
     dpi: 96
     fig.retina: 2
     results: hold
-    timeit: true
+    timeit: null
     tidy: styler
     tidy-opts:
       strict: false
@@ -37,6 +37,7 @@ format:
     css: css/style.css
     df-print: kable
     toc: true
+    toc-depth: 2
     fig-format: png
     keep-md: false
     execute:
@@ -46,37 +47,39 @@ format:
     knitr:
       opts_chunk: 
         dev: ragg_png
-  pdf:
-    documentclass: scrreprt
-    toc: true
-    lof: true
-    lot: true
-    fig-format: pdf
-    keep-tex: false
-    df-print: kable
-    execute:
-      echo: false
-      warning: false
-    knitr:
-      opts_chunk:
-        dev: pdf
-    code-block-bg: true
-    include-in-header:
-      text: |
-        \usepackage{fvextra}
-        \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
-  docx:
-    reference-doc: misc/template.docx
-    page-width: 8.3
-    toc: true
-    fig-format: png
-    df-print: kable
-    execute:
-      echo: false
-      warning: false
-    knitr:
-      opts_chunk:
-        dev: ragg_png
+  # pdf:
+  #   documentclass: scrreprt
+  #   toc: true
+  #   toc-depth: 2
+  #   lof: true
+  #   lot: true
+  #   fig-format: pdf
+  #   keep-tex: false
+  #   df-print: kable
+  #   execute:
+  #     echo: false
+  #     warning: false
+  #   knitr:
+  #     opts_chunk:
+  #       dev: pdf
+  #   code-block-bg: true
+  #   include-in-header:
+  #     text: |
+  #       \usepackage{fvextra}
+  #       \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+  # docx:
+  #   reference-doc: misc/template.docx
+  #   page-width: 8.3
+  #   toc: true
+  #   toc-depth: 2
+  #   fig-format: png
+  #   df-print: kable
+  #   execute:
+  #     echo: false
+  #     warning: false
+  #   knitr:
+  #     opts_chunk:
+  #       dev: ragg_png
 
 profile: 
   default: default

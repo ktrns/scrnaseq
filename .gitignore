@@ -9,6 +9,7 @@ scrnaseq.Rproj
 /.quarto/
 /*_book/
 /*_freeze/
+/site_libs/
 
 # Ignore files and directories produced in datasets directories (except download.R files and pbmc_datasets.xlsx)
 /datasets/**
