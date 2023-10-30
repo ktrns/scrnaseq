@@ -765,7 +765,7 @@ ReadCounts_ParseBio = function(path, assays, transpose=FALSE) {
   # If assays are specified, check that they are valid
   assay_to_feature_type = setNames(names(Assays_Parse), Assays_Parse)
   valid_assays = names(assay_to_feature_type)
-  assertthat::assert_that(assay %in% valid_assays,
+  assertthat::assert_that(all(assays %in% valid_assays),
                           msg=FormatMessage("'{assay} must be: {valid_assays*}."))
   
   # Read counts
@@ -1070,15 +1070,14 @@ WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
     library(BPCells)
     
     # Sparse matrices in dgCMatrix format must be converted to BPCells internal format for better efficiency
-    # AnnDataMatrixH5 and MatrixSubset can be processed directly
     if (is(counts, "dgCMatrix")) {
-      
-      # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
-      vals = sample(counts@x, min(length(counts@x), 100000))
       counts = as(counts, "IterableMatrix")
-      if (all(vals >= 0) & all(vals == round(vals))) {
+    }
+    
+    # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
+    vals = as(counts[1:min(1000, nrow(counts)), 1:min(1000, ncol(counts))], "dgCMatrix")
+    if (all(vals >= 0) & all(vals == round(vals))) {
         counts = BPCells::convert_matrix_type(counts, type="uint32_t")
-      }
     }
     
     if (!dir.exists(path) | overwrite==TRUE) {
@@ -1335,7 +1334,7 @@ ReadMetrics_ParseBio = function(metrics_file) {
   assertthat::is.readable(metrics_file)
   
   # Read file
-  metrics_table = readr::read_delim(metrics_file, col_names=c("Metric", "Value"), show_col_types=FALSE, skip=1)
+  metrics_table = readr::read_delim(metrics_file, col_names=c("Metric", "Value"), col_select=1:2, show_col_types=FALSE, skip=1)
   metrics_table = metrics_table %>% 
     tidyr::pivot_wider(names_from=1, values_from=2) %>%
     as.data.frame()

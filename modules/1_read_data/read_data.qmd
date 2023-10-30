@@ -418,7 +418,34 @@ for (i in 1:nrow(datasets)) {
 ```
 
 ```{r}
-#| label: tbl-counts_summary
+#| label: tbl-read_data_downsample
+
+# downsample_cells_n overwrites downsample_cells_equally
+# if (!is.null(param$downsample_cells_n)) {
+#   n = param$downsample_cells_n
+# } else if (param$downsample_cells_equally) {
+#   n = purrr::map_int(sc, ncol) %>% min()  
+# }
+# 
+# # Actual downsampling
+# if (!is.null(param$downsample_cells_n) | param$downsample_cells_equally) {
+#   sc = purrr::map(sc, function(s) {
+#     cells = ScSampleCells(sc=s, n=n, seed=1)
+#     return(subset(s, cells=cells))
+#   })
+#   
+#   # Adjust combined metadata accordingly
+#   sc_cell_metadata = sc_cell_metadata[unlist(purrr::map(sc, Cells)), ]
+#   
+#   message("Your data has been downsampled.")
+#   print(sc)
+# }
+
+```
+
+
+```{r}
+#| label: tbl-read_data_counts_summary
 #| tbl-cap: "Counts for each dataset"
 
 # Print summary of feature and barcodes
@@ -482,7 +509,11 @@ barcode_metadata = purrr::map_dfr(seq_along(counts_lst), function(i) {
   metadata$sample = attr(assay_counts_lst[[i]], "sample")
   metadata$technology = attr(assay_counts_lst[[i]], "technology")
   
-  bc_meta = attr(assay_counts_lst[[i]], "barcode_metadata") %>% tibble::rownames_to_column()
+  bc_meta = attr(assay_counts_lst[[i]], "barcode_metadata") %>% 
+    tibble::rownames_to_column()
+  bc_meta$sample = NULL
+  bc_meta$technology = NULL
+  bc_meta$orig.ident = NULL
   metadata = dplyr::left_join(metadata, bc_meta, by="rowname")
   rownames(metadata) = metadata$rowname
   
@@ -510,6 +541,12 @@ for(a in setdiff(all_assays, default_assay)) {
   assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
   rownames(assay_obj@meta.data) = rownames(assay_obj)
   
+  # If there is layer (sample) information in the default assay, also use layer information in other assays
+  if (!identical(SeuratObject::Layers(sc[[default_assay]]), c("counts")) & 
+      identical(SeuratObject::Layers(assay_obj), c("counts"))) {
+    assay_obj = split(assay_obj, sc[[]][colnames(assay_obj), "orig.ident"])
+  }
+
   # Collect feature metadata for default assay datasets
   feature_metadata = purrr::map(seq_along(assay_counts_lst), function(i) {
     metadata = attr(assay_counts_lst[[i]], "feature_metadata") %>% tibble::rownames_to_column()
@@ -547,7 +584,7 @@ The following table shows available metadata (columns) of the first five barcode
 #| tbl-cap: "Barcode metadata"
 
 df = sc[[]] %>% head(5)
-gt(df)
+gt(df, rownames_to_stub=TRUE)
 ```
 
 The next table shows available metadata (columns) of the first five features (rows) for each assay.
@@ -559,7 +596,7 @@ The next table shows available metadata (columns) of the first five features (ro
 if (interactive()) {
   # In browser:
   for(a in Seurat::Assays(sc)) {
-    sc[[a]] %>% head(5) %>% gt() %>% print()
+    sc[[a]] %>% head(5) %>% gt(rownames_to_stub=TRUE) %>% print()
   }
 } else {
   # When calling knit:
@@ -576,7 +613,7 @@ if (interactive()) {
 #| echo: false
 #| timeit: null
 
-sc[['{{assay}}']] %>% head(5) %>% gt()
+sc[['{{assay}}']] %>% head(5) %>% gt(rownames_to_stub=TRUE)
 \`\`\`
 
 "
@@ -660,56 +697,36 @@ for (i in seq_along(counts_lst)) {
 
 # Calculate for each assay
 for (a in Seurat::Assays(sc)) {
+  m = paste("pCountsTop50", a, sep="_")
+  sc[[m]] = NA
+  
   # And each layer (dataset)
   for (l in SeuratObject::Layers(sc[[a]])) {
-    
-    a = "RNA"
-    l = "counts.pbmc_5k"
-    
     # Get data for layer (sample)
     counts = sc[[a]][[l]]
     bcs = counts %>% colnames()
     total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
-    counts_perc = BPCells::t(BPCells::t(counts)/total_counts)*100
-    
-    counts_perc_rnks = BPCells:::rank_transform(counts_perc, axis="col") %>%
-      as("dgCMatrix")
-    top50_cutoffs = counts_perc_rnks %>% 
-      sparseMatrixStats::colMaxs()
-    top50_cutoffs = top50_cutoffs - 50
-    counts_perc_rnks_top50 = counts_perc_rnks < top50_cutoffs
-    
-    
-    counts_perc_top50_rnks = counts_perc_top50_rnks > 50
-    counts_perc_top50_rnks = BPCells::min_scalar(counts_perc_top50_rnks, 1)
-    
-    #counts_perc_top50_rnks = counts_perc_top50_rnks %>% as("dgCMatrix")
-    
-    counts_perc_top50 = BPCells:::mask_matrix(counts_perc, counts_perc_top50_rnks, invert=FALSE)
-    
-    
-    BPCells::mask_matrix
-    
-    # Perc counts in top 50 genes
-    col_indices = 1:ncol(counts_perc)
-    chunk_size = 100
-    chunks = split(col_indices, ceiling(seq_along(col_indices)/chunk_size)) 
 
+    # Split columns into chunks
+    col_indices = 1:ncol(counts)
+    chunk_size = 5000
+    chunks = split(col_indices, ceiling(seq_along(col_indices)/chunk_size)) 
+    
+    # Now calculate a matrix that for each column there is a TRUE when the gene is in the top 50 otherwise FALSE
     top50_counts = purrr::map(chunks, function(c) {
-      c = chunks[[1]]
-      cts = counts_perc[, c] %>%
-        BPCells:::rank_transform(axis="col")
-      
-      
-        as("dgCMatrix")
-      top50_cts = purrr::map_dbl(1:ncol(cts), function(i) {
-        order(cts[, i, drop=TRUE], decreasing=TRUE) %>% 
-          head(50) %>% 
-          sum() %>%
-          return()
-      })
+      r = rowSums(counts[, c]) > 0
+      cts = as(counts[r, c], "dgCMatrix")
+      n = diff(cts@p)  ## number of non-zeros per column
+      col_lst = split(as.integer(cts@x)*(-1), rep.int(1:ncol(cts), n))  ## columns to list
+      col_lst = lapply(col_lst, function(x) return(sort(x)*(-1)))
+      top50_cts = sapply(col_lst, function(x) return(sum(head(x, 50))))
       return(top50_cts)
-    }, .progress=TRUE) %>% purrr::flatten_dbl()
+    }) %>% purrr::flatten_int()
+    
+    # Then calculate percentage top50
+    top50_perc = setNames(top50_counts/total_counts*100, bcs)
+    m = paste("pCountsTop50", a, sep="_")
+    sc[[m]][names(top50_perc), ] = top50_perc
   }
 }
 
@@ -722,10 +739,6 @@ for (a in Seurat::Assays(sc)) {
 for (a in Seurat::Assays(sc)) {
   # And each layer (dataset)
   for (l in SeuratObject::Layers(sc[[a]])) {
-    
-    a = "RNA"
-    l = "counts.pbmc_5k"
-    
     # Get data for layer (sample)
     counts = sc[[a]][[l]]
     bcs = counts %>% colnames()
@@ -738,7 +751,7 @@ for (a in Seurat::Assays(sc)) {
     
     # Calculate mean of counts_perc per gene
     row_indices = 1:nrow(counts_perc)
-    chunk_size = 50
+    chunk_size = 1000
     chunks = split(row_indices, ceiling(seq_along(row_indices)/chunk_size)) 
     
     counts_median = purrr::map(chunks, function(c) {
@@ -747,12 +760,13 @@ for (a in Seurat::Assays(sc)) {
         sparseMatrixStats::rowMedians() %>%
         return()
     }) %>% purrr::flatten_dbl()
+    counts_median = setNames(counts_median, rownames(counts_perc))
     
     # Add to metadata
     n = gsub(x=l, pattern="counts\\.", replacement="")
     sc[[a]][paste("nBcs", n, sep="_")] = num_bcs_expr
     sc[[a]][paste("nBcsThreshold", n, sep="_")] = num_bcs_expr_threshold
-    sc[[a]][paste("meanPerc", n, sep="_")] = counts_mean
+    sc[[a]][paste("meanPerc", n, sep="_")] = counts_median
   }
 }
 ```
