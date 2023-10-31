@@ -84,9 +84,6 @@ param = function(p=NULL) {
   if(is.null(p)) {
     return(param_set)
   } else {
-    assertthat::assert_that(p %in% names(param_set),
-                            msg=FormatMessage("Parameter {p} is not set."))
-    
     return(param_set[[p]])
   }
 }

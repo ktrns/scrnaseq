@@ -91,41 +91,4 @@ sc[["percent_globin"]] = PercentageFeatureSet(object=sc, features=globin_feature
 ############
 # Features #
 ############
-
-default_assay = param("default_assay")
-sc[[default_assay]]
-
 ```
-
-```{r preprocessing_calculate_qc_features}
-# Only RNA assay at the moment
-# counts_median uses sapply on the counts matrix, which converts the sparse matrix into a normal matrix
-#   This might have to be adapted in future (Sparse Matrix Apply Function)
-
-for(l in Layers(sc[[default_assay]])) {
-  l = "counts.pbmc_5k"
-  
-  # Get data for layer (sample)
-  counts = sc[[default_assay]][[l]]
-  bcs = counts %>% colnames()
-  totals_counts = sc[[]][bcs, paste0("nCount_", default_assay), drop=TRUE]
-  counts_perc = Matrix::t(Matrix::t(counts_rna)/total_counts)*100
-
-  # Calculate feature filters
-  num_cells_expr = Matrix::rowSums(counts >= 1)
-  num_cells_expr_threshold = Matrix::rowSums(counts >= 1)
-  
-  # Calculate median of counts_rna_perc per gene 
-  counts_median = Matrix::rowMedians(counts_perc)
-  
-  sc[[default_assay]]["num_bcs_expr.layer1"] = 
-  num_bcs_expr_threshold.layer1
-  median.layer1
-  
-  sc[[d]]
-
-  sc[[n]][[param$assay_raw]] = Seurat::AddMetaData(sc[[n]][[param$assay_raw]], data.frame(num_cells_expr, num_cells_expr_threshold, counts_median))
-
-})
-```
-

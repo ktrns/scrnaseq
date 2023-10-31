@@ -1162,8 +1162,10 @@ CreateSegmentationImproved = function(coords) {
 #' Note that this is not an actual image but rather a set of pixel coordinates (field of vision = FOV)
 #' 
 #' @param path Path to the 10x Xenium data directory.
+#' @param barcodes If not NULL, character vector of barcodes to subset.
 #' @return A Seurat FOV object.
-ReadImage_10xXenium = function(image_dir) {
+ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
+  library(data.table)
   # Checks
   assertthat::is.readable(image_dir)
   assertthat::assert_that(file.exists(file.path(image_dir, "cells.csv.gz")),
@@ -1176,27 +1178,40 @@ ReadImage_10xXenium = function(image_dir) {
   mols.qv.threshold = 20
   options(stringsAsFactors=FALSE)
   
-  # Read centroids (center of cells/nuclei)
-  cell_centroids = data.table::fread(file.path(image_dir, "cells.csv.gz"), stringsAsFactors=FALSE, select=c("cell_id", "x_centroid", "y_centroid"))
-  cell_centroids = cell_centroids[, c("cell_id", "x_centroid", "y_centroid")]
-  #cell_centroids = as.data.frame(cell_centroids)
-  names(cell_centroids) = c("cell", "x", "y")
+  # Read cell centroids and cell area
+  cell_centroids = data.table::fread(file.path(image_dir, "cells.csv.gz"), 
+                                     stringsAsFactors=FALSE, 
+                                     select=c("cell_id", "x_centroid", "y_centroid", "cell_area", "nucleus_area"),
+                                     colClasses=c("cell_id"="character", "x_centroid"="numeric", "y_centroid"="numeric", "cell_area"="numeric", "nucleus_area"="numeric"),
+                                     col.names=c("cell", "x", "y", "cell_area", "nucleus_area"), 
+                                     key="cell")
+  if (!is.null(barcodes)) {
+    cell_centroids = cell_centroids[barcodes]
+  }
   
   # Read segmentations (area of cells)
-  cell_boundaries = data.table::fread(file.path(image_dir, "cell_boundaries.csv.gz"), stringsAsFactors=FALSE)
-  cell_boundaries = cell_boundaries[, c("cell_id", "vertex_x", "vertex_y")]
-  #cell_boundaries = as.data.frame(cell_boundaries)
-  names(cell_boundaries) = c("cell", "x", "y")
+  cell_boundaries = data.table::fread(file.path(image_dir, "cell_boundaries.csv.gz"), 
+                                      stringsAsFactors=FALSE,
+                                      select=c("cell_id", "vertex_x", "vertex_y"),
+                                      colClasses=c("cell_id"="character", "vertex_x"="numeric", "vertex_y"="numeric"),
+                                      col.names=c("cell", "x", "y"),
+                                      key="cell")
+  if (!is.null(barcodes)) {
+    cell_boundaries = cell_boundaries[barcodes]
+  }
   
   # Load microns (molecule coordinates)
-  transcripts = data.table::fread(file.path(image_dir, "transcripts.csv.gz"), stringsAsFactors=FALSE, select=c("x_location", "y_location", "feature_name", "qv"))
+  transcripts = data.table::fread(file.path(image_dir, "transcripts.csv.gz"), 
+                                  stringsAsFactors=FALSE, 
+                                  select=c("feature_name", "x_location", "y_location", "qv"),
+                                  colClasses=c("feature_name"="character", "x_location"="numeric", "y_location"="numeric", "qv"="numeric"),
+                                  col.names=c("gene", "x", "y", "qv"),
+                                  key="qv")
   transcripts = transcripts[qv >= mols.qv.threshold, ]
-  transcripts = transcripts[, c("feature_name", "x_location", "y_location")]
-  #transcripts = as.data.frame(transcripts)
-  names(transcripts) = c("gene", "x", "y")
+  transcripts$qv = NULL
   
   # Create segmentation data
-  centroids = SeuratObject::CreateCentroids(cell_centroids)
+  centroids = SeuratObject::CreateCentroids(cell_centroids[, c("cell", "x", "y")])
   segmentation = CreateSegmentationImproved(cell_boundaries)
   
   # Create molecule data
@@ -1207,7 +1222,13 @@ ReadImage_10xXenium = function(image_dir) {
                                   molecules=molecules,
                                   assay = 'Spatial',
                                   key = 'fov_')
-                                  
+  
+  # Add information about cell_area and nucleus_area as barcode_metadata
+  barcode_metadata = as.data.frame(cell_centroids[, c("cell", "cell_area", "nucleus_area")])
+  rownames(barcode_metadata) = as.character(barcode_metadata$cell)
+  barcode_metadata$cell = NULL
+  attr(image, "barcode_metadata") = barcode_metadata
+  
   return(image)
 }
 
@@ -1248,14 +1269,18 @@ ReadImage = function(image_dir, technology, assay, barcodes) {
   } else if(technology == "10x_xenium") {
     
     # Xenium
-    image = ReadImage_10xXenium(image_dir=image_dir)
+    image = ReadImage_10xXenium(image_dir=image_dir, barcodes=names(barcodes))
     
-    # Subset and re-order
+    # Subset and re-order image and metadata
     image = image[names(barcodes) %>% as.character()]
-    
+    barcode_metadata = attr(image, "barcode_metadata")
+    barcode_metadata = barcode_metadata[names(barcodes),]
+
     # Rename
     new_barcode_names = barcodes[Seurat::Cells(image) %>% as.character()]
     image = Seurat::RenameCells(image, new.names=new_barcode_names %>% as.character())
+    rownames(barcode_metadata) = new_barcode_names
+    attr(image, "barcode_metadata") = barcode_metadata
   }
   
   # Set default assay for image

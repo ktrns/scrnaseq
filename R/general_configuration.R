@@ -35,3 +35,6 @@ knitr::knit_hooks$set(timeit = function(before, options, envir) {
     print(paste0("Execution took ", elapsed, " seconds"))
   }
 })
+
+# Set seed
+options(random_seed=11)

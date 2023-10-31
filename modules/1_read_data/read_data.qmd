@@ -41,14 +41,14 @@ params:
   # For large datasets: Overwrite existing matrix directories. The counts files will still be read though.
   on_disk_counts_overwrite: true
   
-  # Downsample data to at most n cells per sample AFTER filtering (mainly for tests)
-  #   NULL to deactivate
-  downsample_cells_n: NULL
+  # Downsample data to at most n barcodes per sample
+  #   null to deactivate
+  downsample_barcodes_n: 500
   
   # Downsample all samples equally according to the smallest sample
-  #   TRUE/FALSE
+  #   true/false
   #   Overwritten by downsample_cells_n
-  downsample_cells_equally: FALSE
+  downsample_barcodes_equally: false
   
 # Module execution
 execute:
@@ -418,33 +418,6 @@ for (i in 1:nrow(datasets)) {
 ```
 
 ```{r}
-#| label: tbl-read_data_downsample
-
-# downsample_cells_n overwrites downsample_cells_equally
-# if (!is.null(param$downsample_cells_n)) {
-#   n = param$downsample_cells_n
-# } else if (param$downsample_cells_equally) {
-#   n = purrr::map_int(sc, ncol) %>% min()  
-# }
-# 
-# # Actual downsampling
-# if (!is.null(param$downsample_cells_n) | param$downsample_cells_equally) {
-#   sc = purrr::map(sc, function(s) {
-#     cells = ScSampleCells(sc=s, n=n, seed=1)
-#     return(subset(s, cells=cells))
-#   })
-#   
-#   # Adjust combined metadata accordingly
-#   sc_cell_metadata = sc_cell_metadata[unlist(purrr::map(sc, Cells)), ]
-#   
-#   message("Your data has been downsampled.")
-#   print(sc)
-# }
-
-```
-
-
-```{r}
 #| label: tbl-read_data_counts_summary
 #| tbl-cap: "Counts for each dataset"
 
@@ -459,7 +432,37 @@ counts_summary = data.frame(
 gt(counts_summary)
 ```
 
+Downsample here
+
+```{r}
+#| label: read_data_downsample
+
+# Downsample barcodes
+
+# Determine number of barcodes to downsample
+downsample_barcodes_n = param("downsample_barcodes_n")
+downsample_barcodes_equally = param("downsample_barcodes_equally")
+
+# if (!is.null(downsample_barcodes_n)) {
+#   n = downsample_barcodes_n
+# } else if (downsample_barcodes_equally) {
+#   n = sc[[]] %>% 
+#     dplyr::count(orig.ident) %>% 
+#     dplyr::pull(n) %>%
+#     min()
+# } else {
+#   n = 0
+# }
+# 
+# # Downsample
+# if (n > 0) {
+#   knitr::asis_output("\n::: {.callout-note}\nDownsampled!\n:::\n")
+# }
+```
+
 ## Create Seurat object
+
+Create object
 
 ```{r}
 #| label: read_data_seurat_object
@@ -565,70 +568,9 @@ for(a in setdiff(all_assays, default_assay)) {
   assay_obj = AddFeatureMetadata(assay_obj, metadata=feature_metadata)
   sc[[a]] = assay_obj
 }
-
-# Print what we have read
-sc
 ```
 
-The following table shows available metadata (columns) of the first five barcodes (rows). These metadata provide additional information such as:
-
--   the dataset it belongs to ("orig.ident")
--   the sample it belongs to
--   the technology with which it was produced
--   its original name in the dataset
--   additional metadata provided together with it
--   the total number of counts and features for each assay
-
-```{r}
-#| label: tbl-read_data_barcode_metadata
-#| tbl-cap: "Barcode metadata"
-
-df = sc[[]] %>% head(5)
-gt(df, rownames_to_stub=TRUE)
-```
-
-The next table shows available metadata (columns) of the first five features (rows) for each assay.
-
-::: panel-tabset
-```{r}
-#| results: asis
-
-if (interactive()) {
-  # In browser:
-  for(a in Seurat::Assays(sc)) {
-    sc[[a]] %>% head(5) %>% gt(rownames_to_stub=TRUE) %>% print()
-  }
-} else {
-  # When calling knit:
-  
-  # How to dynamically generate tables: https://stackoverflow.com/questions/73585417/iterating-to-create-tabs-with-gt-in-quarto
-  # String to create a chunk for each assay ({{assay}} is placeholder)
-  chunk_template = "
-
-### {{assay}}
-
-\`\`\`{r}
-#| label: tbl-read_data_feature_metadata_{{assay}}
-#| tbl-cap: 'Feature metadata for assay {{assay}}'
-#| echo: false
-#| timeit: null
-
-sc[['{{assay}}']] %>% head(5) %>% gt(rownames_to_stub=TRUE)
-\`\`\`
-
-"
-  
-  chunk_code = purrr::map_chr(Seurat::Assays(sc), function(a) {
-    knitr::knit_expand(text=chunk_template, assay=a) %>%
-      knitr::knit_child(text=., envir=environment(), quiet=TRUE) %>%
-      return()
-  })
-  cat(chunk_code, sep = '\n')
-}
-```
-:::
-
-## Add Images
+Add images
 
 ```{r}
 #| label: read_data_read_images
@@ -656,13 +598,10 @@ for (i in seq_along(counts_lst)) {
   }
   
   # For renaming and reordering of barcodes in image
-  barcodes = purrr::map_dfr(seq_along(counts_lst[[i]]), function(j) {
-    bc_meta = attr(counts_lst[[i]][[j]], "barcode_metadata") %>% 
-      tibble::rownames_to_column("new_barcode") %>% 
-      dplyr::select(orig_barcode, new_barcode)
-    return(bc_meta)
-  }) %>% unique()
-  barcodes = setNames(barcodes$new_barcode, barcodes$orig_barcode)
+  barcodes = sc[[]] %>%
+    dplyr::filter(orig.ident==orig_ident) %>%
+    dplyr::select(orig_barcode)
+  barcodes = setNames(rownames(barcodes), barcodes$orig_barcode)
   j = match(barcodes, Cells(sc))
   barcodes = barcodes[order(j)]
   
@@ -680,13 +619,15 @@ for (i in seq_along(counts_lst)) {
   }
   image@key = paste0(gsub("[^[:alnum:]]", "", key), "_")
   sc[[key]] = image
+  
+  # If additional barcode metadata is provided, add as well
+  barcode_metadata = attr(image, "barcode_metadata")
+  if (!is.null(barcode_metadata)) {
+    sc = Seurat::AddMetaData(sc, barcode_metadata)
+  }
+  
 }
-
-# Print what we have read, maybe show images?
-# TODO
 ```
-
-## Basic Stats
 
 ```{r}
 #| label: read_data_basic_stats
@@ -769,6 +710,71 @@ for (a in Seurat::Assays(sc)) {
     sc[[a]][paste("meanPerc", n, sep="_")] = counts_median
   }
 }
+```
+
+The following table shows available metadata (columns) of the first five barcodes (rows). These metadata provide additional information such as:
+
+-   the dataset it belongs to ("orig.ident")
+-   the sample it belongs to
+-   the technology with which it was produced
+-   its original name in the dataset
+-   additional metadata provided together with it
+-   the total number of counts and features for each assay
+
+```{r}
+#| label: tbl-read_data_barcode_metadata
+#| tbl-cap: "Barcode metadata"
+
+df = sc[[]] %>% head(5)
+gt(df, rownames_to_stub=TRUE)
+```
+
+The next table shows available metadata (columns) of the first five features (rows) for each assay.
+
+::: panel-tabset
+```{r}
+#| results: asis
+
+if (interactive()) {
+  # In browser:
+  for(a in Seurat::Assays(sc)) {
+    sc[[a]] %>% head(5) %>% gt(rownames_to_stub=TRUE) %>% print()
+  }
+} else {
+  # When calling knit:
+  
+  # How to dynamically generate tables: https://stackoverflow.com/questions/73585417/iterating-to-create-tabs-with-gt-in-quarto
+  # String to create a chunk for each assay ({{assay}} is placeholder)
+  chunk_template = "
+
+### {{assay}}
+
+\`\`\`{r}
+#| label: tbl-read_data_feature_metadata_{{assay}}
+#| tbl-cap: 'Feature metadata for assay {{assay}}'
+#| echo: false
+#| timeit: null
+
+sc[['{{assay}}']] %>% head(5) %>% gt(rownames_to_stub=TRUE)
+\`\`\`
+
+"
+  
+  chunk_code = purrr::map_chr(Seurat::Assays(sc), function(a) {
+    knitr::knit_expand(text=chunk_template, assay=a) %>%
+      knitr::knit_child(text=., envir=environment(), quiet=TRUE) %>%
+      return()
+  })
+  cat(chunk_code, sep = '\n')
+}
+```
+:::
+
+## Basic summary
+
+```{r}
+#s
+
 ```
 
 ## Save Seurat object
