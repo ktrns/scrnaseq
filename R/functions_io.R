@@ -1184,7 +1184,8 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
                                      select=c("cell_id", "x_centroid", "y_centroid", "cell_area", "nucleus_area"),
                                      colClasses=c("cell_id"="character", "x_centroid"="numeric", "y_centroid"="numeric", "cell_area"="numeric", "nucleus_area"="numeric"),
                                      col.names=c("cell", "x", "y", "cell_area", "nucleus_area"), 
-                                     key="cell")
+                                     key="cell",
+                                     showProgress=FALSE)
   if (!is.null(barcodes)) {
     cell_centroids = cell_centroids[barcodes]
   }
@@ -1195,7 +1196,8 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
                                       select=c("cell_id", "vertex_x", "vertex_y"),
                                       colClasses=c("cell_id"="character", "vertex_x"="numeric", "vertex_y"="numeric"),
                                       col.names=c("cell", "x", "y"),
-                                      key="cell")
+                                      key="cell",
+                                      showProgress=FALSE)
   if (!is.null(barcodes)) {
     cell_boundaries = cell_boundaries[barcodes]
   }
@@ -1206,8 +1208,9 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
                                   select=c("feature_name", "x_location", "y_location", "qv"),
                                   colClasses=c("feature_name"="character", "x_location"="numeric", "y_location"="numeric", "qv"="numeric"),
                                   col.names=c("gene", "x", "y", "qv"),
-                                  key="qv")
-  transcripts = transcripts[qv >= mols.qv.threshold, ]
+                                  key="qv",
+                                  showProgress=FALSE)
+  transcripts = transcripts[qv >= mols.qv.threshold]
   transcripts$qv = NULL
   
   # Create segmentation data
@@ -1238,6 +1241,7 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
 #' @param technology Technology. Can be: 10x_visium', '10x_xenium'.
 #' @param assay Default assay for this image.
 #' @param barcodes Named vector with barcodes to keep, order and rename. Names are original barcodes and values are barcodes after renaming. Barcodes will be re-ordered.
+#' @param type For 10x Xenium only: Load cell "centroids", cell "segmentations" or both.
 #' @return A Seurat VisiumV1 object.
 ReadImage = function(image_dir, technology, assay, barcodes) {
   library(magrittr)

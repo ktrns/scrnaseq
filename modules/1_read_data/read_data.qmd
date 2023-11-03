@@ -43,7 +43,7 @@ params:
   
   # Downsample data to at most n barcodes per sample
   #   null to deactivate
-  downsample_barcodes_n: 500
+  downsample_barcodes_n: null
   
   # Downsample all samples equally according to the smallest sample
   #   true/false
@@ -102,13 +102,10 @@ dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
 
 ## Overview
 
-In this chapter, we read in counts data as "features x barcodes" matrices where features are typically genes (but can also be peaks, protein antibody, ...) and barcodes are typically cells (but can also be nuclei or spots). If provided, we also read in additional metadata for features and barcodes. For spatial data, we additionally import the image data. All data is saved as an Seurat object which is then processed in the next chapters.
+In this chapter, we read in counts data as "features x barcodes" matrices where features are typically genes (but can also be peaks, protein antibody, ...) and barcodes are typically cells (but can also be nuclei or spots). If provided, we also read in additional metadata for features and barcodes. For spatial data, we additionally read in the image data. All data is imported into an Seurat object. Next, basic summary stats are calculated. Finally, the Seurat object is saved for further processing in the next chapters.
 
 ## Datasets
 
-The workflow can be run for pre-processed 10x data, as well as for pre-processed SmartSeq-2 or other data that are represented by a simple table with transcript counts per gene and cell.
-
-Prior to this workflow, raw sequencing reads were mapped to the reference transcriptome. The resulting mapping statistics are printed below for a first estimation of sample quality.
 
 ```{r}
 #| label: tbl-read_data_datasets
@@ -385,13 +382,15 @@ for (i in 1:nrow(datasets)) {
   # - requires Seurat v5 and BPcells
   # - else convert to in-memory matrix of type dgCMatrix  
   
+  on_disk_counts = param("on_disk_counts")
+  
   for(j in seq_along(counts_lst[[i]])) {
      # Keep attributes barcode_metadata and feature_metadata
     barcode_metadata = attr(counts_lst[[i]][[j]], "barcode_metadata")
     feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
     assay = attr(counts_lst[[i]][[j]], "assay")
 
-    if (param("on_disk_counts")){
+    if (on_disk_counts) {
       # Write counts to matrix directory
       WriteCounts(counts=counts_lst[[i]][[j]], 
                   path=file.path(module_dir, "counts", paste(experiment, assay, sep=".")), 
@@ -443,21 +442,65 @@ Downsample here
 downsample_barcodes_n = param("downsample_barcodes_n")
 downsample_barcodes_equally = param("downsample_barcodes_equally")
 
-# if (!is.null(downsample_barcodes_n)) {
-#   n = downsample_barcodes_n
-# } else if (downsample_barcodes_equally) {
-#   n = sc[[]] %>% 
-#     dplyr::count(orig.ident) %>% 
-#     dplyr::pull(n) %>%
-#     min()
-# } else {
-#   n = 0
-# }
-# 
-# # Downsample
-# if (n > 0) {
-#   knitr::asis_output("\n::: {.callout-note}\nDownsampled!\n:::\n")
-# }
+if (!is.null(downsample_barcodes_n) | downsample_barcodes_equally) {
+  n = downsample_barcodes_n
+  
+  # Get barcodes per dataset
+  barcodes_per_dataset = purrr::map(counts_lst, function(cts) {
+    purrr::map(cts, colnames) %>% 
+      unlist %>%
+      unique() %>%
+      return()
+  })
+  
+  # If downsample equally, update sample number to number of barcodes of the smallest sample
+  if (downsample_barcodes_equally) {
+    n = purrr::map(barcodes_per_dataset, length) %>% 
+      unlist() %>% 
+      min()
+  }
+  
+  # Downsample barcodes
+  barcodes_per_dataset = purrr::map(barcodes_per_dataset, function(b) {
+    set.seed(getOption("random_seed"))
+    b = sample(b, n)
+    return(b)
+  })
+  
+  # Subset counts and metadata
+  for (i in seq(counts_lst)) {
+    for(j in seq_along(counts_lst[[i]])) {
+      # Metadata gets lost when subsetting
+      feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
+      barcode_metadata = attr(counts_lst[[i]][[j]], "barcode_metadata")
+      technology = attr(counts_lst[[i]][[j]], "technology")
+      assay = attr(counts_lst[[i]][[j]], "assay")
+      sample = attr(counts_lst[[i]][[j]], "sample")
+      experiment = attr(counts_lst[[i]][[j]], "orig.ident")
+      path = attr(counts_lst[[i]][[j]], "path")
+      
+      # Subset counts
+      keep = colnames(counts_lst[[i]][[j]]) %in% barcodes_per_dataset[[i]]
+      counts_lst[[i]][[j]] = counts_lst[[i]][[j]][, keep]
+      
+      # Subset barcode metadata
+      keep = rownames(barcode_metadata) %in% barcodes_per_dataset[[i]]
+      barcode_metadata = barcode_metadata[keep,]
+
+      # Restore metadata
+      attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
+      attr(counts_lst[[i]][[j]], "barcode_metadata") = barcode_metadata
+      attr(counts_lst[[i]][[j]], "technology") = technology
+      attr(counts_lst[[i]][[j]], "assay") = assay
+      attr(counts_lst[[i]][[j]], "sample") = sample
+      attr(counts_lst[[i]][[j]], "orig.ident") = experiment
+      attr(counts_lst[[i]][[j]], "path") = path
+    }
+  }
+    
+  # Message
+  knitr::asis_output("\n::: {.callout-note}\nDownsampled!\n:::\n")
+}
 ```
 
 ## Create Seurat object
@@ -578,6 +621,7 @@ Add images
 
 # Add images (10x Visium and 10x Xenium only)
 for (i in seq_along(counts_lst)) {
+  i = 1
   technology = attr(counts_lst[[i]][[1]], "technology")
   orig_ident = attr(counts_lst[[i]][[1]], "orig.ident")
   path = attr(counts_lst[[i]][[1]], "path")
@@ -605,8 +649,14 @@ for (i in seq_along(counts_lst)) {
   j = match(barcodes, Cells(sc))
   barcodes = barcodes[order(j)]
   
+  next
+  
   # Read image
-  image = ReadImage(image_dir=image_dir, technology=technology, assay=default_assay, barcodes=barcodes)
+  image = ReadImage(image_dir=image_dir, 
+                    technology=technology, 
+                    assay=default_assay, 
+                    barcodes=barcodes,
+                    type="centroids")
   
   # Add image (10x visium) or field of view (10x xenium)
   if (technology == "10x_visium") {
@@ -638,11 +688,13 @@ for (i in seq_along(counts_lst)) {
 
 # Calculate for each assay
 for (a in Seurat::Assays(sc)) {
+
   m = paste("pCountsTop50", a, sep="_")
   sc[[m]] = NA
   
   # And each layer (dataset)
   for (l in SeuratObject::Layers(sc[[a]])) {
+    
     # Get data for layer (sample)
     counts = sc[[a]][[l]]
     bcs = counts %>% colnames()
@@ -662,10 +714,14 @@ for (a in Seurat::Assays(sc)) {
       col_lst = lapply(col_lst, function(x) return(sort(x)*(-1)))
       top50_cts = sapply(col_lst, function(x) return(sum(head(x, 50))))
       return(top50_cts)
-    }) %>% purrr::flatten_int()
+    }, .progress=TRUE) %>% purrr::flatten_int()
+    
+    # Zero counts barcodes will not be in top50_counts - add them here
+    top50_counts = ifelse(total_counts==0, 0, top50_counts)
+    top50_perc = ifelse(total_counts>0, top50_counts/total_counts*100, NA)
     
     # Then calculate percentage top50
-    top50_perc = setNames(top50_counts/total_counts*100, bcs)
+    top50_perc = setNames(top50_counts, bcs)
     m = paste("pCountsTop50", a, sep="_")
     sc[[m]][names(top50_perc), ] = top50_perc
   }
@@ -700,14 +756,20 @@ for (a in Seurat::Assays(sc)) {
         as("dgCMatrix") %>% 
         sparseMatrixStats::rowMedians() %>%
         return()
-    }) %>% purrr::flatten_dbl()
+    }, .progress=TRUE) %>% purrr::flatten_dbl()
     counts_median = setNames(counts_median, rownames(counts_perc))
     
     # Add to metadata
-    n = gsub(x=l, pattern="counts\\.", replacement="")
-    sc[[a]][paste("nBcs", n, sep="_")] = num_bcs_expr
-    sc[[a]][paste("nBcsThreshold", n, sep="_")] = num_bcs_expr_threshold
-    sc[[a]][paste("meanPerc", n, sep="_")] = counts_median
+    if (l=="counts") {
+      sc[[a]]["nBcs"] = num_bcs_expr
+      sc[[a]]["nBcsThreshold"] = num_bcs_expr_threshold
+      sc[[a]]["meanPerc"] = counts_median
+    } else {
+      n = gsub(x=l, pattern="counts\\.", replacement="")
+      sc[[a]][paste("nBcs", n, sep="_")] = num_bcs_expr
+      sc[[a]][paste("nBcsThreshold", n, sep="_")] = num_bcs_expr_threshold
+      sc[[a]][paste("meanPerc", n, sep="_")] = counts_median
+    }
   }
 }
 ```

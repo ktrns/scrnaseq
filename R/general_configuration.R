@@ -5,7 +5,7 @@ options(stringsAsFactors=FALSE)
 options(dplyr.summarise.inform=FALSE)
 
 # The default number of cores
-options(mc.cores=1)
+options(mc.cores=8)
 
 # The total size of all global objects that need to be exported for the future expression for parallel computations
 options(future.globals.maxSize=+Inf)
