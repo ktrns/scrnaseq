@@ -1,18 +1,24 @@
 ---
-# Module title (do not use for index.qmd)
-# title: Overview
-
 # Module-specific parameters (that are not already in the profile yaml)
 params:
   # Name of the module. Must be the same as name of qmd file.
   module: "index"
+
+# Module execution
+execute:
+  # Should this module be frozen and never re-rendered?
+  # - auto: if the code has not changed (default)
+  # - true/false: freeze/re-render
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  freeze: auto
 ---
 
-## Overview {.unnumbered}
+# Introduction {.unnumbered}
+
+## Documentation {.unnumbered}
 
 ```{r}
 #| label: setup
-#| timeit: null
 
 # If running code interactively in rstudio, set profile here
 # When rendering with quarto, profile is already set and should not be overwritten
@@ -39,11 +45,11 @@ module_dir = file.path("modules", module_name)
 -   References
 -   How to cite (doi at zenodo)
 
-## Introduction {.unnumbered}
+## Faqs {.unnumbered}
 
-asa
+Introduction
 
 
-## Review {.unnumbered}
+## References {.unnumbered}
 
-sks
+Review

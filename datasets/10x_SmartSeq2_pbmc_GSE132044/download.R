@@ -46,7 +46,8 @@ colnames(smartseq2_data) = gsub(x=gsub(x=colnames(smartseq2_data), pattern="PBMC
 col_nms = colnames(smartseq2_data)
 smartseq2_data$GeneId = feat$V1
 smartseq2_data$GeneSymbol = feat$V2
-smartseq2_data = smartseq2_data[,c("GeneId","GeneSymbol",colnames(smartseq2_data))]
+smartseq2_data = smartseq2_data[,c("GeneId","GeneSymbol", setdiff(colnames(smartseq2_data), c("GeneId","GeneSymbol")))]
+smartseq2_data$GeneSymbol = NULL
 fh = gzfile(file.path("counts","smartseq2","counts_table.tsv.gz"), open="wb")
 readr::write_delim(smartseq2_data, file=fh, delim="\t", col_names=TRUE)
 close(fh)

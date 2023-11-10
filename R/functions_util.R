@@ -39,13 +39,55 @@ FormatMessage = function(msg, quote=TRUE, sep=", ") {
   return(glue::glue(msg, .transformer=GlueTransformer_quote_collapse(), .envir=parent.frame()))
 }
 
+#' Returns the content of the profile yaml.
+#' 
+#' Note: The current profile must be set via the environment variable 'QUARTO_PROFILE'.
+#' 
+#' @return The content as nested list.
+GetProfileYaml = function() {
+  profile = Sys.getenv("QUARTO_PROFILE")
+  assertthat::assert_that(nchar(profile) > 0,
+                          msg=FormatMessage("Environment variable 'QUARTO_PROFILE' must be set to the current profile."))
+  
+  profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"), eval.expr=TRUE)
+  return(profile_yml)
+}
+
+#' Given a module directory, returns the module directory that was run before this module according to the workflow ('chapters') defined in the current profile.
+#' 
+#' Note: The current profile must be set via the environment variable 'QUARTO_PROFILE'.
+#' 
+#' @return The previous module directory or NULL if there is none.
+PreviousModuleDir = function(current_module_dir) {
+  current_module_dir = module_dir
+  
+  # Get profile yaml parameter 'chapters' in section 'book'
+  profile_yml = GetProfileYaml()
+  assertthat::assert_that("book" %in% names(profile_yml),
+                          msg=FormatMessage("Profile yaml does not contain the parameter 'book'."))
+  assertthat::assert_that("chapters" %in% names(profile_yml$book),
+                          msg=FormatMessage("Profile yaml does not contain the parameter 'chapters' in the section 'book'."))
+  chapters = dirname(profile_yml$book$chapters)
+  
+  # Find position
+  idx = match(current_module_dir, chapters)
+  idx = idx[1]
+  assertthat::assert_that(!is.na(idx),
+                          msg=FormatMessage("Module is not part of parameter 'chapters' in the section 'book'."))
+  
+  if (idx == 1) {
+    return(NULL)
+  } else {
+    return(chapters[(idx-1)])
+  }
+}
+
 #' Access a workflow parameters set in the profile and the module yaml.
 #' 
-#' This function merged parameters defined in the module yaml head general with general and module-specific parameters from the profile yaml (in this order). 
-#'  
-#' This is currently the only way to work with profile and module parameters a) interactively in rstudio as well as b) during rendering by quarto. The profile needs to be set in the setup chunk using the following lines:
+#' This function merged parameters defined in the module yaml head general with general and module-specific parameters from the profile yaml (in this order). This is currently the only way to work with profile and module 
+#' parameters a) interactively in rstudio as well as b) during rendering by quarto.
 #' 
-#' if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) { Sys.setenv("QUARTO_PROFILE" = "default")}
+#' Note: The current profile must be set via the environment variable 'QUARTO_PROFILE'.
 #' 
 #' @param p Parameter to access. If NULL, returns all parameters.
 #' @return One or more parameters as list
@@ -53,30 +95,26 @@ param = function(p=NULL) {
 
   # Read module parameter (document params yaml) and get module name
   assertthat::assert_that("module" %in% names(params),
-                          msg=FormatMessage("Module does not contain document yaml parameter 'module' with the module name."))
+                          msg=FormatMessage("Module does not contain the document yaml parameter 'module' with the module name."))
   module_name = params[["module"]]
   param_set = params
   
-  # If profile is set, read profile params from the profile yaml file
-  profile = Sys.getenv("QUARTO_PROFILE")
-  if (nchar(profile) > 0) {
-    # Read profile yaml and get params chunk
-    profile_yml = yaml::read_yaml(paste0("_quarto-", profile, ".yml"), eval.expr=TRUE)
-    if ("params" %in% names(profile_yml)) {
-      profile_params = profile_yml[["params"]]
+  # Read profile params from the profile yaml file
+  profile_yml = GetProfileYaml()
+  if ("params" %in% names(profile_yml)) {
+    profile_params = profile_yml[["params"]]
+    
+    # Get general parameter if available
+    if ("general" %in% names(profile_params)) {
+      param_set = purrr::list_modify(param_set, !!!profile_params[["general"]])
+    }
+    
+    # Get module-specific parameter if available
+    if ("modules" %in% names(profile_params)) {
+      profile_module_params = profile_params[["modules"]]
       
-      # Get general parameter if available
-      if ("general" %in% names(profile_params)) {
-        param_set = purrr::list_modify(param_set, !!!profile_params[["general"]])
-      }
-      
-      # Get module-specific parameter if available
-      if ("modules" %in% names(profile_params)) {
-        profile_module_params = profile_params[["modules"]]
-        
-        if (module_name %in% names(profile_module_params)) {
-          param_set = purrr::list_modify(param_set, !!!profile_module_params[[module_name]])
-        }
+      if (module_name %in% names(profile_module_params)) {
+        param_set = purrr::list_modify(param_set, !!!profile_module_params[[module_name]])
       }
     }
   }
@@ -201,6 +239,72 @@ AddFeatureMetadata = function(obj, assay=NULL, metadata) {
   }
   
   return(obj)
+}
+
+#' Evaluates a knitr chunk as R code.
+#' 
+#' @param x Knitr chunk code
+#' @return The last return value of the code
+EvalKnitrChunk = function(x) {
+  x = gsub("`", "#", x)
+  x = parse(text=x)
+  return(eval(x))
+}
+
+#' Prepares the barcode filter.
+#' 
+#' @param filter Filter from yaml configuration
+#' @param orig_idents The samples in the analysis
+#' @return A filter with entries for each sample
+PrepareBarcodeFilter = function(filter, orig_idents) {
+  if (is.null(filter)) {
+    filter = rep(list(NULL), length(orig_idents))
+    names(filter) = orig_idents
+    return(filter)
+  }
+  
+  sample_specific_filter = filter[names(filter) %in% orig_idents]
+  general_filter = filter[!names(filter) %in% orig_idents]
+  filter = list()
+  
+  # Apply general filter to all samples
+  if (length(general_filter) > 0) {
+    filter = rep(list(general_filter), length(orig_idents))
+    names(filter) = orig_idents
+  }
+  
+  # Apply sample_specific filter (overwrite or add)
+  filter = purrr::list_modify(filter, !!!sample_specific_filter)
+  
+  return(filter)
+}
+
+#' Prepares the feature filter.
+#' 
+#' @param filter Filter from yaml configuration
+#' @param orig_idents The samples in the analysis
+#' @return A filter with entries for each sample
+PrepareFeatureFilter = function(filter, orig_idents) {
+  if (is.null(filter)) {
+    filter = list(min_counts=1, min_cells=1)
+    filter = rep(filter, length(orig_idents))
+    names(filter) = orig_idents
+  }
+  
+  sample_specific_filter = filter[names(filter) %in% orig_idents]
+  general_filter = filter[!names(filter) %in% orig_idents]
+  filter = list()
+  
+  # Apply general filter to all samples
+  if (length(general_filter) > 0) {
+    filter = rep(list(general_filter), length(orig_idents))
+    names(filter) = orig_idents
+  }
+  
+  # Apply sample_specific filter (overwrite or add)
+  filter = purrr::list_modify(filter, !!!sample_specific_filter)
+  
+  return(filter)
 }
 
 ######################

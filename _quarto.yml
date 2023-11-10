@@ -27,8 +27,8 @@ knitr:
 ##################
 format:
   html:
-    #theme:
-    #- journal
+    theme:
+    - sandstone
     embed-resources: false
     code-fold: true
     code-summary: Code

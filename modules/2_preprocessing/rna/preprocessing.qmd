@@ -1,0 +1,733 @@
+---
+# Module-specific parameters (that are not already in the profile yaml)
+params:
+  # Name of the module used in configurations
+  module: "preprocessing_rna"
+    
+  # Relative path to the module directory (which contains the qmd file)
+  module_dir: "modules/2_preprocessing/rna"
+  
+  # Default assay.
+  default_assay: RNA
+  
+  # Filter for cells and nuclei
+  barcode_filter: !expr list(
+    nCount_RNA = c(1000, NA),
+    nFeature_RNA = c(400, 4000),
+    Type = c("A", "B"))
+
+  # Filter for features
+  feature_filter: !expr list(
+    min_counts = 1,
+    min_cells = 3)
+    
+  # List of samples to drop after initial QC. Set to 'null' for an empty list.
+  # Example:
+  #  - sampleA
+  #  - sampleB
+  samples_to_drop: null
+
+  # Drop samples with too few cells
+  samples_min_cells: 10
+  
+# Module execution
+execute:
+  # Should this module be frozen and never re-rendered?
+  # - auto: if the code has not changed (default)
+  # - true/false: freeze/re-render
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  freeze: auto
+---
+
+# Preprocessing (RNA)
+
+## Overview
+
+In this chapter, we read in counts data as "features x barcodes" matrices. If provided, we read in additional metadata for features and barcodes. For spatial data, we additionally read in the image data. All data is imported into an Seurat object. Basic summary stats are calculated and shown. Finally, the Seurat object is saved for further processing in the next chapters.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# If running code interactively in rstudio, set profile here
+# When rendering with quarto, profile is already set and should not be overwritten
+if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
+
+# Source general configurations (always)
+source("R/general_configuration.R")
+
+# Source required R functions
+source("R/functions_util.R")
+source("R/functions_io.R")
+source("R/functions_plotting.R")
+
+# Load libraries
+library(knitr)
+library(magrittr)
+library(gt)
+library(Seurat)
+library(ggplot2)
+
+# Get module name and directory (needed to access files within the module directory)
+module_name = params$module_name
+module_dir = params$module_dir
+```
+
+```{r}
+#| label: preprocess_rna_preparation
+
+###############
+# Directories #
+###############
+
+# Module directory 'results' contains all output that should be provided together with the final report of the project
+dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
+
+# Module directory 'tmp' contains all intermediate files only used for this module
+dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+
+# Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
+dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
+
+#################
+# Seurat object #
+#################
+
+# Read seurat object from previous module
+prev_module_dir = PreviousModuleDir(module_dir)
+prev_sc_obj = file.path(prev_module_dir, "sc.rds")
+assertthat::assert_that(file.exists(prev_sc_obj),
+                        msg=FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+sc = readRDS(prev_sc_obj)
+default_assay = param("default_assay")
+Seurat::DefaultAssay(sc) = default_assay
+```
+
+
+## Basic quality control 
+
+```{r}
+#| label: preprocess_rna_qc_barcodes
+#| timeit: true
+
+############
+# Barcodes #
+############
+
+# Calculate percentage of counts in mitochondrial genes
+mt_features = grep(pattern="^MT-", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+sc[[paste("pMito", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=mt_features)
+
+# Calculate percentage of counts in ribosomal genes
+ribo_features = grep(pattern="^RP[SL]", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+sc[[paste("pRibosomal", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=ribo_features)
+
+# Calculate percentage of counts in globin genes
+globin_features = grep("^HB[ABDGEMQZ]", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+sc[[paste("pGlobin", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=globin_features)
+
+# Calculate percentage of counts in globin genes
+ercc_features = grep("^ERCC-", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+sc[[paste("pERCC", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=ercc_features)
+```
+
+```{r}
+#| label: preprocess_rna_qc_features
+#| timeit: true
+
+############
+# Features #
+############
+
+orig_idents = levels(sc$orig.ident)
+feature_filter = PrepareFeatureFilter(param("feature_filter"), orig_idents)
+
+# Calculate number of barcodes above threshold for each layer (dataset)
+for (l in SeuratObject::Layers(sc)) {
+  n = gsub(x=l, pattern="counts\\.", replacement="")
+
+  # Get data for layer (sample) and count
+  counts = sc[[default_assay]][[l]]
+  num_bcs_expr = rowSums(counts >= feature_filter[[n]]$min_counts)
+  
+  # Add to metadata
+  sc[[default_assay]][paste("nBcsThreshold", n, sep="_")] = num_bcs_expr
+}
+
+```
+
+```{r}
+#| label: preprocess_rna_qc_plots
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+
+# QC metrics to plot for cells
+qc_features = paste(c("nCount", "nFeature", "pCountsTop50", "pMito"), default_assay, sep="_")
+captions = paste(default_assay, c("Number of counts per barcode", "Number of features per barcode", "Percent counts in top50 features", "Percent counts in mitochondrial genes"), sep=": ")
+
+if (sum(sc[[paste("pERCC", default_assay, sep="_")]]) > 0) {
+  qc_features = c(qc_features, paste(c("pERCC"), default_assay, sep="_"))
+  captions = c(captions, paste(default_assay, c("Percent counts in ERCC controls"), sep=": "))
+}
+
+# Get filter thresholds per QC metrics (for plotting)
+qc_thresholds = purrr::map(qc_features, function(f) {
+  tresh = purrr::map_dfr(names(barcode_filter), function(n) {
+    tr = data.frame(qc_feature=character(), ident=character(), min=numeric(), max=numeric())
+    if (f %in% names(barcode_filter[[n]])) {
+      tr = data.frame(qc_feature=f, ident=n, min=barcode_filter[[n]][[f]][1], max=barcode_filter[[n]][[f]][2])
+    }
+    tr$ident = factor(tr$ident, levels=orig_idents)
+    tr = tr %>% tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+    return(tr)
+  })
+})
+names(qc_thresholds) = qc_features
+
+# Make plots
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0)
+names(plist) = qc_features
+plist = purrr::map(seq(plist), function(i) {
+  p = plist[[i]]
+
+  # Add style
+  p = p + AddStyle(legend_position="none", xlab="") +
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+  
+  # Add filter thresholds
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[i]], function(qc_feature, ident, threshold, value) {
+    return(geom_segment(x=as.integer(ident)-0.5, xend=as.integer(ident)+0.5, y=value, yend=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  return(p)
+})
+
+# Generate chunks
+chunk_template = "
+\`\`\`{r}
+#| label: fig-preprocessing_rna_qc_{{type}}
+#| fig-width: 6
+#| fig-asp: 0.5
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, type=qc_features[i], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+```
+
+```{r}
+#| label: preprocess_rna_qc_cor_plots
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+
+# Correlate QC metrics for cells
+qc_feature_cors = list(
+  paste(c("nFeature", "nCount"), default_assay, sep="_"),
+  paste(c("nFeature", "pMito"), default_assay, sep="_")
+)
+captions = c("Number of features vs number of counts", "Number of features vs number of counts in mitochondrial genes")
+
+if (sum(sc[[paste("pERCC", default_assay, sep="_")]]) > 0) {
+  qc_feature_cors = c(qc_feature_cors, paste(c("nFeature", "pERCC"), default_assay, sep="_"))
+  captions = c(captions, paste(default_assay, c("Number of features vs number of counts in ERCC controls"), sep=": "))
+}
+
+# Get filter thresholds per QC metrics (for plotting)
+qc_thresholds = purrr::map(qc_features, function(f) {
+  tresh = purrr::map_dfr(names(barcode_filter), function(n) {
+    tr = data.frame(qc_feature=character(), ident=character(), min=numeric(), max=numeric())
+    if (f %in% names(barcode_filter[[n]])) {
+      tr = data.frame(qc_feature=f, ident=n, min=barcode_filter[[n]][[f]][1], max=barcode_filter[[n]][[f]][2])
+    }
+    tr$ident = factor(tr$ident, levels=orig_idents)
+    tr = tr %>% tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+    return(tr)
+  })
+})
+names(qc_thresholds) = qc_features
+
+# Make plots
+plist = purrr::map(qc_feature_cors, function(c) {
+  f1 = qc_feature_cors[[1]][1]
+  f2 = qc_feature_cors[[1]][2]
+  
+  # Plot QC feature f1 vs f2
+  set.seed(getOption("random_seed"))
+  plot_order = sample(1:nrow(sc[[]]))
+  p = ggplot(sc[[]][plot_order, ], aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident)) +
+    geom_point() +
+    AddStyle()
+  
+  # Add filter thresholds for f1
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
+      return(geom_vline(xintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  
+  # Add filter thresholds for f2
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[f2]], function(qc_feature, ident, threshold, value) {
+      return(geom_hline(yintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  return(p)
+})
+
+# Generate chunks
+chunk_template = "
+\`\`\`{r}
+#| label: fig-preprocessing_rna_qc_{{type1}}_vs_{{type2}}
+#| fig-width: 6
+#| fig-asp: 0.5
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, type1=qc_feature_cors[[i]][1], type2=qc_feature_cors[[i]][2], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+```
+
+
+## Genes with highest expression
+
+We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages in all cells. Genes with the highest median percentage of counts are plotted below. 
+
+```{r}
+#| label: preprocess_rna_highest_expression
+
+orig_idents = levels(sc$orig.ident)
+
+###########
+# Overall #
+###########
+
+# Get top 30 genes per layer (dataset)
+highestExpr = purrr::map_dfr(SeuratObject::Layers(sc), function(l) {
+  # Get genes with highest median percentage
+  n = gsub(x=l, pattern="counts\\.", replacement="")
+  m = paste("medianPerc", n, sep="_")
+  
+  metadata = sc[[default_assay]][]
+  idx = order(metadata[, m, drop=TRUE], decreasing=TRUE) %>% head(10)
+  highest = metadata[idx, ] %>% 
+    tibble::rownames_to_column("gene") %>%
+    dplyr::select(median=dplyr::all_of(m), gene)
+  highest$orig.ident = n
+  return(highest)
+})
+highestExpr$orig.ident = factor(highestExpr$orig.ident, levels=orig_idents)
+
+# Now select the top 10 genes of all
+top10_genes = highestExpr %>% dplyr::arrange(-median) %>% dplyr::pull(gene) %>% unique() %>% head(10)
+highestExpr = highestExpr %>% dplyr::filter(gene %in% top10_genes)
+highestExpr$gene = factor(highestExpr$gene, levels=top10_genes)
+```
+
+```{r}
+#| label: fig-preprocess_rna_highest_expressed_genes
+#| fig-cap: "Top 10 highest expressed genes per sample"
+#| warning: false
+
+p = ggplot(highestExpr, aes(x=orig.ident, y=median, col=gene, group=gene)) + 
+  geom_point() + 
+  AddStyle(title="Highest expression", 
+           xlab="Sample", ylab="Median % of raw counts\n per gene", 
+           legend_position="bottom")
+if (length(orig_idents) > 1) p = p + geom_line()
+print(p)
+```
+
+## Filtering
+
+Cells and genes are filtered based on the following thresholds: 
+
+```{r}
+#| label: tbl-preprocess_rna_barcode_filters
+#| tbl-cap: !expr paste("Filters applied to barcodes based on assay", default_assay)
+
+# Print barcode filters
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+barcode_filter_tbl = purrr::map_dfr(names(barcode_filter), function(s) {
+  tbl = purrr::map(barcode_filter[[s]], function(f) {
+    if (is.numeric(f) & length(f)==2) {
+      if (is.na(f[1])) f[1] = ""
+      if (is.na(f[2])) f[2] = ""
+      return(paste(f, collapse="-"))
+    } else {
+      return(paste(f, collapse=", "))
+    }
+  })
+  
+  if (length(tbl) == 0) {
+    tbl = setNames("None", "None")
+  }
+  
+  tbl = data.frame(Sample=s, Filter=names(tbl), Range=unlist(tbl))
+  rownames(tbl) = NULL
+  return(tbl)
+})
+
+gt(barcode_filter_tbl)
+```
+
+```{r}
+#| label: tbl-preprocess_rna_feature_filters
+#| tbl-cap: !expr paste("Filters applied to features of assay", default_assay)
+
+# Print barcode filters
+feature_filter = PrepareBarcodeFilter(param("feature_filter"), orig_idents)
+feature_filter_tbl = purrr::map_dfr(names(feature_filter), function(s) {
+  tbl = purrr::map(feature_filter[[s]], function(f) {
+    if (is.numeric(f) & length(f)==2) {
+      if (is.na(f[1])) f[1] = ""
+      if (is.na(f[2])) f[2] = ""
+      return(paste(f, collapse="-"))
+    } else {
+      return(paste(f, collapse=", "))
+    }
+  })
+  
+  if (length(tbl) == 0) {
+    tbl = setNames("None", "None")
+  }
+  
+  tbl = data.frame(Sample=s, Filter=names(tbl), Value=unlist(tbl))
+  rownames(tbl) = NULL
+  return(tbl)
+})
+
+gt(feature_filter_tbl)
+```
+
+The number of excluded cells and features is as follows: 
+
+```{r}
+#| label: tbl-preprocess_rna_filter_barcodes
+#| tbl-cap: "Summary of excluded barcodes"
+
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+barcode_metadata = sc[[]]
+
+# Apply filters to barcodes and record
+barcodes_to_exclude = purrr::map(orig_idents, function(s) {
+  # Apply user filters
+  filter_result = purrr::map(names(barcode_filter[[s]]), function(n) {
+    filter = barcode_filter[[s]][[n]]
+    if (is.numeric(filter) & length(filter)==2) {
+      if (is.na(filter[1])) filter[1] = -Inf
+      if (is.na(filter[2])) filter[2] = Inf
+      idx_exclude = which(barcode_metadata[[n]] < filter[1] | barcode_metadata[[n]] > filter[2])
+    } else {
+      idx_exclude = which(!barcode_metadata[[n]] %in% filter)
+    }
+    return(rownames(barcode_metadata)[idx_exclude])
+  })
+  names(filter_result) = names(barcode_filter[[s]])
+  
+  # Samples to drop
+  if (s %in% param("samples_to_drop")) {
+    idx_exclude = which(barcode_metadata$orig.ident == s)
+    filter_result[["samples_to_drop"]] = rownames(barcode_metadata)[idx_exclude]
+  } else {
+    filter_result[["samples_to_drop"]] = as.character(c())
+  }
+  
+  # Minimum number of cells for a sample to keep
+  samples_min_cells = param("samples_min_cells")
+  filter_result[["samples_min_cells"]] = as.character(c())
+  if (!is.null(samples_min_cells)) {
+    idx_exclude = which(barcode_metadata$orig.ident == s)
+    if (length(idx_exclude) < samples_min_cells) {
+      filter_result[["samples_min_cells"]] = rownames(barcode_metadata)[idx_exclude]
+    }
+  }
+  
+  return(filter_result)
+})
+names(barcodes_to_exclude) = orig_idents
+
+# Do not remove now but add filter column to sc
+sc[[paste("FILTERED", default_assay, sep="_")]] = rownames(sc[[]]) %in% unlist(barcodes_to_exclude)
+
+# Summarise
+barcodes_to_exclude_tbl = purrr::map_dfr(barcodes_to_exclude, function(s) {
+  return(as.data.frame(purrr::map(s, length))) 
+  })
+rownames(barcodes_to_exclude_tbl) = names(barcodes_to_exclude)
+barcodes_to_exclude_tbl$Original = purrr::map_int(orig_idents, function(s) return(sum(barcode_metadata$orig.ident == s)))
+barcodes_to_exclude_tbl$Excluded = purrr::map_int(barcodes_to_exclude, function(s) { return(purrr::flatten(s) %>% unique() %>% length())})
+barcodes_to_exclude_tbl$PercKept = round((barcodes_to_exclude_tbl$Original - barcodes_to_exclude_tbl$Excluded) / barcodes_to_exclude_tbl$Original * 100, 2)
+
+gt(barcodes_to_exclude_tbl, rownames_to_stub=TRUE)
+```
+
+```{r}
+#| label: tbl-preprocess_rna_filter_features
+#| tbl-cap: "Summary of excluded features"
+
+orig_idents = levels(sc$orig.ident)
+feature_filter = PrepareFeatureFilter(param("feature_filter"), orig_idents)
+barcode_metadata = sc[[]]
+feature_metadata = sc[[default_assay]][]
+
+# Iterate over samples and record a feature if it does not pass the filter
+features_to_exclude = purrr::map(orig_idents, function(s) {
+  l = paste("counts", s, sep=".")
+  
+  # Get features from layer (dataset)
+  features = rownames(sc[[default_assay]][[l]])
+  metadata = feature_metadata[rownames(feature_metadata) %in% features, ]
+  
+  # Filter
+  exclude = metadata[[paste("nBcsThreshold", s, sep="_")]] < feature_filter[[s]][["min_cells"]]
+  names(exclude) = rownames(metadata)
+  return(exclude)
+})
+names(features_to_exclude) = orig_idents
+
+# Find features that fail in all samples (get the ones that fail and then apply intersect iteratively)
+features_to_exclude_all = purrr::map(features_to_exclude, function(x) return(names(x[x==TRUE]))) %>%
+  purrr::reduce(intersect)
+
+# Summarise
+features_to_exclude_tbl = purrr::map_dfr(names(features_to_exclude), function(n) {
+  # Boolean vector for all features in dataset
+  features = features_to_exclude[[n]]
+  df = data.frame(Original=length(features), 
+                  FailThreshold=sum(features))
+  df$PercFailThreshold = round(df$FailThreshold / df$Original * 100, 2)
+  
+  df$Kept = length(setdiff(names(features), features_to_exclude_all))
+  df$PercKept = round(df$Kept / df$Original * 100, 2)
+  return(df)
+})
+rownames(features_to_exclude_tbl) = names(features_to_exclude)
+
+# Remove features
+features_to_keep = rownames(sc[[default_assay]])
+features_to_keep = features_to_keep[!features_to_keep %in% features_to_exclude_all]
+sc = subset(sc, features=features_to_keep)
+                             
+# Print table
+gt(features_to_exclude_tbl, rownames_to_stub=TRUE)
+```
+
+After filtering, the size of the Seurat object is: 
+
+```{r filter_size_after}
+sc
+```
+
+## Quality control post filtering
+
+The updated QC plots are:
+
+```{r}
+#| label: preprocess_rna_qcfilt_plots
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+barcode_metadata = sc[[]]
+
+# QC metrics to plot for cells
+qc_features = paste(c("nCount", "nFeature", "pCountsTop50", "pMito"), default_assay, sep="_")
+captions = paste(default_assay, c("Number of counts per barcode (filtered)", "Number of features per barcode (filtered)", "Percent counts in top50 features (filtered)", "Percent counts in mitochondrial genes (filtered)"), sep=": ")
+
+if (sum(sc[[paste("pERCC", default_assay, sep="_")]]) > 0) {
+  qc_features = c(qc_features, paste(c("pERCC"), default_assay, sep="_"))
+  captions = c(captions, paste(default_assay, c("Percent counts in ERCC controls (filtered)"), sep=": "))
+}
+
+# Get filter thresholds per QC metrics (for plotting)
+qc_thresholds = purrr::map(qc_features, function(f) {
+  tresh = purrr::map_dfr(names(barcode_filter), function(n) {
+    tr = data.frame(qc_feature=character(), ident=character(), min=numeric(), max=numeric())
+    if (f %in% names(barcode_filter[[n]])) {
+      tr = data.frame(qc_feature=f, ident=n, min=barcode_filter[[n]][[f]][1], max=barcode_filter[[n]][[f]][2])
+    }
+    tr$ident = factor(tr$ident, levels=orig_idents)
+    tr = tr %>% tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+    return(tr)
+  })
+})
+names(qc_thresholds) = qc_features
+
+# Make plots
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0)
+names(plist) = qc_features
+plist = purrr::map(seq(plist), function(i) {
+  p = plist[[i]]
+  
+  # Remove filtered barcodes from the plotting data
+  keep = !barcode_metadata[rownames(p$data), paste("FILTERED", default_assay, sep="_")]
+  p$data = p$data[keep, ]
+  p = p + scale_y_continuous()
+  
+  # Add style
+  p = p + AddStyle(legend_position="none", xlab="") +
+    theme(axis.text.x=element_text(angle=45, hjust=1))
+  
+  # Add filter thresholds
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[i]], function(qc_feature, ident, threshold, value) {
+    return(geom_segment(x=as.integer(ident)-0.5, xend=as.integer(ident)+0.5, y=value, yend=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  return(p)
+})
+
+# Generate chunks
+chunk_template = "
+\`\`\`{r}
+#| label: fig-preprocessing_rna_qcfilt_{{type}}
+#| fig-width: 6
+#| fig-asp: 0.5
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, type=qc_features[i], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+```
+
+
+```{r}
+#| label: preprocess_rna_qcfilt_cor_plots
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
+barcode_metadata = sc[[]]
+
+# Correlate QC metrics for cells
+qc_feature_cors = list(
+  paste(c("nFeature", "nCount"), default_assay, sep="_"),
+  paste(c("nFeature", "pMito"), default_assay, sep="_")
+)
+captions = c("Number of features vs number of counts (filtered)", "Number of features vs number of counts in mitochondrial genes (filtered)")
+
+if (sum(sc[[paste("pERCC", default_assay, sep="_")]]) > 0) {
+  qc_feature_cors = c(qc_feature_cors, paste(c("nFeature", "pERCC"), default_assay, sep="_"))
+  captions = c(captions, paste(default_assay, c("Number of features vs number of counts in ERCC controls (filtered)"), sep=": "))
+}
+
+# Get filter thresholds per QC metrics (for plotting)
+qc_thresholds = purrr::map(qc_features, function(f) {
+  tresh = purrr::map_dfr(names(barcode_filter), function(n) {
+    tr = data.frame(qc_feature=character(), ident=character(), min=numeric(), max=numeric())
+    if (f %in% names(barcode_filter[[n]])) {
+      tr = data.frame(qc_feature=f, ident=n, min=barcode_filter[[n]][[f]][1], max=barcode_filter[[n]][[f]][2])
+    }
+    tr$ident = factor(tr$ident, levels=orig_idents)
+    tr = tr %>% tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+    return(tr)
+  })
+})
+names(qc_thresholds) = qc_features
+
+# Make plots
+plist = purrr::map(qc_feature_cors, function(c) {
+  f1 = c[1]
+  f2 = c[2]
+
+  # Plot QC feature f1 vs f2
+  set.seed(getOption("random_seed"))
+  plot_order = sample(1:nrow(sc[[]]))
+  c = paste("FILTERED", default_assay, sep="_")
+  p = ggplot(sc[[]][plot_order, ] %>% 
+               dplyr::filter(!!sym(c) == FALSE),
+             aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident)) +
+    geom_point() +
+    AddStyle()
+  
+  # Add filter thresholds for f1
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
+      return(geom_vline(xintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  
+  # Add filter thresholds for f2
+  qc_threshold_segments = purrr::pmap(qc_thresholds[[f2]], function(qc_feature, ident, threshold, value) {
+      return(geom_hline(yintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+  })
+  p = p + qc_threshold_segments
+  return(p)
+})
+
+# Generate chunks
+chunk_template = "
+\`\`\`{r}
+#| label: fig-preprocessing_rna_qcfilt_{{type1}}_vs_{{type2}}
+#| fig-width: 6
+#| fig-asp: 0.5
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, type1=qc_feature_cors[[i]][1], type2=qc_feature_cors[[i]][2], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+```
+
+## Save Seurat object
+
+```{r}
+#| label: preprocess_rna_save_seurat
+
+# Remove filtered barcodes (here or earlier)
+c = paste("FILTERED", default_assay, sep="_")
+barcodes_to_keep = sc[[]] %>% dplyr::filter(!!sym(c) == FALSE) %>% rownames()
+sc = subset(sc, cells=barcodes_to_keep)
+
+saveRDS(object=sc, file=file.path(module_dir, "sc.rds"))
+```

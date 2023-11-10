@@ -8,8 +8,11 @@ book:
   chapters:
   - index.qmd
   - modules/1_read_data/read_data.qmd
-  - modules/2_preprocessing/preprocessing.qmd
+  - modules/2_preprocessing/rna/preprocessing.qmd
   - references.qmd
+  
+execute: 
+  freeze: auto
 
 params:
   general:

@@ -249,6 +249,12 @@ ReadCounts_csv = function(csv_file, transpose=FALSE) {
   assertthat::assert_that(sum(duplicated(row_ids)) == 0,
                           msg=FormatMessage("Dataset {csv_file} contains at least two features with the same name.")) 
   
+  # Check that all columns are numeric
+  is_numeric = sapply(counts_data, is.numeric)
+  assertthat::assert_that(all(is_numeric[-1]),
+                          msg=FormatMessage("There are non-numeric columns in dataset {csv_file}! Only the first column may be non-numeric."))
+  
+  
   # Create sparse matrix
   if (transpose) {
     counts_data = Matrix::Matrix(data=counts_data[, -1, drop=FALSE] %>% as.matrix() %>% t(), 
@@ -1163,8 +1169,9 @@ CreateSegmentationImproved = function(coords) {
 #' 
 #' @param path Path to the 10x Xenium data directory.
 #' @param barcodes If not NULL, character vector of barcodes to subset.
+#' @param coordinate_type Load cell "centroids", cell "segmentations" or both (default).
 #' @return A Seurat FOV object.
-ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
+ReadImage_10xXenium = function(image_dir, barcodes=NULL, coordinate_type=c("centroids", "segmentations")) {
   library(data.table)
   # Checks
   assertthat::is.readable(image_dir)
@@ -1177,6 +1184,7 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
   
   mols.qv.threshold = 20
   options(stringsAsFactors=FALSE)
+  coords = list()
   
   # Read cell centroids and cell area
   cell_centroids = data.table::fread(file.path(image_dir, "cells.csv.gz"), 
@@ -1190,17 +1198,25 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
     cell_centroids = cell_centroids[barcodes]
   }
   
-  # Read segmentations (area of cells)
-  cell_boundaries = data.table::fread(file.path(image_dir, "cell_boundaries.csv.gz"), 
-                                      stringsAsFactors=FALSE,
-                                      select=c("cell_id", "vertex_x", "vertex_y"),
-                                      colClasses=c("cell_id"="character", "vertex_x"="numeric", "vertex_y"="numeric"),
-                                      col.names=c("cell", "x", "y"),
-                                      key="cell",
-                                      showProgress=FALSE)
-  if (!is.null(barcodes)) {
-    cell_boundaries = cell_boundaries[barcodes]
+  if ("centroids" %in% coordinate_type) {
+    coords = c(coords, centroids = SeuratObject::CreateCentroids(cell_centroids[, c("cell", "x", "y")]))
   }
+  
+  # Read segmentations (area of cells)
+  if ("segmentations" %in% coordinate_type) {
+    cell_boundaries = data.table::fread(file.path(image_dir, "cell_boundaries.csv.gz"), 
+                                        stringsAsFactors=FALSE,
+                                        select=c("cell_id", "vertex_x", "vertex_y"),
+                                        colClasses=c("cell_id"="character", "vertex_x"="numeric", "vertex_y"="numeric"),
+                                        col.names=c("cell", "x", "y"),
+                                        key="cell",
+                                        showProgress=FALSE)
+    if (!is.null(barcodes)) {
+      cell_boundaries = cell_boundaries[barcodes]
+    }
+    coords = c(coords, segmentation = CreateSegmentationImproved(cell_boundaries))
+  }
+  
   
   # Load microns (molecule coordinates)
   transcripts = data.table::fread(file.path(image_dir, "transcripts.csv.gz"), 
@@ -1212,16 +1228,10 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
                                   showProgress=FALSE)
   transcripts = transcripts[qv >= mols.qv.threshold]
   transcripts$qv = NULL
-  
-  # Create segmentation data
-  centroids = SeuratObject::CreateCentroids(cell_centroids[, c("cell", "x", "y")])
-  segmentation = CreateSegmentationImproved(cell_boundaries)
-  
-  # Create molecule data
   molecules = SeuratObject::CreateMolecules(transcripts, key='mols_')
   
   # Create FOV (coordinates plus transcript info)
-  image = SeuratObject::CreateFOV(coords=list(centroids=centroids, segmentation=segmentation),
+  image = SeuratObject::CreateFOV(coords=coords,
                                   molecules=molecules,
                                   assay = 'Spatial',
                                   key = 'fov_')
@@ -1241,9 +1251,9 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL) {
 #' @param technology Technology. Can be: 10x_visium', '10x_xenium'.
 #' @param assay Default assay for this image.
 #' @param barcodes Named vector with barcodes to keep, order and rename. Names are original barcodes and values are barcodes after renaming. Barcodes will be re-ordered.
-#' @param type For 10x Xenium only: Load cell "centroids", cell "segmentations" or both.
+#' @param coordinate_type For 10x Xenium only: Load cell "centroids", cell "segmentations" or both (default).
 #' @return A Seurat VisiumV1 object.
-ReadImage = function(image_dir, technology, assay, barcodes) {
+ReadImage = function(image_dir, technology, assay, barcodes=NULL, coordinate_type=c("centroids", "segmentations")) {
   library(magrittr)
   #image_dir = "/group/sequencing/Bfx/scripts/andreasp/scrnaseq/datasets/10x_visium_human_brain_cancer/spatial/"
   #technology = "10x_xenium"
@@ -1271,9 +1281,8 @@ ReadImage = function(image_dir, technology, assay, barcodes) {
     image = Seurat::RenameCells(image, new.names=new_barcode_names %>% as.character())
 
   } else if(technology == "10x_xenium") {
-    
     # Xenium
-    image = ReadImage_10xXenium(image_dir=image_dir, barcodes=names(barcodes))
+    image = ReadImage_10xXenium(image_dir=image_dir, barcodes=names(barcodes), coordinate_type=coordinate_type)
     
     # Subset and re-order image and metadata
     image = image[names(barcodes) %>% as.character()]
@@ -1423,5 +1432,52 @@ ReadMetrics = function(metrics_file, technology) {
   }
   
   return(metrics_table)
+}
+
+#' Parses plate information from the cell names. Mainly used for Smartseq2 datasets where this information is often included in the cell name.
+#' 
+#' @param cell_names A vector with cell names.
+#' @param pattern A regular expression pattern with capture groups for plate number, row or column. Default is '_(\\d+)_([A-Z])(\\d+)$'. If the pattern does not match, all information will be set to NA.
+#' @return A data frame with plate information.
+ParsePlateInformation = function(cell_names, pattern='_(\\d+)_([A-Z])(\\d+)$') {
+  library(magrittr)
+  
+  # Split cell name into plate information and rest
+  rest = gsub(pattern=pattern, replacement="", x=cell_names)
+  plate_information = as.data.frame(stringr::str_match(string=cell_names, pattern=pattern), stringsAsFactors=FALSE)
+  plate_information[, 1] = NULL
+  
+  if (ncol(plate_information) == 2) {
+    colnames(plate_information) = c("PlateRow", "PlateCol")
+    plate_information$PlateNumber = NA 
+  } else if (ncol(plate_information) == 3) {
+    colnames(plate_information) = c("PlateNumber", "PlateRow", "PlateCol")
+  }
+  plate_information = plate_information[, c("PlateNumber", "PlateRow", "PlateCol")]
+  plate_information$Rest = rest
+  
+  plate_information$PlateNumber = as.integer(plate_information$PlateNumber)
+  plate_information$PlateRow = as.character(plate_information$PlateRow)
+  plate_information$PlateCol = as.integer(plate_information$PlateCol)
+  
+  # Decide on plate layout
+  if ("Q" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T) > 24) {
+    # super plate?
+    plate_information$PlateRow = factor(plate_information$PlateRow, 
+                                        levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"), 
+                                        ordered=TRUE)
+    plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:max(c(-Inf,plate_information$PlateCol), na.rm=T), ordered=TRUE)
+  } else if ("I" %in% plate_information$PlateRow | max(c(-Inf,plate_information$PlateCol), na.rm=T) > 12) {
+    # 384 plate
+    plate_information$PlateRow = factor(plate_information$PlateRow, 
+                                        levels=c("A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P"), 
+                                        ordered=TRUE)
+    plate_information$PlateCol = factor(plate_information$PlateCol, levels=1:24, ordered=TRUE)
+  } else {
+    plate_information$PlateRow = factor(plate_information$PlateRow, ordered=TRUE)
+    plate_information$PlateCol = factor(plate_information$PlateCol, ordered=TRUE)
+  }
+  
+  return(plate_information)
 }
   
