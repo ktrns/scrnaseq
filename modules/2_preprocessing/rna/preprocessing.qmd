@@ -188,7 +188,7 @@ qc_thresholds = purrr::map(qc_features, function(f) {
 names(qc_thresholds) = qc_features
 
 # Make plots
-plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0)
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=ncol(sc)>=getOption("raster.threshold"))
 names(plist) = qc_features
 plist = purrr::map(seq(plist), function(i) {
   p = plist[[i]]
@@ -199,7 +199,7 @@ plist = purrr::map(seq(plist), function(i) {
   
   # Add filter thresholds
   qc_threshold_segments = purrr::pmap(qc_thresholds[[i]], function(qc_feature, ident, threshold, value) {
-    return(geom_segment(x=as.integer(ident)-0.5, xend=as.integer(ident)+0.5, y=value, yend=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+    return(annotate(geom="segment", x=as.integer(ident)-0.5, xend=as.integer(ident)+0.5, y=value, yend=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
   })
   p = p + qc_threshold_segments
   return(p)
@@ -265,15 +265,20 @@ names(qc_thresholds) = qc_features
 
 # Make plots
 plist = purrr::map(qc_feature_cors, function(c) {
-  f1 = qc_feature_cors[[1]][1]
-  f2 = qc_feature_cors[[1]][2]
+  f1 = c[1]
+  f2 = c[2]
   
   # Plot QC feature f1 vs f2
   set.seed(getOption("random_seed"))
   plot_order = sample(1:nrow(sc[[]]))
-  p = ggplot(sc[[]][plot_order, ], aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident)) +
-    geom_point() +
-    AddStyle()
+  
+  p = ggplot(sc[[]][plot_order, ], aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident))
+  if (ncol(sc)>=getOption("raster.threshold")) {
+    p = p + ggrastr::rasterize(geom_point(), dpi=getOption("ggrastr.default.dpi"), dev=getOption("ggrastr.default.dev"))
+  } else {
+    p = p + geom_point()
+  }
+  p = p + AddStyle()
   
   # Add filter thresholds for f1
   qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
@@ -583,7 +588,7 @@ qc_thresholds = purrr::map(qc_features, function(f) {
 names(qc_thresholds) = qc_features
 
 # Make plots
-plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0)
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=ncol(sc)>=getOption("raster.threshold"))
 names(plist) = qc_features
 plist = purrr::map(seq(plist), function(i) {
   p = plist[[i]]
@@ -676,9 +681,14 @@ plist = purrr::map(qc_feature_cors, function(c) {
   c = paste("FILTERED", default_assay, sep="_")
   p = ggplot(sc[[]][plot_order, ] %>% 
                dplyr::filter(!!sym(c) == FALSE),
-             aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident)) +
-    geom_point() +
-    AddStyle()
+             aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident))
+  
+  if (ncol(sc)>=getOption("raster.threshold")) {
+    p = p + ggrastr::rasterize(geom_point(), dpi=getOption("ggrastr.default.dpi"), dev=getOption("ggrastr.default.dev"))
+  } else {
+    p = p + geom_point()
+  }
+  p = p + AddStyle()
   
   # Add filter thresholds for f1
   qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {

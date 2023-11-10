@@ -9,6 +9,7 @@ book:
   - index.qmd
   - modules/1_read_data/read_data.qmd
   - modules/2_preprocessing/rna/preprocessing.qmd
+  - modules/3_normalization/rna/normalization.qmd
   - references.qmd
   
 execute: 

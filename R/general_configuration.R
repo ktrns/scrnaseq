@@ -38,3 +38,11 @@ knitr::knit_hooks$set(timeit = function(before, options, envir) {
 
 # Set seed
 options(random_seed=11)
+
+# Number of barcodes at which to start rasterising plots
+options(raster.threshold=100000)
+
+# Default resolution and device when rasterising large plots
+options(ggrastr.default.dpi=300)
+options(ggrastr.default.dev="ragg_png")
+

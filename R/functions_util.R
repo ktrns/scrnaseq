@@ -199,6 +199,9 @@ EnsemblFetchGeneInfo = function(ids, species, ensembl_version, mart_attributes =
   return(annotation_ensembl)
 }
 
+EnsemblFetchOrthologues = function(ids, species, ensembl_version, useCache=TRUE) {
+  
+
 #' Adds feature metadata to an Seurat object or an Assay object.
 #' 
 #' Note: Seurat::AddMetaData does not seem to work for features in Seurat v5.

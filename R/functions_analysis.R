@@ -25,6 +25,15 @@ CellsFisher = function(sc) {
   return(out)
 }
 
+#' Get cell cycle scores
+#' 
+#' @param sc Seurat object
+#' @param genes_s Vector of gene names characteristic for S-phase
+#' @param genes_g2m Vector of gene names characteristic for G2M-phase
+#' @param name Name of the dataset, only used to write a sensible warning if necessary (Default "")
+#' @return Updated Seurat object
+
+
 #' Calculate cell cycle scores
 #' 
 #' @param sc Seurat object

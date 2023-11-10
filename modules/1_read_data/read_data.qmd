@@ -151,6 +151,23 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
+datasets = datasets[1:2,]
+datasets$technology[1] = "parse"
+datasets$assays[1] = "RNA"
+datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+datasets$barcode_metadata_files[1] = NA
+datasets$rename_features[1] = "ENSEMBL"
+
+datasets$technology[2] = "parse"
+datasets$assays[2] = "RNA"
+datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+datasets$barcode_metadata_files[2] = NA
+datasets$rename_features[2] = "ENSEMBL"
+
+
+
 for (i in 1:nrow(datasets)) {
   # Required columns
   assertthat::assert_that(!is.na(datasets$sample[i]),
@@ -950,6 +967,7 @@ chunk_template = "
 #| fig-asp: 0.5
 #| fig-cap: '{{caption}}'
 #| echo: false
+#| warning: false
 
 print(plist[[{{i}}]])
 \`\`\`
@@ -962,7 +980,7 @@ for (a in Seurat::Assays(sc)) {
   # Generate barcode plots
   f = paste(c("nCount", "nFeature", "pCountsTop50"), a, sep="_")
   captions = paste(a, c("Number of counts per barcode", "Number of features per barcode", "Percent counts in top50 features"), sep=": ")
-  plist = VlnPlot(sc, features=f, pt.size=0, combine=FALSE)
+  plist = VlnPlot(sc, features=f, pt.size=0, combine=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
   plist = purrr::map(plist,  function(p) return(p + AddStyle(legend_position="none")))
   for (i in seq(plist)) {
     chunk_filled =  knitr::knit_expand(text=chunk_template, assay=a, i=i, caption=captions[[i]])

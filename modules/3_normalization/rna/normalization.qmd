@@ -1,0 +1,205 @@
+---
+# Module-specific parameters (that are not already in the profile yaml)
+params:
+  # Name of the module used in configurations
+  module: "normalization_rna"
+    
+  # Relative path to the module directory (which contains the qmd file)
+  module_dir: "modules/3_normalization/rna"
+  
+  # Default assay.
+  default_assay: RNA
+  
+# Module execution
+execute:
+  # Should this module be frozen and never re-rendered?
+  # - auto: if the code has not changed (default)
+  # - true/false: freeze/re-render
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  freeze: auto
+---
+
+# Normalization (RNA)
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# If running code interactively in rstudio, set profile here
+# When rendering with quarto, profile is already set and should not be overwritten
+if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
+
+# Source general configurations (always)
+source("R/general_configuration.R")
+
+# Source required R functions
+source("R/functions_util.R")
+source("R/functions_io.R")
+source("R/functions_plotting.R")
+
+# Load libraries
+library(knitr)
+library(magrittr)
+library(gt)
+library(Seurat)
+library(ggplot2)
+
+# Get module name and directory (needed to access files within the module directory)
+module_name = params$module_name
+module_dir = params$module_dir
+```
+
+```{r}
+#| label: normalization_rna_preparation
+
+###############
+# Directories #
+###############
+
+# Module directory 'results' contains all output that should be provided together with the final report of the project
+dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
+
+# Module directory 'tmp' contains all intermediate files only used for this module
+dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+
+# Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
+dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
+
+#################
+# Seurat object #
+#################
+
+# Read seurat object from previous module
+prev_module_dir = PreviousModuleDir(module_dir)
+prev_sc_obj = file.path(prev_module_dir, "sc.rds")
+assertthat::assert_that(file.exists(prev_sc_obj),
+                        msg=FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+sc = readRDS(prev_sc_obj)
+default_assay = param("default_assay")
+Seurat::DefaultAssay(sc) = default_assay
+```
+
+In this section, we subsequently run a series of Seurat functions for each provided sample:
+
+| 1. We start by running a **standard log normalisation**, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.
+
+<details>
+
+<summary>What do we need normalisation for?</summary>
+
+The number of raw sequencing reads per cell is influenced by technical differences in the capture, reverse transcription and sequencing of RNA molecules, particularly due to the difficulty of achieving consistent library preparation with minimal starting material. Thus, comparing gene expression between cells may reveal differences that are solely due to sampling effects. After low-quality cells were removed in the previous step, the primary goal of normalization is to remove technical sampling effects while preserving the true biological signal.
+
+Count depth scaling is the simplest and most commonly used normalization strategy. The underlying idea is that each cell initially contained an equal number of mRNA molecules, and differences arise due to sampling effects. For each cell, the number of reads per gene is divided by a cell-specific "size factor", which is proportional to the total count depth of the cell. The resulting normalized data add up to 1 per cell, and is then typically multiplied by a factor of 10 (10,000 in this workflow).
+
+Finally, normalized data are log-transformed for three important reasons. First, distances between log-transformed expression data represent log fold changes. Log-transformation emphasizes contributions from genes with strong relative differences, for example a gene that is expressed at an average count of 50 in cell type A and 10 in cell type B rather than a gene that is expressed at an average count of 1100 in A and 1000 in B. Second, log-transformation mitigates the relation between mean and variance in the data. Lastly, log-transformation reduces that skewness of the data as many downstream analyses require the data to be normally distributed.
+
+</details>
+
+| 2. We assign **cell cycle scores** to each cell based on its normalised expression of G2/M and S phase markers. These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are removed during scaling (step 3). Cell cycle effects removed for this report: `r #param$cc_remove`; *all* cell cycle effects removed for this report: `r #param$cc_remove_all`.
+
+<details>
+
+<summary>How does removal of cell cycle effects affect the data?</summary>
+
+Note that removing all signal associated to cell cycle can negatively impact downstream analysis. For example, in differentiating processes, stem cells are quiescent and differentiated cells are proliferating (or vice versa), and removing all cell cycle effects can blur the distinction between these cells. An alternative approach is to remove the difference between G2M and S phase scores. This way, signals separating non-cycling and cycling cells will be maintained, while differences amongst proliferating cells will be removed. For a more detailed explanation, see the cell cycle vignette for Seurat at <https://satijalab.org/seurat/articles/cell_cycle_vignette.html>.
+
+</details>
+
+| 3. Dependent on the normalisation of your choice, we either
+
+| a. Run standard functions to select **variable genes**, and **scale** normalised gene counts. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly in others. To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score).
+
+<details>
+
+<summary>What do we need scaling for?</summary>
+
+After normalization, gene expression data can be compared between cells. However, expression of individual genes still cannot be compared. This is because genes have different lengths and, depending on the experimental set up, longer genes can be represented by a higher number of reads. To account for this effect, normalized data are further scaled using a z-transformation, resulting in the average expression of 0 and the variance of 1 for each gene across all cells. Note that additional unwanted sources of variations can be regressed out during the scaling process, such as cell cycle effects or the percentage of mitochondrial reads.
+
+</details>
+
+| b. Run **SCTransform**, a new and more sophisticated normalisation method that replaces the previous functions (**normalisation, variable genes and scaling**).
+
+<details>
+
+<summary>What is **SCTransform** special about?</summary>
+
+The standard log-transformation applied in step 1 assumes that count depth influences all genes equally. However, it has been shown that the use of a single size factor will introduce different effects on highly and lowly expressed genes ([@Hafemeister_2019]). **SCTransform** is a new statistical approach for the modelling, normalization and variance stabilization of single-cell RNA-seq data, and is an alternative to steps 1 and 3a described above. Note that **SCTransform** has been developed for UMI count data and can therefore safely be applied to 10x but not SmartSeq-2 data. As for the scaling in step 3a, additional unwanted sources of variations can be regressed out during **SCTransform**.
+
+</details>
+
+Normalisation method used for this report: `r #param$norm`; with additional sources of variance regressed out: `r #param$vars_to_regress`.
+
+While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space.
+
+```{r}
+#| label: normalization_rna_standard
+
+# standard
+sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
+
+# scran
+
+# ?
+
+# ?
+
+
+```
+
+```{r}
+#| label: normalization_rna_cell_cyle
+
+# Find out which genes are the CC genes
+
+feature_metadata = sc[[default_assay]][]
+
+# These are the human cell cycle genes
+seurat_s_genes = Seurat::cc.genes.updated.2019[["s.genes"]]
+seurat_g2m_genes = Seurat::cc.genes.updated.2019[["g2m.genes"]]
+
+
+
+# See if we have Ensembl IDs and can use Ensembl to find orthologues
+ensembl_column = NULL
+if ("ensembl_id" %in% colnames(feature_metadata)) {
+  ensembl_column = "ensembl_id"
+} else if (any(grepl("^ENS", feature_metadata[["feature_id"]]))) {
+  ensembl_column = "feature_id"
+}
+
+if (!is.null(ensembl_column)) {
+  # Fetch orthologues via Ensembl
+} else {
+  # Try to match
+}
+    
+if (ensembl_id )
+
+sc = 
+
+sc = purrr::map(list_names(sc), function(n) {
+  sc[[n]] = CCScoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
+  if (any(is.na(sc[[n]][["S.Score"]])) | any(is.na(sc[[n]][["G2M.Score"]]))) {
+    param$cc_remove=FALSE
+    param$cc_remove_all=FALSE
+    param$cc_rescore_after_merge=FALSE
+  }
+  return(sc[[n]])
+})
+
+# If cell cycle effects should be removed, we first score cells 
+# The effect is then removed in the following chunk 
+if (param$cc_remove) {
+# Add to vars that need to regressed out during normalisation
+  if (param$cc_remove_all) {
+    # Remove all signal associated to cell cycle
+    param$vars_to_regress = unique(c(param$vars_to_regress, "S.Score", "G2M.Score"))
+    param$latent_vars = unique(c(param$latent_vars, "S.Score", "G2M.Score"))
+  } else {
+    # Don't remove the difference between cycling and non-cycling cells 
+    param$vars_to_regress = unique(c(param$vars_to_regress, "CC.Difference"))
+    param$latent_vars = unique(c(param$latent_vars, "CC.Difference"))
+  }  
+}
+```
