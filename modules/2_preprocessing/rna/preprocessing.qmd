@@ -7,6 +7,9 @@ params:
   # Relative path to the module directory (which contains the qmd file)
   module_dir: "modules/2_preprocessing/rna"
   
+  # Path to previous module. If null, will be read from the 'chapters' entry in the profile yaml
+  prev_module_dir: null
+  
   # Default assay.
   default_assay: RNA
   
@@ -94,14 +97,22 @@ dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
 # Seurat object #
 #################
 
-# Read seurat object from previous module
-prev_module_dir = PreviousModuleDir(module_dir)
-prev_sc_obj = file.path(prev_module_dir, "sc.rds")
-assertthat::assert_that(file.exists(prev_sc_obj),
-                        msg=FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+# Read in seurat object
+if (!is.null(param("prev_module_dir"))) {
+  prev_module_dir = param("prev_module_dir")
+} else {
+  prev_module_dir = PreviousModuleDir(module_dir)
+}
+prev_sc_obj = file.path(prev_module_dir, "sc", "sc.rds")
+if(!file.exists(prev_sc_obj)) {
+  stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+}
 sc = readRDS(prev_sc_obj)
 default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
+
+# We already apply a basic normalization
+sc = Seurat::NormalizeData(sc, assay=default_assay, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 ```
 
 
@@ -115,21 +126,36 @@ Seurat::DefaultAssay(sc) = default_assay
 # Barcodes #
 ############
 
+barcode_metadata = sc[[]]
+feature_metadata = sc[[default_assay]][]
+
 # Calculate percentage of counts in mitochondrial genes
-mt_features = grep(pattern="^MT-", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+mt_features = grep(pattern="^MT-", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
 sc[[paste("pMito", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=mt_features)
 
 # Calculate percentage of counts in ribosomal genes
-ribo_features = grep(pattern="^RP[SL]", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+ribo_features = grep(pattern="^RP[SL]", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
 sc[[paste("pRibosomal", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=ribo_features)
 
 # Calculate percentage of counts in globin genes
-globin_features = grep("^HB[ABDGEMQZ]", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+globin_features = grep("^HB[ABDGEMQZ]", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
 sc[[paste("pGlobin", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=globin_features)
 
 # Calculate percentage of counts in globin genes
-ercc_features = grep("^ERCC-", x=rownames(sc), value=TRUE, ignore.case=TRUE)
+ercc_features = grep("^ERCC-", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
 sc[[paste("pERCC", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=ercc_features)
+
+# Calculate number of counts in XIST
+xist_feature = grep("^XIST", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
+sc[[paste("pXIST", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=xist_feature)
+
+# Calculate percentage of counts in chrY genes
+sc[[paste("pChrY", default_assay, sep="_")]] = 0
+if ("ensembl_chr" %in% colnames(feature_metadata)) {
+  chrY_features = which(feature_metadata$ensembl_chr %in% c("chrY", "Y"))
+  sc[[paste("pChrY", default_assay, sep="_")]] = PercentageFeatureSet(object=sc, features=chrY_features)
+}
+
 ```
 
 ```{r}
@@ -144,7 +170,7 @@ orig_idents = levels(sc$orig.ident)
 feature_filter = PrepareFeatureFilter(param("feature_filter"), orig_idents)
 
 # Calculate number of barcodes above threshold for each layer (dataset)
-for (l in SeuratObject::Layers(sc)) {
+for (l in SeuratObject::Layers(sc, "counts")) {
   n = gsub(x=l, pattern="counts\\.", replacement="")
 
   # Get data for layer (sample) and count
@@ -188,13 +214,13 @@ qc_thresholds = purrr::map(qc_features, function(f) {
 names(qc_thresholds) = qc_features
 
 # Make plots
-plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=ncol(sc)>=getOption("raster.threshold"))
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=FALSE)
 names(plist) = qc_features
 plist = purrr::map(seq(plist), function(i) {
   p = plist[[i]]
 
   # Add style
-  p = p + AddStyle(legend_position="none", xlab="") +
+  p = p + AddPlotStyle(legend_position="none", xlab="") +
     theme(axis.text.x=element_text(angle=45, hjust=1))
   
   # Add filter thresholds
@@ -209,7 +235,6 @@ plist = purrr::map(seq(plist), function(i) {
 chunk_template = "
 \`\`\`{r}
 #| label: fig-preprocessing_rna_qc_{{type}}
-#| fig-width: 6
 #| fig-asp: 0.5
 #| fig-cap: '{{caption}}'
 #| echo: false
@@ -269,16 +294,8 @@ plist = purrr::map(qc_feature_cors, function(c) {
   f2 = c[2]
   
   # Plot QC feature f1 vs f2
-  set.seed(getOption("random_seed"))
-  plot_order = sample(1:nrow(sc[[]]))
-  
-  p = ggplot(sc[[]][plot_order, ], aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident))
-  if (ncol(sc)>=getOption("raster.threshold")) {
-    p = p + ggrastr::rasterize(geom_point(), dpi=getOption("ggrastr.default.dpi"), dev=getOption("ggrastr.default.dev"))
-  } else {
-    p = p + geom_point()
-  }
-  p = p + AddStyle()
+  p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=ncol(sc)>=getOption("raster.threshold"))
+  p = p + AddPlotStyle()
   
   # Add filter thresholds for f1
   qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
@@ -291,6 +308,7 @@ plist = purrr::map(qc_feature_cors, function(c) {
       return(geom_hline(yintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
   })
   p = p + qc_threshold_segments
+  
   return(p)
 })
 
@@ -298,7 +316,6 @@ plist = purrr::map(qc_feature_cors, function(c) {
 chunk_template = "
 \`\`\`{r}
 #| label: fig-preprocessing_rna_qc_{{type1}}_vs_{{type2}}
-#| fig-width: 6
 #| fig-asp: 0.5
 #| fig-cap: '{{caption}}'
 #| echo: false
@@ -325,23 +342,24 @@ for (i in seq(plist)) {
 We next investigate whether there are individual genes that are represented by an unusually high number of counts. For each cell, we first calculate the percentage of counts per gene. Subsequently, for each gene, we calculate the median value of these percentages in all cells. Genes with the highest median percentage of counts are plotted below. 
 
 ```{r}
-#| label: preprocess_rna_highest_expression
+#| label: preprocess_rna_highest_expr
 
 orig_idents = levels(sc$orig.ident)
+barcode_metadata = sc[[]]
+feature_metadata = sc[[default_assay]][]
 
 ###########
 # Overall #
 ###########
 
-# Get top 30 genes per layer (dataset)
-highestExpr = purrr::map_dfr(SeuratObject::Layers(sc), function(l) {
-  # Get genes with highest median percentage
+# Get top 20 genes overall
+highestExpr = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), function(l) {
   n = gsub(x=l, pattern="counts\\.", replacement="")
+
+  # Get genes with highest median percentage
   m = paste("medianPerc", n, sep="_")
-  
-  metadata = sc[[default_assay]][]
-  idx = order(metadata[, m, drop=TRUE], decreasing=TRUE) %>% head(10)
-  highest = metadata[idx, ] %>% 
+  idx = order(feature_metadata[, m, drop=TRUE], decreasing=TRUE) %>% head(20)
+  highest = feature_metadata[idx, ] %>% 
     tibble::rownames_to_column("gene") %>%
     dplyr::select(median=dplyr::all_of(m), gene)
   highest$orig.ident = n
@@ -349,24 +367,132 @@ highestExpr = purrr::map_dfr(SeuratObject::Layers(sc), function(l) {
 })
 highestExpr$orig.ident = factor(highestExpr$orig.ident, levels=orig_idents)
 
-# Now select the top 10 genes of all
-top10_genes = highestExpr %>% dplyr::arrange(-median) %>% dplyr::pull(gene) %>% unique() %>% head(10)
-highestExpr = highestExpr %>% dplyr::filter(gene %in% top10_genes)
-highestExpr$gene = factor(highestExpr$gene, levels=top10_genes)
+# Now rank genes by overall expression
+top_genes = highestExpr %>% dplyr::arrange(-median) %>% dplyr::pull(gene) %>% unique()
+highestExpr$rank = match(highestExpr$gene, top_genes)
+highestExpr$gene = factor(highestExpr$gene, levels=top_genes)
+
+# Collect summary statistics for top 20 genes for each layer (dataset)
+highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), function(l) {
+  n = gsub(x=l, pattern="counts\\.", replacement="")
+
+  # Get genes with highest median percentage
+  m = paste("medianPerc", n, sep="_")
+  idx = order(feature_metadata[, m, drop=TRUE], decreasing=TRUE) %>% head(20)
+  
+  # Get percentages for top 20 genes
+  top_counts = sc[[default_assay]][[l]][idx, ]
+  bcs = top_counts %>% colnames()
+  total_counts = barcode_metadata[bcs, paste0("nCount_", default_assay), drop=TRUE]
+  top_perc = t(t(top_counts)/total_counts)*100
+  
+  # Now calculate summary statistics (min, q25, median, mean, q75, max) per feature
+  top_perc = as(top_perc, "dgCMatrix")
+  top_perc_summary = purrr::map(1:nrow(top_perc), function(i) {
+    return(summary(top_perc[i, ]))
+  })
+  top_perc_summary = do.call(rbind, top_perc_summary) %>% as.data.frame()
+  colnames(top_perc_summary) = c("min", "q25", "median", "mean", "q75", "max")
+  top_perc_summary$gene = rownames(top_perc)
+  top_perc_summary$orig.ident = gsub(x=l, pattern="^counts\\.", replacement="")
+  return(top_perc_summary)
+})
+highestExpr_summary$orig.ident = factor(highestExpr_summary$orig.ident, levels=orig_idents)
 ```
 
 ```{r}
-#| label: fig-preprocess_rna_highest_expressed_genes
-#| fig-cap: "Top 10 highest expressed genes per sample"
+#| label: fig-preprocess_rna_highest_expr_genes
+#| fig-cap: "Top 10 highest expressed genes"
 #| warning: false
 
-p = ggplot(highestExpr, aes(x=orig.ident, y=median, col=gene, group=gene)) + 
+p = ggplot(highestExpr %>% dplyr::filter(rank<=10), aes(x=orig.ident, y=median, col=gene, group=gene)) + 
   geom_point() + 
-  AddStyle(title="Highest expression", 
+  AddPlotStyle(title="Highest expression", 
            xlab="Sample", ylab="Median % of raw counts\n per gene", 
-           legend_position="bottom")
+           legend_position="bottom") +
+  scale_color_manual(values=rev(Seurat::DiscretePalette(n=10, "stepped")))
 if (length(orig_idents) > 1) p = p + geom_line()
 print(p)
+```
+
+::: panel-tabset
+```{r}
+#| label: preprocess_rna_highest_expr_genes_samples
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+
+# Make plots
+plist = purrr::map(orig_idents, function(s) {
+  # Subset data
+  plot_data = highestExpr_summary %>% 
+    dplyr::filter(orig.ident==s) %>%
+    dplyr::arrange(-median) %>%
+    head(20) %>%
+    dplyr::arrange(median)
+  plot_data$gene = factor(plot_data$gene, levels=unique(plot_data$gene))
+
+  # Plot
+  p = ggplot(plot_data, aes(x=gene, fill=gene)) +
+    geom_boxplot(aes(ymin=min, lower=q25, middle=median, upper=q75, ymax=max), stat="identity", width=1) +
+    scale_x_discrete() +
+    scale_y_continuous("% of total counts") +
+    scale_fill_manual(values=rev(Seurat::DiscretePalette(n=20, "stepped"))) +
+    AddPlotStyle() +
+    theme(axis.title.x=element_blank(), legend.position="none") +
+    coord_flip()
+  
+  return(p)
+})
+names(plist) = orig_idents
+
+# Generate chunks
+
+chunk_template = "
+##### {{sample}}
+
+\`\`\`{r}
+#| label: fig-preprocess_rna_highest_expr_genes_{{sample}}
+#| fig-cap: 'Top 10 highest expressed genes for sample {{sample}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, sample=orig_idents[i], i=i)
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+
+```
+:::
+
+## Sample sex
+
+When working with human or animal samples, you should ideally constrain you experiments to a single sex to avoid including sex bias in the conclusions. However this may not always be possible. By looking at reads from chromosomeY (males) and XIST (X-inactive specific transcript) expression (mainly female) it is quite easy to determine per sample which sex it is. It can also bee a good way to detect if there has been any sample mixups, if the sample metadata sex does not agree with the computational predictions. (COPIED)
+
+```{r}
+#| label: fig-preprocess_rna_sample_sex
+#| fig-cap: 
+#|   - "Plot A"
+#|   - "Plot B"
+#|   - "Plot C"
+#| warning: false
+
+p = Seurat::FeatureScatter(sc, feature1="pXIST_RNA", feature2="pChrY_RNA", shuffle=TRUE, plot.cor=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
+p = p + AddPlotStyle()
+print(p)
+
+plist = Seurat::VlnPlot(sc, features=c("pXIST_RNA", "pChrY_RNA"), pt.size=0, raster=FALSE, combine=FALSE)
+plist = purrr::map(plist, function(p) return(p + AddPlotStyle()))
+print(plist)
 ```
 
 ## Filtering
@@ -480,9 +606,6 @@ barcodes_to_exclude = purrr::map(orig_idents, function(s) {
 })
 names(barcodes_to_exclude) = orig_idents
 
-# Do not remove now but add filter column to sc
-sc[[paste("FILTERED", default_assay, sep="_")]] = rownames(sc[[]]) %in% unlist(barcodes_to_exclude)
-
 # Summarise
 barcodes_to_exclude_tbl = purrr::map_dfr(barcodes_to_exclude, function(s) {
   return(as.data.frame(purrr::map(s, length))) 
@@ -491,6 +614,11 @@ rownames(barcodes_to_exclude_tbl) = names(barcodes_to_exclude)
 barcodes_to_exclude_tbl$Original = purrr::map_int(orig_idents, function(s) return(sum(barcode_metadata$orig.ident == s)))
 barcodes_to_exclude_tbl$Excluded = purrr::map_int(barcodes_to_exclude, function(s) { return(purrr::flatten(s) %>% unique() %>% length())})
 barcodes_to_exclude_tbl$PercKept = round((barcodes_to_exclude_tbl$Original - barcodes_to_exclude_tbl$Excluded) / barcodes_to_exclude_tbl$Original * 100, 2)
+
+# Filter
+barcodes_to_keep = rownames(barcode_metadata)
+barcodes_to_keep = barcodes_to_keep[!barcodes_to_keep %in% barcodes_to_exclude]
+sc = subset(sc, cells=barcodes_to_keep)
 
 gt(barcodes_to_exclude_tbl, rownames_to_stub=TRUE)
 ```
@@ -548,7 +676,7 @@ gt(features_to_exclude_tbl, rownames_to_stub=TRUE)
 
 After filtering, the size of the Seurat object is: 
 
-```{r filter_size_after}
+```{r preprocess_rna_filter_size}
 sc
 ```
 
@@ -588,18 +716,13 @@ qc_thresholds = purrr::map(qc_features, function(f) {
 names(qc_thresholds) = qc_features
 
 # Make plots
-plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=ncol(sc)>=getOption("raster.threshold"))
+plist = Seurat::VlnPlot(sc, features=qc_features, combine=FALSE, pt.size=0, raster=FALSE)
 names(plist) = qc_features
 plist = purrr::map(seq(plist), function(i) {
   p = plist[[i]]
   
-  # Remove filtered barcodes from the plotting data
-  keep = !barcode_metadata[rownames(p$data), paste("FILTERED", default_assay, sep="_")]
-  p$data = p$data[keep, ]
-  p = p + scale_y_continuous()
-  
   # Add style
-  p = p + AddStyle(legend_position="none", xlab="") +
+  p = p + AddPlotStyle(legend_position="none", xlab="") +
     theme(axis.text.x=element_text(angle=45, hjust=1))
   
   # Add filter thresholds
@@ -614,7 +737,6 @@ plist = purrr::map(seq(plist), function(i) {
 chunk_template = "
 \`\`\`{r}
 #| label: fig-preprocessing_rna_qcfilt_{{type}}
-#| fig-width: 6
 #| fig-asp: 0.5
 #| fig-cap: '{{caption}}'
 #| echo: false
@@ -676,19 +798,8 @@ plist = purrr::map(qc_feature_cors, function(c) {
   f2 = c[2]
 
   # Plot QC feature f1 vs f2
-  set.seed(getOption("random_seed"))
-  plot_order = sample(1:nrow(sc[[]]))
-  c = paste("FILTERED", default_assay, sep="_")
-  p = ggplot(sc[[]][plot_order, ] %>% 
-               dplyr::filter(!!sym(c) == FALSE),
-             aes(x=!!sym(f1), y=!!sym(f2), colour=orig.ident))
-  
-  if (ncol(sc)>=getOption("raster.threshold")) {
-    p = p + ggrastr::rasterize(geom_point(), dpi=getOption("ggrastr.default.dpi"), dev=getOption("ggrastr.default.dev"))
-  } else {
-    p = p + geom_point()
-  }
-  p = p + AddStyle()
+  p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=ncol(sc)>=getOption("raster.threshold"))
+  p = p + AddPlotStyle()
   
   # Add filter thresholds for f1
   qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
@@ -708,7 +819,6 @@ plist = purrr::map(qc_feature_cors, function(c) {
 chunk_template = "
 \`\`\`{r}
 #| label: fig-preprocessing_rna_qcfilt_{{type1}}_vs_{{type2}}
-#| fig-width: 6
 #| fig-asp: 0.5
 #| fig-cap: '{{caption}}'
 #| echo: false
@@ -729,15 +839,61 @@ for (i in seq(plist)) {
 }
 ```
 
+## Cell Cycle
+
+```{r}
+
+species = param("species")
+ensembl_version = param("ensembl")
+feature_metadata = sc[[default_assay]][]
+
+# These are the human cell cycle genes
+seurat_s_genes = Seurat::cc.genes.updated.2019[["s.genes"]]
+seurat_g2m_genes = Seurat::cc.genes.updated.2019[["g2m.genes"]]
+
+# See if we have Ensembl IDs and can use Ensembl to find orthologues
+# In case species is human, we just fetch the IDs
+ensembl_column = NULL
+if ("ensembl_id" %in% colnames(feature_metadata)) {
+  ensembl_column = "ensembl_id"
+} else if (any(grepl("^ENS", feature_metadata[["feature_id"]]))) {
+  ensembl_column = "feature_id"
+}
+
+if (!is.null(ensembl_column)) {
+  # Use Ensembl
+  if (species != "homo_sapiens") {
+    # Fetch orthologues via Ensembl
+    
+  } else {
+    # Fetch ids via Ensembl
+    seurat_s_genes = EnsemblFetchGeneInfo(ids=seurat_s_genes,
+                                          symbols=TRUE,
+                                          species=species,
+                                          ensembl_version=ensembl_version,
+                                          mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name"),
+                                          useCache=TRUE)
+    seurat_s_genes = seurat_s_genes %>% dplyr::filter(!is.na(ensembl_id)) %>% dplyr::pull(ensembl_id)
+
+    
+  }
+  
+  
+dt = EnsemblFetchGeneInfo(seurat_s_genes, symbols=TRUE, species="homo_sapiens", ensembl_version="98", mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name"))
+  
+} else {
+  # Try to match
+}
+    
+if (ensembl_id )
+```
+
+
 ## Save Seurat object
 
 ```{r}
 #| label: preprocess_rna_save_seurat
 
-# Remove filtered barcodes (here or earlier)
-c = paste("FILTERED", default_assay, sep="_")
-barcodes_to_keep = sc[[]] %>% dplyr::filter(!!sym(c) == FALSE) %>% rownames()
-sc = subset(sc, cells=barcodes_to_keep)
-
+# Save Seurat object
 saveRDS(object=sc, file=file.path(module_dir, "sc.rds"))
 ```

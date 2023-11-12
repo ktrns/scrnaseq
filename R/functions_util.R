@@ -167,22 +167,25 @@ GetBiomaRt = function(species, ensembl_version) {
 #' Fetches gene information from Ensembl using biomaRt.
 #' 
 #' @param ids A list of Ensembl ids.
+#' @param symbols If TRUE, ids are interpreted as gene symbols.
 #' @param species Species.
 #' @param ensembl_version Ensembl version.
 #' @param mart_attributes Ensembl attributes to fetch. Can be a character vector or a named character vector. Defaults to: c(ensembl_id="ensembl_gene_id, ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand").
 #' @param useCache Use local cache for faster querying. Default is TRUE. Set to FALSE if there are problems.
 #' @return A table with gene information. Ids that were not found are included but most of the information will be NA.
-EnsemblFetchGeneInfo = function(ids, species, ensembl_version, mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand"), useCache=TRUE) {
+EnsemblFetchGeneInfo = function(ids, symbols=FALSE, species, ensembl_version, mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand"), useCache=TRUE) {
   # Get species mart
   species_mart = GetBiomaRt(species, ensembl_version)
   
   # Check that we have Ensembl ids
-  assertthat::assert_that(any(grepl("^ENS", ids)),
+  if (!symbols) {
+    assertthat::assert_that(any(grepl("^ENS", ids)),
                           msg = FormatMessage(
-                            "None of the ids in this dataset is Ensembl. Cannot fetch gene information with this method."))  
+                            "None of the ids in this dataset is Ensembl. Cannot fetch gene information with this method."))
+  }
   
   # Fetch attributes from Ensembl (use cache to allow multiple fetches)
-  species_annotation = biomaRt::getBM(mart=species_mart, filters="ensembl_gene_id", values=ids,attributes=mart_attributes, useCache=useCache)
+  species_annotation = biomaRt::getBM(mart=species_mart, filters=ifelse(symbols, "external_gene_name", "ensembl_gene_id"), values=ids,attributes=mart_attributes, useCache=useCache)
   if (!is.null(names(mart_attributes))) {
     colnames(species_annotation) = names(mart_attributes)
   }
@@ -191,15 +194,20 @@ EnsemblFetchGeneInfo = function(ids, species, ensembl_version, mart_attributes =
       "Could not find fetch any gene information for this dataset. Is the species {species} correct?"))
   
   # Add rows for ids that were not found
-  first_y_col = colnames(species_annotation)[1]
+  if (symbols) {
+    first_y_col = "ensembl_symbol"
+  } else {
+    first_y_col = "ensembl_id"
+  }
   x_df = data.frame(ids)
   colnames(x_df) = first_y_col
+  
   annotation_ensembl = dplyr::left_join(x_df, species_annotation, by=first_y_col)
   
   return(annotation_ensembl)
 }
 
-EnsemblFetchOrthologues = function(ids, species, ensembl_version, useCache=TRUE) {
+#EnsemblFetchOrthologues = function(ids, species, ensembl_version, useCache=TRUE) {
   
 
 #' Adds feature metadata to an Seurat object or an Assay object.

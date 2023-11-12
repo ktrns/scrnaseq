@@ -12,6 +12,7 @@ bibliography: "misc/references.bib"
 #################
 knitr:
   opts_chunk:
+    fig-width: 6
     dpi: 96
     fig.retina: 2
     results: hold

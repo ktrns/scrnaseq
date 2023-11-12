@@ -6,6 +6,9 @@ params:
     
   # Relative path to the module directory (which contains the qmd file)
   module_dir: "modules/3_normalization/rna"
+
+  # Path to previous module. If null, will be read from the 'chapters' entry in the profile yaml
+  prev_module_dir: null
   
   # Default assay.
   default_assay: RNA
@@ -70,11 +73,16 @@ dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
 # Seurat object #
 #################
 
-# Read seurat object from previous module
-prev_module_dir = PreviousModuleDir(module_dir)
+# Read in seurat object
+if (!is.null(param("prev_module_dir"))) {
+  prev_module_dir = param("prev_module_dir")
+} else {
+  prev_module_dir = PreviousModuleDir(module_dir)
+}
 prev_sc_obj = file.path(prev_module_dir, "sc.rds")
-assertthat::assert_that(file.exists(prev_sc_obj),
-                        msg=FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+if(!file.exists(prev_sc_obj)) {
+  stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+}
 sc = readRDS(prev_sc_obj)
 default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
@@ -134,6 +142,7 @@ While raw data is typically used for statistical tests such as finding marker ge
 
 ```{r}
 #| label: normalization_rna_standard
+#| eval: false
 
 # standard
 sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
@@ -149,6 +158,7 @@ sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor
 
 ```{r}
 #| label: normalization_rna_cell_cyle
+#| eval: false
 
 # Find out which genes are the CC genes
 

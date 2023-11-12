@@ -1,4 +1,4 @@
-#' Out plotting style.
+#' Our plotting style.
 #'
 #'@param title The plot title.
 #'@param col A vector of colours to use.
@@ -8,7 +8,7 @@
 #'@param xlab The title of the x-axis.
 #'@param ylab The title of the y-axis.
 #'@return None, add as theme.
-AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
+AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
   list(
     ggplot2::theme_light(11) + ggplot2::theme(panel.border = element_blank()), 
     if (!is.null(title)) ggtitle(title), 
@@ -24,6 +24,7 @@ AddStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_p
     if (!is.null(ylab)) ylab(ylab)
   )
 }
+
 #' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
 #' 
 #' @param x: A matrix cells (rows) x htos (cols).
