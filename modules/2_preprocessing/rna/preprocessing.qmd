@@ -384,7 +384,7 @@ highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), functio
   top_counts = sc[[default_assay]][[l]][idx, ]
   bcs = top_counts %>% colnames()
   total_counts = barcode_metadata[bcs, paste0("nCount_", default_assay), drop=TRUE]
-  top_perc = t(t(top_counts)/total_counts)*100
+  top_perc = Matrix::t(Matrix::t(top_counts)/total_counts)*100
   
   # Now calculate summary statistics (min, q25, median, mean, q75, max) per feature
   top_perc = as(top_perc, "dgCMatrix")
@@ -481,17 +481,18 @@ When working with human or animal samples, you should ideally constrain you expe
 ```{r}
 #| label: fig-preprocess_rna_sample_sex
 #| fig-cap: 
-#|   - "Plot A"
-#|   - "Plot B"
-#|   - "Plot C"
+#|   - "Percent XIST gene vs chrY genes"
+#|   - "Percent XIST gene"
+#|   - "Percent chrY gene"
 #| warning: false
 
-p = Seurat::FeatureScatter(sc, feature1="pXIST_RNA", feature2="pChrY_RNA", shuffle=TRUE, plot.cor=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
-p = p + AddPlotStyle()
+p = Seurat::FeatureScatter(sc, feature1=paste("pXIST", default_assay, sep="_"), feature2=paste("pChrY", default_assay, sep="_"), shuffle=TRUE, plot.cor=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
+p = p + 
+  AddPlotStyle()
 print(p)
 
-plist = Seurat::VlnPlot(sc, features=c("pXIST_RNA", "pChrY_RNA"), pt.size=0, raster=FALSE, combine=FALSE)
-plist = purrr::map(plist, function(p) return(p + AddPlotStyle()))
+plist = Seurat::VlnPlot(sc, features=c(paste("pXIST", default_assay, sep="_"), paste("pChrY", default_assay, sep="_")), pt.size=0, raster=FALSE, combine=FALSE)
+plist = purrr::map(plist, function(p) return(p + AddPlotStyle() + theme(legend.position="none")))
 print(plist)
 ```
 
@@ -616,6 +617,7 @@ barcodes_to_exclude_tbl$Excluded = purrr::map_int(barcodes_to_exclude, function(
 barcodes_to_exclude_tbl$PercKept = round((barcodes_to_exclude_tbl$Original - barcodes_to_exclude_tbl$Excluded) / barcodes_to_exclude_tbl$Original * 100, 2)
 
 # Filter
+barcodes_to_exclude = purrr::flatten(barcodes_to_exclude) %>% purrr::flatten_chr() %>% unique()
 barcodes_to_keep = rownames(barcode_metadata)
 barcodes_to_keep = barcodes_to_keep[!barcodes_to_keep %in% barcodes_to_exclude]
 sc = subset(sc, cells=barcodes_to_keep)
@@ -871,9 +873,11 @@ if (!is.null(ensembl_column)) {
                                           symbols=TRUE,
                                           species=species,
                                           ensembl_version=ensembl_version,
-                                          mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name"),
+                                          mart_attributes=c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name"),
                                           useCache=TRUE)
     seurat_s_genes = seurat_s_genes %>% dplyr::filter(!is.na(ensembl_id)) %>% dplyr::pull(ensembl_id)
+    idx = which(feature_metadata[, ensembl_column, drop=TRUE] %in% seurat_s_genes)
+    seurat_s_genes= rownames(feature_metadata)[idx]
 
     
   }

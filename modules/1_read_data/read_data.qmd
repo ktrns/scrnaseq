@@ -152,20 +152,20 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
-#datasets = datasets[1:2,]
-#datasets$technology[1] = "parse"
-#datasets$assays[1] = "RNA"
-#datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
-#datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
-#datasets$barcode_metadata_files[1] = NA
-#datasets$rename_features[1] = "ENSEMBL"
+datasets = datasets[1:2,]
+datasets$technology[1] = "parse"
+datasets$assays[1] = "RNA"
+datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+datasets$barcode_metadata_files[1] = NA
+datasets$rename_features[1] = "ENSEMBL"
 
-#datasets$technology[2] = "parse"
-#datasets$assays[2] = "RNA"
-#datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
-#datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
-#datasets$barcode_metadata_files[2] = NA
-#datasets$rename_features[2] = "ENSEMBL"
+datasets$technology[2] = "parse"
+datasets$assays[2] = "RNA"
+datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+datasets$barcode_metadata_files[2] = NA
+datasets$rename_features[2] = "ENSEMBL"
 
 
 
