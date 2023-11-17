@@ -13,6 +13,13 @@ params:
   # Default assay.
   default_assay: RNA
   
+  # Which normalization should be used for analysis?
+  # LogNormalize, Scran or SCTransform
+  norm_method: SCTransform
+  
+  # Number of variable features to use
+  num_variable_features: 3000
+  
 # Module execution
 execute:
   # Should this module be frozen and never re-rendered?
@@ -40,6 +47,8 @@ source("R/general_configuration.R")
 source("R/functions_util.R")
 source("R/functions_io.R")
 source("R/functions_plotting.R")
+source("R/functions_analysis.R")
+
 
 # Load libraries
 library(knitr)
@@ -66,8 +75,8 @@ dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
 # Module directory 'tmp' contains all intermediate files only used for this module
 dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
 
-# Only if counts are stored on disk: module directory 'counts' contains counts for all datasets and assays
-dir.create(file.path(module_dir, "counts"), showWarnings=FALSE)
+# Module directory 'sc' contains the final Seurat object
+dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
 
 #################
 # Seurat object #
@@ -79,7 +88,7 @@ if (!is.null(param("prev_module_dir"))) {
 } else {
   prev_module_dir = PreviousModuleDir(module_dir)
 }
-prev_sc_obj = file.path(prev_module_dir, "sc.rds")
+prev_sc_obj = file.path(prev_module_dir, "sc", "sc.rds")
 if(!file.exists(prev_sc_obj)) {
   stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
 }
@@ -88,128 +97,140 @@ default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
 ```
 
-In this section, we subsequently run a series of Seurat functions for each provided sample:
-
-| 1. We start by running a **standard log normalisation**, where counts for each cell are divided by the total counts for that cell and multiplied by 10,000. This is then natural-log transformed.
-
-<details>
-
-<summary>What do we need normalisation for?</summary>
-
-The number of raw sequencing reads per cell is influenced by technical differences in the capture, reverse transcription and sequencing of RNA molecules, particularly due to the difficulty of achieving consistent library preparation with minimal starting material. Thus, comparing gene expression between cells may reveal differences that are solely due to sampling effects. After low-quality cells were removed in the previous step, the primary goal of normalization is to remove technical sampling effects while preserving the true biological signal.
-
-Count depth scaling is the simplest and most commonly used normalization strategy. The underlying idea is that each cell initially contained an equal number of mRNA molecules, and differences arise due to sampling effects. For each cell, the number of reads per gene is divided by a cell-specific "size factor", which is proportional to the total count depth of the cell. The resulting normalized data add up to 1 per cell, and is then typically multiplied by a factor of 10 (10,000 in this workflow).
-
-Finally, normalized data are log-transformed for three important reasons. First, distances between log-transformed expression data represent log fold changes. Log-transformation emphasizes contributions from genes with strong relative differences, for example a gene that is expressed at an average count of 50 in cell type A and 10 in cell type B rather than a gene that is expressed at an average count of 1100 in A and 1000 in B. Second, log-transformation mitigates the relation between mean and variance in the data. Lastly, log-transformation reduces that skewness of the data as many downstream analyses require the data to be normally distributed.
-
-</details>
-
-| 2. We assign **cell cycle scores** to each cell based on its normalised expression of G2/M and S phase markers. These scores are visualised in a separate section further below. If specified in the above parameter section, cell cycle effects are removed during scaling (step 3). Cell cycle effects removed for this report: `r #param$cc_remove`; *all* cell cycle effects removed for this report: `r #param$cc_remove_all`.
-
-<details>
-
-<summary>How does removal of cell cycle effects affect the data?</summary>
-
-Note that removing all signal associated to cell cycle can negatively impact downstream analysis. For example, in differentiating processes, stem cells are quiescent and differentiated cells are proliferating (or vice versa), and removing all cell cycle effects can blur the distinction between these cells. An alternative approach is to remove the difference between G2M and S phase scores. This way, signals separating non-cycling and cycling cells will be maintained, while differences amongst proliferating cells will be removed. For a more detailed explanation, see the cell cycle vignette for Seurat at <https://satijalab.org/seurat/articles/cell_cycle_vignette.html>.
-
-</details>
-
-| 3. Dependent on the normalisation of your choice, we either
-
-| a. Run standard functions to select **variable genes**, and **scale** normalised gene counts. For downstream analysis it is beneficial to focus on genes that exhibit high cell-to-cell variation, that is they are highly expressed in some cells and lowly in others. To be able to compare normalised gene counts between genes, gene counts are further scaled to have zero mean and unit variance (z-score).
-
-<details>
-
-<summary>What do we need scaling for?</summary>
-
-After normalization, gene expression data can be compared between cells. However, expression of individual genes still cannot be compared. This is because genes have different lengths and, depending on the experimental set up, longer genes can be represented by a higher number of reads. To account for this effect, normalized data are further scaled using a z-transformation, resulting in the average expression of 0 and the variance of 1 for each gene across all cells. Note that additional unwanted sources of variations can be regressed out during the scaling process, such as cell cycle effects or the percentage of mitochondrial reads.
-
-</details>
-
-| b. Run **SCTransform**, a new and more sophisticated normalisation method that replaces the previous functions (**normalisation, variable genes and scaling**).
-
-<details>
-
-<summary>What is **SCTransform** special about?</summary>
-
-The standard log-transformation applied in step 1 assumes that count depth influences all genes equally. However, it has been shown that the use of a single size factor will introduce different effects on highly and lowly expressed genes ([@Hafemeister_2019]). **SCTransform** is a new statistical approach for the modelling, normalization and variance stabilization of single-cell RNA-seq data, and is an alternative to steps 1 and 3a described above. Note that **SCTransform** has been developed for UMI count data and can therefore safely be applied to 10x but not SmartSeq-2 data. As for the scaling in step 3a, additional unwanted sources of variations can be regressed out during **SCTransform**.
-
-</details>
-
-Normalisation method used for this report: `r #param$norm`; with additional sources of variance regressed out: `r #param$vars_to_regress`.
-
-While raw data is typically used for statistical tests such as finding marker genes, normalised data is mainly used for visualising gene expression values. Scaled data include variable genes only, potentially without cell cycle effects, and are mainly used to determine the structure of the dataset(s) with Principal Component Analysis, and indirectly to cluster and visualise cells in 2D space.
 
 ```{r}
-#| label: normalization_rna_standard
-#| eval: false
+#| label: normalization_rna_normalize
+#| results: asis
 
-# standard
-sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
-
-# scran
-
-# ?
-
-# ?
-
-
+if (param("norm_method") == "LogNormalize") {
+  # LogNormalize
+  sc = Seurat::NormalizeData(sc, 
+                             assay=default_assay, 
+                             normalization.method="LogNormalize", 
+                             scale.factor=10000)
+  cat("We have used LogNormalize.")
+} else if(param("norm_method") == "Scran") {
+  # Scran
+  sc = NormalizeScran(sc, 
+                      assay=default_assay,
+                      layer="counts", 
+                      save="data",
+                      chunk_size=50000)
+  cat("We have used Scran.")
+} else if(param("norm_method") == "SCTransform") {
+  # SCTransform
+  sc = SCTransform(sc, 
+                   assay=default_assay,
+                   new.assay.name=paste0(default_assay, "sct"),
+                   vst.flavor="v2",
+                   variable.features.n=param("num_variable_features"),
+                   vars.to.regress=c(),
+                   return.only.var.genes=TRUE,
+                   seed.use=getOption("random_seed"))
+  cat("We have used SCTransform @Hafemeister_2019.")
+}
 ```
 
+Then we identify variable features.
+
 ```{r}
-#| label: normalization_rna_cell_cyle
-#| eval: false
+#| label: normalization_rna_variable_features
 
-# Find out which genes are the CC genes
-
-feature_metadata = sc[[default_assay]][]
-
-# These are the human cell cycle genes
-seurat_s_genes = Seurat::cc.genes.updated.2019[["s.genes"]]
-seurat_g2m_genes = Seurat::cc.genes.updated.2019[["g2m.genes"]]
-
-
-
-# See if we have Ensembl IDs and can use Ensembl to find orthologues
-ensembl_column = NULL
-if ("ensembl_id" %in% colnames(feature_metadata)) {
-  ensembl_column = "ensembl_id"
-} else if (any(grepl("^ENS", feature_metadata[["feature_id"]]))) {
-  ensembl_column = "feature_id"
+# Only LogNormalize and Scran (already done within SCTransform)
+if(param("norm_method") != "SCTransform") {
+  sc = Seurat::FindVariableFeatures(sc, 
+                                    assay=default_assay, 
+                                    selection.method="vst", 
+                                    nfeatures=param("num_variable_features"))
 }
+```
 
-if (!is.null(ensembl_column)) {
-  # Fetch orthologues via Ensembl
-} else {
-  # Try to match
-}
-    
-if (ensembl_id )
+They look like this:
 
-sc = 
+```{r}
+#| label: normalization_rna_variable_features_plots
+#| results: asis
 
-sc = purrr::map(list_names(sc), function(n) {
-  sc[[n]] = CCScoring(sc=sc[[n]], genes_s=genes_s[,2], genes_g2m=genes_g2m[,2], name=n)
-  if (any(is.na(sc[[n]][["S.Score"]])) | any(is.na(sc[[n]][["G2M.Score"]]))) {
-    param$cc_remove=FALSE
-    param$cc_remove_all=FALSE
-    param$cc_rescore_after_merge=FALSE
+orig_idents = SeuratObject::Layers(sc[[default_assay]], "data") %>%
+  gsub(pattern="^data.", replacement="", x=.)
+
+# Make plots per layer (dataset)
+plist = purrr::map(orig_idents, function(n) {
+  # Collect information about highly variable genes
+  if (param("norm_method") == "SCTransform") {
+    assay = paste0(default_assay, "sct")
+    hvf_info = Seurat::SCTResults(sc[[assay]], slot="feature.attributes", model=n)
+    hvf_info = hvf_info[, c("gmean", "variance", "residual_variance")]
+    hvf_info$variable = rownames(hvf_info) %in% Seurat::VariableFeatures(sc[[assay]])
+    hvf_info$rank = match(rownames(hvf_info), Seurat::VariableFeatures(sc[[assay]]))
+  } else {
+    hvf_info = SeuratObject::HVFInfo(sc[[default_assay]],
+                                   method="vst",
+                                   layer=paste("data", n, sep="."),
+                                   status=TRUE)
   }
-  return(sc[[n]])
+  
+  # Get top ten
+  top_ten = which(hvf_info$rank<=10)
+  top_ten = rownames(hvf_info)[top_ten]
+
+  # Define columns to plot
+  if (colnames(hvf_info)[3] == "dispersion.scaled") {
+    hvf_info = hvf_info[, c(1, 2, ncol(hvf_info)-1, ncol(hvf_info))]
+    xlab = "Average Expression"
+    ylab = "Dispersion"
+  } else if (colnames(hvf_info)[3] == "variance.expected") {
+    hvf_info = hvf_info[, c(1, 4, ncol(hvf_info)-1, ncol(hvf_info))]
+    xlab = "Average Expression"
+    ylab = "Standardized Variance"
+  } else if (colnames(hvf_info)[3] == "residual_variance") {
+    hvf_info = hvf_info[, c(1, 3, ncol(hvf_info)-1, ncol(hvf_info))]
+    xlab = "Geometric Mean of Expression"
+    ylab = "Residual Variance"
+  }
+  
+  xvar = colnames(hvf_info)[1]
+  yvar = colnames(hvf_info)[2]
+  
+  # Make plot
+  p = ggplot(hvf_info, aes(x=!!sym(xvar), y=!!sym(yvar), col=variable)) +
+    geom_point() +
+    scale_x_log10(xlab) +
+    scale_y_continuous(ylab) +
+    scale_color_manual("Variable", values=c("black", "red")) +
+    AddPlotStyle() + 
+    theme(legend.position="none", legend.background=element_rect(fill=alpha("white", 0.0)))
+  p = Seurat::LabelPoints(plot=p, points=top_ten, repel=TRUE, xnudge=0, ynudge=0)
+  return(p)
 })
 
-# If cell cycle effects should be removed, we first score cells 
-# The effect is then removed in the following chunk 
-if (param$cc_remove) {
-# Add to vars that need to regressed out during normalisation
-  if (param$cc_remove_all) {
-    # Remove all signal associated to cell cycle
-    param$vars_to_regress = unique(c(param$vars_to_regress, "S.Score", "G2M.Score"))
-    param$latent_vars = unique(c(param$latent_vars, "S.Score", "G2M.Score"))
+captions = paste(default_assay, ": Variable features for", orig_idents)
+
+# Generate chunks
+chunk_template = "
+##### {{name}}
+
+\`\`\`{r}
+#| label: fig-normalization_rna_variable_features_{{name}}
+#| fig-asp: 0.5
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+cat("::: panel-tabset", sep="\n")
+for (i in seq(plist)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, name=orig_idents[i], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
   } else {
-    # Don't remove the difference between cycling and non-cycling cells 
-    param$vars_to_regress = unique(c(param$vars_to_regress, "CC.Difference"))
-    param$latent_vars = unique(c(param$latent_vars, "CC.Difference"))
-  }  
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
 }
+cat(":::")
+
 ```

@@ -1,13 +1,13 @@
 #' Our plotting style.
 #'
-#'@param title The plot title.
-#'@param col A vector of colours to use.
-#'@param fill A vector of fill colours to use.
-#'@param legend_title The legend title.
-#'@param legend_position The legend position.
-#'@param xlab The title of the x-axis.
-#'@param ylab The title of the y-axis.
-#'@return None, add as theme.
+#' @param title The plot title.
+#' @param col A vector of colours to use.
+#' @param fill A vector of fill colours to use.
+#' @param legend_title The legend title.
+#' @param legend_position The legend position.
+#' @param xlab The title of the x-axis.
+#' @param ylab The title of the y-axis.
+#' @return None, add as theme.
 AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
   list(
     ggplot2::theme_light(11) + ggplot2::theme(panel.border = element_blank()), 
@@ -23,6 +23,237 @@ AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, lege
     if (!is.null(xlab)) xlab(xlab),
     if (!is.null(ylab)) ylab(ylab)
   )
+}
+
+#' Helper function to generate plot captions.
+#'
+#' @param plot_names A list of plot names.
+#' @param assay Assay name to remove before matching.
+#' @param split If not NULL, split plot names to generate a X vs Y caption.
+#' @return A list of captions.
+GeneratePlotCaptions = function(plot_names, assay=NULL, split=NULL) {
+  # Split names into two parts if requested
+  if (!is.null(split)) {
+    plot_names = strsplit(plot_names, split)
+  } else {
+    plot_names = as.list(plot_names)
+  }
+  
+  # Remove assay names
+  plot_names = purrr::map(plot_names, function(x) {
+    return(gsub(pattern=paste0("_", assay, "$"), replacement="", x))
+  })
+  
+  # Match and generate captions
+  captions = purrr::map(plot_names, function(x) {
+    # Add captions here
+    capts = dplyr::case_match(x,
+                                 "nCount" ~ "Number of counts",
+                                 "nFeature" ~ "Number of features",
+                                 "pCountsTop50" ~ "Percent counts in top50 features",
+                                 "pMito" ~ "Percent counts in mitochondrial genes",
+                                 "pRibosomal" ~ "Percent counts in ribosomal genes",
+                                 "pGlobin" ~ "Percent counts in globin genes",
+                                 "pERCC" ~ "Percent counts in ERCC controls",
+                                 "pXIST" ~ "Percent counts in XIST gene",
+                                 "pChrY" ~ "Percent counts in chrY genes",
+                                 "S.Score" ~ "S phase score",
+                                 "G2M.Score" ~ "G2M phase score",
+                                 "Phase" ~ "Cell cycle phase",
+                                 .default = NULL
+    )
+    idx = which(is.na(capts))
+    capts[idx] = paste0('Metric "', x[idx], '"')
+    return(capts)
+  })
+  
+  # If there are two parts, collapse with " Vs "
+  captions = purrr::map(captions, function(x) {
+    for(i in seq_along(x)) {
+      # Skip first one
+      if (i==1) next
+      
+      # Make first character lower-case unless the first two characters are upper-case (meaning an abbreviation)
+      # if (!grepl("^[[:upper:]]{2,}", x[i])) {
+      #   s = unlist(strsplit(x[i], ""))
+      #   s[1] = tolower(s[1])
+      #   x[i] = paste(s, collapse="")
+      # }
+    }
+    
+    # Collapse
+    return(paste(x, collapse=" Vs "))
+  }) %>% unlist()
+  
+  return(captions)
+}
+
+#' Plots barcode metadata for QC. Numeric columns will plotted as violin plots and non-numeric
+#' columns will be plotted as bar plots.
+#'
+#' @param sc Seurat v5 object.
+#' @param qc Barcode metadata columns to plot.
+#' @param filter A nested list where the first level is the barcode metadata column and the second levels 
+#' contains filters per dataset. Filters for numeric columns must numeric vectors with min and max. Filter
+#' for character/factor columns must be character vectors with the values that should be kept. 
+#' level contains the filter values 
+#' @return A list of ggplot2 objects.
+PlotBarcodeQC = function(sc, qc, filter=NULL) {
+  barcode_metadata = sc[[]]
+  
+  # Determine QC type (numeric or non-numeric)
+  is_numeric = purrr::map_lgl(qc, function(q) return(is.numeric(barcode_metadata[, q, drop=TRUE])))
+  
+  # Get filter thresholds per QC metrics (numeric)
+  qc_thresholds_numeric = purrr::map(qc[is_numeric], function(f) {
+    tresh = purrr::map_dfr(names(filter), function(n) {
+      tr = data.frame(qc_feature=character(), ident=character(), 
+                      threshold=character(), value=numeric())
+      
+      if (f %in% names(filter[[n]])) {
+        tr = data.frame(qc_feature=f, 
+                        ident=n, 
+                        min=filter[[n]][[f]][1], 
+                        max=filter[[n]][[f]][2])  %>% 
+          tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+      }
+      
+      tr$ident = factor(tr$ident, levels=orig_idents)
+      return(tr)
+    })
+    return(tresh)
+  })
+  names(qc_thresholds_numeric) = qc[is_numeric]
+  
+  qc_thresholds_other = purrr::map(qc[!is_numeric], function(f) {
+    tresh = purrr::map(names(filter), function(n) {
+      return(filter[[n]][[f]])
+    })
+    names(tresh) = names(filter)
+    return(tresh)
+  })
+  names(qc_thresholds_other) = qc[!is_numeric]
+  
+  # Plot numeric QC
+  plist_numeric = Seurat::VlnPlot(sc, features=qc[is_numeric], combine=FALSE, pt.size=0, raster=FALSE, layer="counts")
+  names(plist_numeric) = qc[is_numeric]
+  
+  plist_numeric = purrr::map(names(plist_numeric), function(n) {
+    # Add style
+    p = plist_numeric[[n]] + AddPlotStyle(legend_position="none", xlab="") +
+      theme(axis.text.x=element_text(angle=45, hjust=1))
+    
+    # Add filter thresholds
+    qc_threshold_segments = purrr::pmap(qc_thresholds_numeric[[n]], function(qc_feature, ident, threshold, value) {
+      return(annotate(geom="segment", x=as.integer(ident)-0.5, xend=as.integer(ident)+0.5, y=value, yend=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+    })
+    p = p + qc_threshold_segments
+    return(p)
+  })
+  names(plist_numeric) = qc[is_numeric]
+  
+  # Plot non-numeric QC
+  plist_other = purrr::map(qc[!is_numeric], function(n) {
+    # Collect plot_data
+    plot_data = barcode_metadata %>% 
+      dplyr::select(x=orig.ident, y=!!sym(n)) %>%
+      dplyr::count(x, y) %>%
+      dplyr::group_by(x) %>%
+      dplyr::mutate(perc=n/sum(n)*100)
+    plot_data$status = "filter"
+    for(i in 1:nrow(plot_data)){
+      allowed_values = qc_thresholds_other[[n]]
+      allowed_values = allowed_values[[plot_data$x[i]]]
+      plot_data$status[i] = ifelse(plot_data$y[i] %in% allowed_values, "keep", "filter")
+    }
+    plot_data$status = factor(plot_data$status, levels=c("keep", "filter"))
+    
+    # Make plot
+    p = ggplot(plot_data, aes(x=x, y=perc, fill=y, alpha=status, col=status)) +
+      geom_bar(stat="identity", position="stack") +
+      scale_x_discrete("Identity") +
+      scale_color_manual(values=c("keep"="black", "filter"="grey")) +
+      scale_alpha_manual(values=c("keep"=1, "filter"=0.2)) +
+      AddPlotStyle() +
+      theme(axis.title.y=element_blank())
+    
+    return(p)
+  })
+  names(plist_other) = qc[!is_numeric]
+  
+  # Adjust order
+  plist = c(plist_numeric, plist_other)
+  plist = plist[qc]
+  
+  return(plist)
+}
+
+#' Plots two barcode metadata columns for QC. Supports only numeric columns.
+#'
+#' @param sc Seurat v5 object.
+#' @param qc Pairs of barcode metadata columns to plot.
+#' @param filter A nested list where the first level is the barcode metadata column and the second levels 
+#' contains filters per dataset. Filters for numeric columns must numeric vectors with min and max. Filter
+#' for character/factor columns must be character vectors with the values that should be kept. 
+#' level contains the filter values 
+#' @return A list of ggplot2 objects.
+PlotBarcodeQCCor = function(sc, qc, filter=NULL) {
+  barcode_metadata = sc[[]]
+  
+  # Check QC type (only numeric allowed)
+  qc_cols = purrr::flatten(qc) %>%
+    unlist() %>%
+    unique()
+  f = purrr::map_lgl(qc_cols, function(c) return(is.numeric(barcode_metadata[, c, drop=TRUE])))
+  assertthat::assert_that(all(f),
+                          msg=FormatMessage("Barcode metadata columns {qc_cols[!f]*} are not numeric! Function PlotBarcodeQCCor can only plot numeric data."))
+  
+  # Get filter thresholds per QC metrics (numeric)
+  qc_thresholds = purrr::map(qc_cols, function(f) {
+    tresh = purrr::map_dfr(names(filter), function(n) {
+      tr = data.frame(qc_feature=character(), ident=character(), 
+                      threshold=character(), value=numeric())
+      
+      if (f %in% names(filter[[n]])) {
+        tr = data.frame(qc_feature=f, 
+                        ident=n, 
+                        min=filter[[n]][[f]][1], 
+                        max=filter[[n]][[f]][2])  %>% 
+          tidyr::pivot_longer(c(min, max), names_to="threshold", values_to="value")
+      }
+      
+      tr$ident = factor(tr$ident, levels=orig_idents)
+      return(tr)
+    })
+    return(tresh)
+  })
+  names(qc_thresholds) = qc_cols
+  
+  plist = purrr::map(qc, function(c) {
+    f1 = c[1]
+    f2 = c[2]
+    
+    # Plot QC feature f1 vs f2
+    p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=ncol(sc)>=getOption("raster.threshold"))
+    p = p + AddPlotStyle()
+    
+    # Add filter thresholds for f1
+    qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
+      return(geom_vline(xintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+    })
+    p = p + qc_threshold_segments
+    
+    # Add filter thresholds for f2
+    qc_threshold_segments = purrr::pmap(qc_thresholds[[f2]], function(qc_feature, ident, threshold, value) {
+      return(geom_hline(yintercept=value, linetype=ifelse(threshold=="max", 6, 2), colour="firebrick"))
+    })
+    p = p + qc_threshold_segments
+    
+    return(p)
+  })
+  names(plist) = purrr::map(qc, paste, collapse="__") %>% unlist()
+  
+  return(plist)
 }
 
 #' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2

@@ -166,14 +166,14 @@ GetBiomaRt = function(species, ensembl_version) {
 
 #' Fetches gene information from Ensembl using biomaRt.
 #' 
-#' @param ids A list of Ensembl ids.
+#' @param ids A list of Ensembl ids or - if symbols is TRUE - gene symbols.
 #' @param symbols If TRUE, ids are interpreted as gene symbols.
 #' @param species Species.
 #' @param ensembl_version Ensembl version.
 #' @param mart_attributes Ensembl attributes to fetch. Can be a character vector or a named character vector. Defaults to: c(ensembl_id="ensembl_gene_id, ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand").
 #' @param useCache Use local cache for faster querying. Default is TRUE. Set to FALSE if there are problems.
 #' @return A table with gene information. Ids that were not found are included but most of the information will be NA.
-EnsemblFetchGeneInfo = function(ids, symbols=FALSE, species, ensembl_version, mart_attributes = c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand"), useCache=TRUE) {
+EnsemblFetchGeneInfo = function(ids, symbols=FALSE, species, ensembl_version, mart_attributes=c(ensembl_id="ensembl_gene_id", ensembl_symbol="external_gene_name", ensembl_biotype="gene_biotype", ensembl_description="description", ensembl_chr="chromosome_name", ensembl_start_position="start_position", ensembl_end_position="end_position", ensembl_strand="strand"), useCache=TRUE) {
   # Get species mart
   species_mart = GetBiomaRt(species, ensembl_version)
   
@@ -182,10 +182,21 @@ EnsemblFetchGeneInfo = function(ids, symbols=FALSE, species, ensembl_version, ma
     assertthat::assert_that(any(grepl("^ENS", ids)),
                           msg = FormatMessage(
                             "None of the ids in this dataset is Ensembl. Cannot fetch gene information with this method."))
+    id_column = "ensembl_gene_id"
+  } else {
+    id_column = "external_gene_name"
+  }
+  
+  if (!id_column %in% mart_attributes) {
+    mart_attributes = c(setNames(id_column, id_column), mart_attributes)
   }
   
   # Fetch attributes from Ensembl (use cache to allow multiple fetches)
-  species_annotation = biomaRt::getBM(mart=species_mart, filters=ifelse(symbols, "external_gene_name", "ensembl_gene_id"), values=ids,attributes=mart_attributes, useCache=useCache)
+  species_annotation = biomaRt::getBM(mart=species_mart, 
+                                      filters=id_column, 
+                                      values=ids, 
+                                      attributes=mart_attributes, 
+                                      useCache=useCache)
   if (!is.null(names(mart_attributes))) {
     colnames(species_annotation) = names(mart_attributes)
   }
@@ -194,21 +205,82 @@ EnsemblFetchGeneInfo = function(ids, symbols=FALSE, species, ensembl_version, ma
       "Could not find fetch any gene information for this dataset. Is the species {species} correct?"))
   
   # Add rows for ids that were not found
-  if (symbols) {
-    first_y_col = "ensembl_symbol"
-  } else {
-    first_y_col = "ensembl_id"
-  }
+  idx = which(mart_attributes == id_column)
+  first_y_col = names(mart_attributes)[idx]
   x_df = data.frame(ids)
   colnames(x_df) = first_y_col
-  
   annotation_ensembl = dplyr::left_join(x_df, species_annotation, by=first_y_col)
   
   return(annotation_ensembl)
 }
 
-#EnsemblFetchOrthologues = function(ids, species, ensembl_version, useCache=TRUE) {
+#' Fetches orthologues information between two species from Ensembl using biomaRt.
+#' 
+#' @param ids A list of Ensembl ids or - if symbols is TRUE - gene symbols.
+#' @param symbols If TRUE, ids are interpreted as gene symbols.
+#' @param species1 Species 1.
+#' @param species1 Species 2.
+#' @param ensembl_version Ensembl version.
+#' @param mart_attributes1 Ensembl attributes to fetch fo species 1. Can be a character vector or a named character vector. Defaults to: c(ensembl_id="ensembl_gene_id, ensembl_symbol="external_gene_name"). Can be empty.
+#' @param mart_attributes1 Ensembl attributes to fetch fo species 2. Can be a character vector or a named character vector. Defaults to: c(ensembl_id="ensembl_gene_id, ensembl_symbol="external_gene_name"). Cannot be empty.
+#' @param useCache Use local cache for faster querying. Default is TRUE. Set to FALSE if there are problems.
+#' @return A table with orthologues between species 1 and species 2. Ids that were not found are included but most of the information will be NA.
+EnsemblFetchOrthologues = function(ids, symbols=FALSE, species1, species2, ensembl_version, mart_attributes1=c(ensembl_id1="ensembl_gene_id", ensembl_symbol1="external_gene_name"), mart_attributes2=c(ensembl_id2="ensembl_gene_id", ensembl_symbol2="external_gene_name"), useCache=TRUE) {
+  # Get species marts
+  species1_mart = GetBiomaRt(species1, ensembl_version)
+  species2_mart = GetBiomaRt(species2, ensembl_version)
   
+  # Check that we have Ensembl ids
+  if (!symbols) {
+    assertthat::assert_that(any(grepl("^ENS", ids)),
+                            msg = FormatMessage(
+                              "None of the ids in this dataset is Ensembl. Cannot fetch gene information with this method."))
+    id_column = "ensembl_gene_id"
+  } else {
+    id_column = "external_gene_name"
+  }
+  
+  if (!id_column %in% mart_attributes1) {
+    mart_attributes1 = c(setNames(id_column, id_column), mart_attributes1)
+  }
+  
+  ortholog_annotation = biomaRt::getLDS(mart=species1_mart,
+                            martL=species2_mart,
+                            filters=id_column,
+                            values=ids,
+                            attributes=mart_attributes1,
+                            attributesL=mart_attributes2, 
+                            uniqueRows=TRUE)
+  if (!is.null(names(mart_attributes1)) & !is.null(names(mart_attributes2))) {
+    colnames(ortholog_annotation) = c(names(mart_attributes1), names(mart_attributes2))
+  }
+  assertthat::assert_that(nrow(ortholog_annotation)>0,
+                          msg = FormatMessage(
+                            "Could not find fetch any ortholog information for this dataset. Is the species {species1} correct?"))
+
+  
+  # Identify one-to-one orthologues
+  idx = which(mart_attributes1 == id_column)
+  first_y_col = names(mart_attributes1)[idx]
+  one_to_one = ortholog_annotation %>% 
+    dplyr::group_by(!!sym(first_y_col)) %>%
+    dplyr::summarise(n=dplyr::n()) %>%
+    dplyr::filter(n==1) %>%
+    dplyr::pull(!!sym(first_y_col))
+  
+  ortholog_annotation = ortholog_annotation %>%
+    dplyr::mutate(one_to_one = !!sym(first_y_col) %in% one_to_one)
+  
+  # Add rows for ids that were not found
+  idx = which(mart_attributes1 == id_column)
+  first_y_col = names(mart_attributes1)[idx]
+  x_df = data.frame(ids)
+  colnames(x_df) = first_y_col
+  ortholog_annotation = dplyr::left_join(x_df, ortholog_annotation, by=first_y_col)
+  
+  return(ortholog_annotation)
+  
+}  
 
 #' Adds feature metadata to an Seurat object or an Assay object.
 #' 
@@ -316,6 +388,40 @@ PrepareFeatureFilter = function(filter, orig_idents) {
   filter = purrr::list_modify(filter, !!!sample_specific_filter)
   
   return(filter)
+}
+
+#' Adds one more lists to the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param lists A named list with one or more lists (named or unnamed vectors only).
+#' @param lists_slot In which slot of the Seurat misc slot should the list(s) be stored.
+#' @param add_to_list When a list with this name already exists, add to the list instead of overwriting the list. Default is FALSE.
+#' @param make_unique Make lists unique (after they were stored in the misc slot). Default is FALSE.
+#' @return A Seurat sc object with updated list(s).
+ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, make_unique=FALSE) {
+  stored_lists = Seurat::Misc(sc, slot=lists_slot)
+  if (is.null(stored_lists)) stored_lists = list()
+  
+  # Check that the lists have names, otherwise set to 'list_1', 'list_2' etc
+  lists_names = purrr::map_chr(seq(lists), function(i) {
+    n = names(lists[i])
+    if (is.null(n) || nchar(n) == 0) return(paste0("list_",as.character(i))) else return(names(lists[i]))
+  })
+  names(lists) = lists_names
+  
+  for(n in names(lists)) {
+    if (n %in% names(stored_lists) & add_to_list == TRUE) {
+      stored_lists[[n]] = c(stored_lists[[n]], unlist(lists[[n]]))
+    } else {
+      stored_lists[[n]] = unlist(lists[[n]])
+    }
+    
+    if (make_unique) stored_lists[[n]] = unique(stored_lists[[n]])
+  }
+  
+  # Add to Seurat object
+  suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
+  return(sc)
 }
 
 ######################
@@ -441,39 +547,7 @@ ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
   return(cell_names_sample)
 }
 
-#' Adds one more lists to the misc slot of the Seurat object.
-#' 
-#' @param sc A Seurat sc object.
-#' @param lists A named list with one or more lists (named or unnamed vectors only).
-#' @param lists_slot In which slot of the Seurat misc slot should the list(s) be stored.
-#' @param add_to_list When a list with this name already exists, add to the list instead of overwriting the list. Default is FALSE.
-#' @param make_unique Make lists unique (after they were stored in the misc slot). Default is FALSE.
-#' @return A Seurat sc object with updated list(s).
-ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, make_unique=FALSE) {
-  stored_lists = Seurat::Misc(sc, slot=lists_slot)
-  if (is.null(stored_lists)) stored_lists = list()
-  
-  # Check that the lists have names, otherwise set to 'list_1', 'list_2' etc
-  lists_names = purrr::map_chr(seq(lists), function(i) {
-    n = names(lists[i])
-    if (is.null(n) || nchar(n) == 0) return(paste0("list_",as.character(i))) else return(names(lists[i]))
-  })
-  names(lists) = lists_names
-  
-  for(n in names(lists)) {
-    if (n %in% names(stored_lists) & add_to_list == TRUE) {
-      stored_lists[[n]] = c(stored_lists[[n]], unlist(lists[[n]]))
-    } else {
-      stored_lists[[n]] = unlist(lists[[n]])
-    }
-    
-    if (make_unique) stored_lists[[n]] = unique(stored_lists[[n]])
-  }
-  
-  # Add to Seurat object
-  suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
-  return(sc)
-}
+
 
 #' Returns the names of an object.
 #' 

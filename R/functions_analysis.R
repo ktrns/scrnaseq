@@ -1,3 +1,128 @@
+#' Calculate cell cycle scores.
+#' 
+#' @param sc Seurat v5 object
+#' @param genes_s Vector of gene names characteristic for S-phase
+#' @param genes_g2m Vector of gene names characteristic for G2M-phase
+#' @param assay Assay to use
+#' @return Updated Seurat object with cell cycle phase as well as scores.
+CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  # For each layer (dataset)
+  # In this case, we need to split the Seurat object 
+  # (since CellCycleScoring and AddModuleScore still cannot work with layers)
+  sc_split = suppressMessages(Seurat::SplitObject(sc, split.by="orig.ident"))
+    
+  cell_cycle_scores = purrr::map_dfr(names(sc_split), function(n) {
+    # Check that the genes exist
+    genes_s_exists = genes_s %in% rownames(sc_split[[n]][[assay]])
+    genes_g2m_exists = genes_g2m %in% rownames(sc_split[[n]][[assay]])
+    
+    
+    if (sum(genes_s_exists) >= 20 & sum(genes_g2m_exists) >= 20) {
+      sc_split[[n]] = Seurat::CellCycleScoring(sc_split[[n]],
+                                               s.features=genes_s[genes_s_exists],
+                                               g2m.features=genes_g2m[genes_g2m_exists],
+                                               assay=assay,
+                                               verbose=FALSE)
+      cc_scores = sc_split[[n]][[c("Phase", "S.Score", "G2M.Score")]]
+      cc_scores[["CC.Difference"]] = cc_scores[["S.Score"]] - cc_scores[["G2M.Score"]]
+    } else {
+      cc_scores = data.frame(Phase=character(), S.Score=numeric(), G2M.Score=numeric(), CC.Difference=numeric())
+    }
+    cc_scores[["Phase"]] = factor(cc_scores[["Phase"]], levels=c("G1", "G2M", "S"))
+    return(cc_scores)
+  })
+    
+  # Add to barcode metadata
+  sc = Seurat::AddMetaData(sc, cell_cycle_scores)
+  
+  # Add to 'gene_lists' slot in the misc slot of the Seurat object
+  sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s, CC_G2M_phase=genes_g2m),
+                  lists_slot="gene_lists")
+  
+  # Log command
+  sc = Seurat::LogSeuratCommand(sc)
+  
+  return(sc)
+}
+
+#' Apply scran normalization (using pooled size factors) to counts data.
+#' 
+#' @param sc Seurat v5 object.
+#' @param assay Assay to normalize. If NULL, will be default assay.
+#' @param layer Layer to normalize. Default is "counts" meaning all raw counts layers.
+#' @param save Name of the normalized layers. Default is "data" meaning new layers will be named data.X, data.Y, ...
+#' @param chunk_size Maximum number of barcodes for which to compute size factors at once. Large counts matrices will be split into chunks to save memory.
+#' @return Seurat v5 object with new layers data.X, data.Y, ...
+NormalizeScran = function(sc, assay=NULL, layer="counts", save="data", chunk_size=50000) {
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  #suppressWarnings({Seurat::Misc(sc[[assay]], slot="scran_size_factors") = c()})
+  
+  # Iterate over layers (datasets) and get size factors
+  olayers = layers = unique(layer)
+  layers = SeuratObject::Layers(object= sc[[assay]], layer)
+  if (length(save) != length(layers)) {
+    save = make.unique(names=gsub(pattern=olayers, replacement=save, x=layers))
+  }
+  
+  for (i in seq_along(layers)) {
+    l = layers[i]
+    
+    barcodes = SeuratObject::Cells(sc[[assay]], layer=l)
+    chunks = split(barcodes, ceiling(seq_along(barcodes)/chunk_size))
+    
+    # Calculate size factors per chunk
+    size_factors = purrr::map(chunks, function(c) {
+      counts = SeuratObject::LayerData(sc[[assay]], layer=l, fast=NA, cells=c)
+      
+      # Convert to dgCMatrix and create
+      if (!is(counts, "dgCMatrix")) {
+        counts = as(counts, "dgCMatrix")
+      }
+      
+      # Convert to SingleCellExperiment, cluster and compute size factors per cluster
+      # Note: These are already centered
+      sce = SingleCellExperiment::SingleCellExperiment(list(counts=counts))
+      clusters = scran::quickCluster(sce, min.size=100)
+      sce = scuttle::computePooledFactors(sce, clusters=clusters)
+      sf = scuttle::pooledSizeFactors(sce, clusters=clusters)
+      sf = setNames(sf, c)
+      return(sf)
+    })
+    size_factors = purrr::flatten(size_factors) %>% unlist()
+    
+    # Store size factors in misc slot of assay
+    #misc_lst = Seurat::Misc(sc[[assay]], slot="scran_size_factors")
+    #misc_lst = c(misc_lst, size_factors)
+    #suppressWarnings({Seurat::Misc(sc[[assay]], slot="scran_size_factors") = misc_lst})
+    
+    # Now apply size factors and normalise
+    counts = SeuratObject::LayerData(sc[[assay]], layer=l, fast=NA)
+    counts = log1p(Matrix::t(Matrix::t(counts) / size_factors))
+    
+    LayerData(sc[[assay]], 
+              layer=save[i], 
+              features=SeuratObject::Features(sc[[assay]], layer=l),
+              cells=SeuratObject::Cells(sc[[assay]], layer=l)) = counts
+    
+  }
+  
+  # Log command
+  sc = Seurat::LogSeuratCommand(sc)
+  
+  return(sc)
+}
+
+
+
+
+
+
+
+
+
 #' Calculate enrichment of cells per sample per cluster.
 #' 
 #' @param sc Seurat object.
@@ -23,49 +148,6 @@ CellsFisher = function(sc) {
   }
   colnames(out) = paste0("Cl_", cell_clusters)
   return(out)
-}
-
-#' Get cell cycle scores
-#' 
-#' @param sc Seurat object
-#' @param genes_s Vector of gene names characteristic for S-phase
-#' @param genes_g2m Vector of gene names characteristic for G2M-phase
-#' @param name Name of the dataset, only used to write a sensible warning if necessary (Default "")
-#' @return Updated Seurat object
-
-
-#' Calculate cell cycle scores
-#' 
-#' @param sc Seurat object
-#' @param genes_s Vector of gene names characteristic for S-phase
-#' @param genes_g2m Vector of gene names characteristic for G2M-phase
-#' @param name Name of the dataset, only used to write a sensible warning if necessary (Default "")
-#' @return Updated Seurat object
-CCScoring = function(sc, genes_s, genes_g2m, name=""){
-  # Subset to CC genes that are in the object
-  genes_s_exists = genes_s %in% rownames(sc)
-  genes_g2m_exists = genes_g2m %in% rownames(sc)
-  if (sum(genes_s_exists) >= 10 & sum(genes_s_exists) >= 10){
-    
-    # Calculate CC scores
-    sc = Seurat::CellCycleScoring(sc,
-                                  s.features=genes_s[genes_s_exists],
-                                  g2m.features=genes_g2m[genes_g2m_exists], 
-                                  set.ident=FALSE, verbose=FALSE)
-    sc[["CC.Difference"]] = sc[["S.Score", drop=TRUE]] - sc[["G2M.Score", drop=TRUE]]
-    sc[["Phase"]] = factor(sc[["Phase", drop=TRUE]], levels=c("G1", "G2M", "S"))
-    
-    # Add to 'gene_lists' slot in the misc slot of the Seurat object
-    sc = ScAddLists(sc, lists=list(CC_S_phase=genes_s[genes_s_exists], CC_G2M_phase=genes_g2m[genes_g2m_exists]), lists_slot="gene_lists")
-    
-  } else {
-    sc[["S.Score"]] = sc[["G2M.Score"]] = sc[["CC.Difference"]] = as.numeric(NA)
-    sc[["Phase"]] = factor(as.character(NA), levels=c("G1", "G2M", "S"))
-    if(name!="") name=paste0(name, " ")
-    warning(paste0("There are not enough G2/M and S phase markers in the dataset ", name, "to reliably determine cell cycle scores and phases. Scores and phases will be set to NA and removal of cell cycle effects is skipped."))
-  }
-  
-  return(sc)
 }
 
 #' Integrate multiple samples using Seurat's integration strategy. In short, a set of features (e.g. genes) is used to anchor cells that are in a matched biological state. Within these anchored set of cells, technical effects are then removed. There are three possible ways to run the integration process:

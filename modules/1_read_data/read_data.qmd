@@ -100,6 +100,7 @@ source("R/general_configuration.R")
 source("R/functions_util.R")
 source("R/functions_io.R")
 source("R/functions_plotting.R")
+source("R/functions_analysis.R")
 
 # Load libraries
 library(knitr)
@@ -152,20 +153,20 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
-datasets = datasets[1:2,]
-datasets$technology[1] = "parse"
-datasets$assays[1] = "RNA"
-datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
-datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
-datasets$barcode_metadata_files[1] = NA
-datasets$rename_features[1] = "ENSEMBL"
+#datasets = datasets[1:2,]
+#datasets$technology[1] = "parse"
+#datasets$assays[1] = "RNA"
+#datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+#datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+#datasets$barcode_metadata_files[1] = NA
+#datasets$rename_features[1] = "ENSEMBL"
 
-datasets$technology[2] = "parse"
-datasets$assays[2] = "RNA"
-datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
-datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
-datasets$barcode_metadata_files[2] = NA
-datasets$rename_features[2] = "ENSEMBL"
+#datasets$technology[2] = "parse"
+#datasets$assays[2] = "RNA"
+#datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+#datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+#datasets$barcode_metadata_files[2] = NA
+#datasets$rename_features[2] = "ENSEMBL"
 
 
 
@@ -229,7 +230,6 @@ metrics_tables_by_tech = purrr::map(dataset_rows_by_tech, function(rows) {
 })
 ```
 
-::: panel-tabset
 ```{r}
 #| label: read_data_metric
 #| results: asis
@@ -247,6 +247,7 @@ metrics_tables_by_tech[['{{technology}}']] %>% gt()
 \`\`\`
 "
 
+cat("::: panel-tabset", sep="\n")
 for(n in names(metrics_tables_by_tech)) {
   chunk_filled = knitr::knit_expand(text=chunk_template, technology=n)
   
@@ -257,8 +258,8 @@ for(n in names(metrics_tables_by_tech)) {
     cat(chunk_filled, sep='\n')
   }
 }
+cat(":::", sep="\n")
 ```
-:::
 
 ## Read counts
 
@@ -875,7 +876,7 @@ for (a in Seurat::Assays(sc)) {
   for (l in SeuratObject::Layers(sc[[a]], "counts")) {
     
     # Get data for layer (sample)
-    counts = sc[[a]][[l]]
+    counts = sc[[a]][l]
     bcs = counts %>% colnames()
     total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
 
@@ -916,7 +917,7 @@ for (a in Seurat::Assays(sc)) {
   for (l in SeuratObject::Layers(sc[[a]], "counts")) {
 
     # Get data for layer (sample)
-    counts = sc[[a]][[l]]
+    counts = sc[[a]][l]
     bcs = counts %>% colnames()
     total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
     counts_perc = t(t(counts)/total_counts)*100
@@ -939,8 +940,8 @@ for (a in Seurat::Assays(sc)) {
     
     # Add to metadata
     n = gsub(x=l, pattern="counts\\.", replacement="")
-    sc[[a]][paste("nBcs", n, sep="_")] = num_bcs_expr
-    sc[[a]][paste("medianPerc", n, sep="_")] = counts_median
+    sc[[a]][[paste("nBcs", n, sep="_")]] = num_bcs_expr
+    sc[[a]][[paste("medianPerc", n, sep="_")]] = counts_median
   }
 }
 ```
@@ -964,7 +965,6 @@ gt(df, rownames_to_stub=TRUE)
 
 The next table shows available metadata (columns) of the first five features (rows) for each assay.
 
-::: panel-tabset
 ```{r}
 #| label: read_data_feature_metadata
 #| results: asis
@@ -979,11 +979,12 @@ chunk_template = "
 #| label: tbl-read_data_feature_metadata_{{assay}}
 #| tbl-cap: 'Feature metadata for assay {{assay}}'
 
-sc[['{{assay}}']][] %>% head(5) %>% gt(rownames_to_stub=TRUE)
+sc[['{{assay}}']][[]] %>% head(5) %>% gt(rownames_to_stub=TRUE)
 \`\`\`
 
 "
 
+cat("::: panel-tabset", sep="\n")
 for (a in Seurat::Assays(sc)) {
   chunk_filled =  knitr::knit_expand(text=chunk_template, assay=a)
   
@@ -994,14 +995,16 @@ for (a in Seurat::Assays(sc)) {
     cat(chunk_filled, sep='\n')
   }
 }
+cat(":::", sep="\n")
 ```
-:::
 
 ## Basic summary
 
 ```{r}
 #| label: read_data_basic_summary
 #| results: asis
+
+orig_idents = levels(sc$orig.ident)
 
 chunk_template = "
 \`\`\`{r}
@@ -1020,10 +1023,19 @@ for (a in Seurat::Assays(sc)) {
   cat("### ", a, "\n\n")
   
   # Generate barcode plots
-  f = paste(c("nCount", "nFeature", "pCountsTop50"), a, sep="_")
-  captions = paste(a, c("Number of counts per barcode", "Number of features per barcode", "Percent counts in top50 features"), sep=": ")
-  plist = VlnPlot(sc, features=f, pt.size=0, combine=FALSE, raster=FALSE)
-  plist = purrr::map(plist,  function(p) return(p + AddPlotStyle(legend_position="none")))
+  barcode_qc = paste(c("nCount", "nFeature", "pCountsTop50"), a, sep="_") 
+  plist = PlotBarcodeQC(sc, qc=barcode_qc)
+
+  # Prepare captions
+  captions = GeneratePlotCaptions(names(plist), assay=a)
+  
+  # Set up layout and generate chunks
+  if (length(orig_idents) <= 10) {
+    cat("::: {layout-ncol=2}", sep="\n")
+  } else {
+    cat("::: {layout-ncol=1}", sep="\n")
+  }
+  
   for (i in seq(plist)) {
     chunk_filled =  knitr::knit_expand(text=chunk_template, assay=a, i=i, caption=captions[[i]])
     if(interactive()) {
@@ -1033,7 +1045,7 @@ for (a in Seurat::Assays(sc)) {
       cat(chunk_filled, '\n')
     }
   }
-  cat("\n\n")
+  cat(":::", sep="\n")
 }
 ```
 
@@ -1043,5 +1055,16 @@ for (a in Seurat::Assays(sc)) {
 #| label: read_data_save_seurat
 #| timeit: true
 
-SeuratObject::saveRDS(object=sc, file=file.path(module_dir, "sc", "sc.rds"), destdir=file.path(module_dir, "sc"))
+# Save Seurat object: SeuratObject::SaveSeuratRds does not work
+saveRDS(sc, file=file.path(module_dir, "sc", "sc.rds"))
+#SeuratObject::SaveSeuratRds(sc,
+#              file=file.path(module_dir, "sc", "sc.rds"),
+#              destdir=file.path(module_dir, "sc"))
+
+# Do not delete since SeuratObject::SaveSeuratRds does not copy the on-disk data directories properly
+# Clean tmp directory
+#tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
+#for(t in tmp_files) {
+#  unlink(t, recursive=TRUE)
+#}
 ```
