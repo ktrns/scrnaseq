@@ -217,7 +217,7 @@ if (length(idx) > 0) {
 plist = PlotBarcodeQC(sc, qc=barcode_qc, filter=barcode_filter)
 
 # Prepare captions
-captions = GeneratePlotCaptions(names(plist), assay=default_assay)
+captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay))
 
 # Set up layout and generate chunks
 chunk_template = "
@@ -278,7 +278,7 @@ barcode_qc_cor = purrr::map(barcode_qc_cor, function(barcode_qc) {
 plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter)
 
 # Prepare captions
-captions = GeneratePlotCaptions(names(plist), assay=default_assay, split="__")
+captions = GeneratePlotCaptions(names(plist), remove=paste0(default_assay, "_"), split="__")
 
 # Generate chunks
 chunk_template = "
@@ -355,13 +355,9 @@ highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), functio
   top_perc = Matrix::t(Matrix::t(top_counts)/total_counts)*100
   
   # Now calculate summary statistics (min, q25, median, mean, q75, max) per feature
-  top_perc = as(top_perc, "dgCMatrix")
-  top_perc_summary = purrr::map(1:nrow(top_perc), function(i) {
-    return(summary(top_perc[i, ]))
-  })
-  top_perc_summary = do.call(rbind, top_perc_summary) %>% as.data.frame()
-  colnames(top_perc_summary) = c("min", "q25", "median", "mean", "q75", "max")
-  top_perc_summary$gene = rownames(top_perc)
+  top_perc_summary = CalculateBoxplotStats(top_perc, margin=1, chunk_size=NULL)
+  top_perc_summary$gene = rownames(top_perc_summary)
+  rownames(top_perc_summary) = NULL
   top_perc_summary$orig.ident = gsub(x=l, pattern="^counts\\.", replacement="")
   return(top_perc_summary)
 })
@@ -394,14 +390,14 @@ plist = purrr::map(orig_idents, function(s) {
   # Subset data
   plot_data = highestExpr_summary %>% 
     dplyr::filter(orig.ident==s) %>%
-    dplyr::arrange(-median) %>%
+    dplyr::arrange(-q50) %>%
     head(20) %>%
-    dplyr::arrange(median)
+    dplyr::arrange(q50)
   plot_data$gene = factor(plot_data$gene, levels=unique(plot_data$gene))
 
   # Plot
   p = ggplot(plot_data, aes(x=gene, fill=gene)) +
-    geom_boxplot(aes(ymin=min, lower=q25, middle=median, upper=q75, ymax=max), stat="identity", width=1) +
+    geom_boxplot(aes(ymin=lower_whisker, lower=q25, middle=q50, upper=q75, ymax=upper_whisker), stat="identity", width=1) +
     scale_x_discrete() +
     scale_y_continuous("% of total counts") +
     scale_fill_manual(values=rev(Seurat::DiscretePalette(n=20, "stepped"))) +
@@ -440,6 +436,36 @@ for (i in seq(plist)) {
 
 cat(":::", sep="\n")
 ```
+
+## Sample QC
+
+```{r}
+sampleqc_data = sc[[]] %>% 
+  dplyr::select(sample_id=orig.ident, 
+                nCount_RNA=nCount_RNA,
+                nFeature_RNA=nFeature_RNA,
+                percent.mt=pMito_RNA)
+sampleqc_data = SampleQC::make_qc_dt(sampleqc_data,
+                     sample_var="sample_id",
+                     qc_names=c("log_counts", "log_feats", "logit_mito"),
+                     annot_vars = NULL)
+
+
+# which QC metrics do we want to use?
+qc_names    = c('log_counts', 'log_feats', 'logit_mito')
+
+# which discrete-valued variables do we want to annotate the samples with?
+annots_disc = NULL
+
+# which continuous-valued variables do we want to annotate the samples with?
+annots_cont = NULL
+
+qc_obj    = calc_pairwise_mmds(sampleqc_data, qc_names, 
+  annots_disc = annots_disc, annots_cont = annots_cont, n_cores = 1)
+table(colData(qc_obj)$group_id)
+
+```
+
 
 ## Sample sex
 

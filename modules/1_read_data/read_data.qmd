@@ -685,7 +685,7 @@ rownames(feature_metadata) = feature_metadata$rowname
 feature_metadata = feature_metadata %>% dplyr::select(-rowname)
 
 # Add to Seurat default assay object
-assay_obj = AddFeatureMetadata(assay_obj, metadata=feature_metadata)
+assay_obj = SeuratObject::AddMetaData(assay_obj, metadata=feature_metadata)
 
 # Collect barcode metadata (from all assays/datasets)
 barcode_metadata = purrr::map_dfr(seq_along(counts_lst), function(i) {
@@ -756,7 +756,7 @@ for(a in setdiff(all_assays, default_assay)) {
   feature_metadata = feature_metadata %>% dplyr::select(-rowname)
 
   # Add to Seurat default assay object
-  assay_obj = AddFeatureMetadata(assay_obj, metadata=feature_metadata)
+  assay_obj = SeuratObject::AddMetaData(assay_obj, metadata=feature_metadata)
   sc[[a]] = assay_obj
   
   # Fix NA values in barcode metadata
@@ -925,7 +925,7 @@ for (a in Seurat::Assays(sc)) {
     # Calculate feature filters
     num_bcs_expr = rowSums(counts >= 1)
 
-    # Calculate mean of counts_perc per gene
+    # Calculate median of counts_perc per gene
     row_indices = 1:nrow(counts_perc)
     chunk_size = 1000
     chunks = split(row_indices, ceiling(seq_along(row_indices)/chunk_size)) 

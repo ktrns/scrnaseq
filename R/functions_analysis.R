@@ -1,3 +1,140 @@
+#' Calculates the median of rows or columns of a sparse (dgCMatrix) or iterable (IterableMatrix) matrix. 
+#'
+#' @param matrix Sparse (dgCMatrix) or iterable (IterableMatrix) matrix
+#' @param margin Margin for which to calculate median. Can be: 1 - rows, 2 - columns. Default is 1.
+#' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
+#' @return A named vector with medians.
+CalculateMedians = function(matrix, margin=1, chunk_size=NULL){
+  # Checks
+  assertthat::assert_that(margin %in% c("1", "2"),
+                          msg=FormatMessage("Margin can only be 1 - rows or 2 - columns."))
+  
+  # Define chunks
+  if (margin == 1) {
+    indices = 1:nrow(matrix)
+  } else {
+    indices = 1:ncol(matrix)
+  }
+  
+  # Define chunks
+  chunks = NULL
+  if (!is.null(chunk_size)) {
+    if (chunk_size < length(indices)) {
+      chunks = split(indices, ceiling(seq_along(indices)/chunk_size))
+    }
+  }
+  
+  if (!is.null(chunks)) {
+    # Calculate medians per chunk
+    medians = purrr::map(chunks, function(c) {
+      if (margin == 1) {
+        mt = as(matrix[c, ], "dgCMatrix")
+        mds = sparseMatrixStats::rowMedians(mt)
+      } else {
+        mt = as(matrix[, c], "dgCMatrix")
+        mds = sparseMatrixStats::colMedians(mt)
+      }
+      return(mds)
+    }) %>% purrr::flatten_dbl()
+  } else {
+    # Convert to sparse matrix
+    if (!is(matrix, "dgCMatrix")) {
+      matrix = as(matrix, "dgCMatrix")
+    }
+    
+    # Calculate medians
+    if (margin == 1) {
+      medians = sparseMatrixStats::rowMedians(matrix)
+    } else {
+      medians = sparseMatrixStats::colMedians(matrix)
+    }
+  }
+  
+  return(medians)
+}
+
+#' Calculates the boxplot statistics for rows or columns of a sparse (dgCMatrix) or iterable (IterableMatrix) matrix. 
+#' These are: min, q25, q50, q75, max, IQR (q75-q25), uppper whisker (q50 + 1.5 IQR), lower whisker (q50 - 1.5 IQR)
+#'
+#' @param matrix Sparse (dgCMatrix) or iterable (IterableMatrix) matrix
+#' @param margin Margin for which to calculate median. Can be: 1 - rows, 2 - columns. Default is 1.
+#' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
+#' @return A named vector with medians.
+CalculateBoxplotStats = function(matrix, margin=1, chunk_size=NULL){
+  # Checks
+  assertthat::assert_that(margin %in% c("1", "2"),
+                          msg=FormatMessage("Margin can only be 1 - rows or 2 - columns."))
+  
+  # Define chunks
+  if (margin == 1) {
+    indices = 1:nrow(matrix)
+  } else {
+    indices = 1:ncol(matrix)
+  }
+  
+  # Define chunks
+  chunks = NULL
+  if (!is.null(chunk_size)) {
+    if (chunk_size < length(indices)) {
+      chunks = split(indices, ceiling(seq_along(indices)/chunk_size))
+    }
+  }
+  
+  if (!is.null(chunks)) {
+    # Calculate medians per chunk
+    boxplot_stats = purrr::map_dfr(chunks, function(c) {
+      if (margin == 1) {
+        mt = as(matrix[c, ], "dgCMatrix")
+        mds = sparseMatrixStats::rowQuantiles(mt)
+      } else {
+        mt = as(matrix[, c], "dgCMatrix")
+        mds = sparseMatrixStats::colQuantiles(mt)
+      }
+      return(as.data.frame(mds))
+    })
+  } else {
+    # Convert to sparse matrix
+    if (!is(matrix, "dgCMatrix")) {
+      matrix = as(matrix, "dgCMatrix")
+    }
+    
+    # Calculate medians
+    if (margin == 1) {
+      boxplot_stats = sparseMatrixStats::rowQuantiles(matrix)
+    } else {
+      boxplot_stats = sparseMatrixStats::colQuantiles(matrix)
+    }
+    boxplot_stats = as.data.frame(boxplot_stats)
+  }
+  
+  colnames(boxplot_stats) = c("min", "q25", "q50", "q75", "max")
+  boxplot_stats$IQR = boxplot_stats$q75 - boxplot_stats$q25
+  
+  boxplot_stats$lower_whisker = purrr::pmap_dbl(boxplot_stats, function(min, q50, IQR, ...) {
+    if (IQR>0) {
+      lower_whisker = q50 - 1.5*IQR
+      if (lower_whisker < min) lower_whisker = min
+    } else {
+      lower_whisker = min
+    }
+    return(lower_whisker)
+  })
+  
+  boxplot_stats$upper_whisker = purrr::pmap_dbl(boxplot_stats, function(q50, max, IQR, ...) {
+    if (IQR > 0){
+      upper_whisker = q50 + 1.5*IQR
+      if (upper_whisker > max) upper_whisker = max
+    } else {
+      upper_whisker = max
+    }
+    return(upper_whisker)
+  })
+  
+  return(boxplot_stats)
+}
+
+
+
 #' Calculate cell cycle scores.
 #' 
 #' @param sc Seurat v5 object
@@ -50,19 +187,19 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
 #' Apply scran normalization (using pooled size factors) to counts data.
 #' 
 #' @param sc Seurat v5 object.
-#' @param assay Assay to normalize. If NULL, will be default assay.
+#' @param assay Assay to normalize. If NULL, will be default assay of the Seurat object.
 #' @param layer Layer to normalize. Default is "counts" meaning all raw counts layers.
 #' @param save Name of the normalized layers. Default is "data" meaning new layers will be named data.X, data.Y, ...
 #' @param chunk_size Maximum number of barcodes for which to compute size factors at once. Large counts matrices will be split into chunks to save memory.
 #' @return Seurat v5 object with new layers data.X, data.Y, ...
-NormalizeScran = function(sc, assay=NULL, layer="counts", save="data", chunk_size=50000) {
+NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk_size=50000) {
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   
   #suppressWarnings({Seurat::Misc(sc[[assay]], slot="scran_size_factors") = c()})
   
   # Iterate over layers (datasets) and get size factors
   olayers = layers = unique(layer)
-  layers = SeuratObject::Layers(object= sc[[assay]], layer)
+  layers = SeuratObject::Layers(sc[[assay]], layer)
   if (length(save) != length(layers)) {
     save = make.unique(names=gsub(pattern=olayers, replacement=save, x=layers))
   }
@@ -115,7 +252,116 @@ NormalizeScran = function(sc, assay=NULL, layer="counts", save="data", chunk_siz
   return(sc)
 }
 
-
+#' Identify highly variable features with the scran method (mean - var analysis).
+#' 
+#' @param sc Seurat v5 object.
+#' @param assay Assay to analyze. If NULL, will be default assay of the Seurat object.
+#' @param nfeatures Number of features to identify. Default is 2000.
+#' @param combined If TRUE, analyze all data together. Recommended but requires more memory. If FALSE, features will be identified by dataset and sets will then be combined.
+#' @return Seurat v5 object with highly variable features for assay.
+FindVariableFeaturesScran = function(sc, assay=NULL, nfeatures=2000, combined=TRUE) {
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  # Checks
+  layers = SeuratObject::Layers(sc[[assay]], "data")
+  assertthat::assert_that(length(layers) > 0,
+                          msg=FormatMessage("Could not find normalized data for assay {assay}."))
+  
+  # Get normalized data
+  if (combined) {
+    # Find features using all layers (dataset) together
+    data = purrr::map(layers, function(l) {
+      dt = SeuratObject::LayerData(sc, assay=assay, layer=l)
+      
+      # Convert to dgCMatrix matrix
+      if (!is(dt, "dgCMatrix")) {
+        dt = as(dt, "dgCMatrix")
+      }
+      return(dt)
+    })
+    
+    # Record to which dataset a cell belongs
+    block = purrr::map(seq_along(layers), function(i) {
+      b = rep(layers[i], ncol(data[[i]]))
+      return(b)
+    }) %>% purrr::flatten_chr()
+    block = factor(block, levels=unique(block))
+    
+    # Find variable features using the entire dataset
+    data = purrr::reduce(data, cbind)
+    hvf_info = scran::modelGeneVar(data, block=block)
+    hvf = scran::getTopHVGs(hvf_info, n=nfeatures)
+    
+    # Combine hvf_info tables
+    hvf_info = purrr::map(layers, function(l) {
+      hvfi = hvf_info[["per.block"]][[l]]
+      h = scran::getTopHVGs(hvfi, n=nfeatures)
+      
+      hvfi = as.data.frame(hvfi)
+      hvfi$variable = rownames(hvfi) %in% h
+      hvfi$rank = match(rownames(hvfi), h)
+      colnames(hvfi) = paste0("vf_scran_", l, "_", colnames(hvfi))
+      return(hvfi)
+    })
+    hvf_info = dplyr::bind_cols(hvf_info_lst)
+  } else {
+    # Find for each layer (dataset) separately
+    
+    # Find highly variable features per layer (dataset)
+    hvf_info_lst = purrr::map(layers, function(l) {
+      data = SeuratObject::LayerData(sc, assay=assay, layer=l)
+      
+      # Convert to dgCMatrix matrix
+      if (!is(data, "dgCMatrix")) {
+        data = as(data, "dgCMatrix")
+      }
+      
+      # Find highly variable genes with scran
+      hvf_info = scran::modelGeneVar(data)
+      hvf = scran::getTopHVGs(hvf_info, n=nfeatures)
+      
+      hvf_info = as.data.frame(hvf_info)
+      hvf_info$variable = rownames(hvf_info) %in% hvf
+      hvf_info$rank = match(rownames(hvf_info), hvf)
+      
+      colnames(hvf_info) = paste0("vf_scran_", l, "_", colnames(hvf_info))
+      return(hvf_info)
+    })
+    names(hvf_info_lst) = layers
+    
+    # Get variable features per layer (dataset) and rank
+    hvf_lst =purrr::map(layers, function(l) {
+      var_col = paste0("vf_scran_", l, "_variable")
+      rank_col = paste0("vf_scran_", l, "_rank")
+      hvf = hvf_info_lst[[l]] %>% 
+        dplyr::filter(!!sym(var_col)) %>%
+        dplyr::arrange(!!sym(rank_col)) %>%
+        rownames()
+      return(hvf)
+    })
+    
+    # Find a good overall set (from SeuratObject:::VariableFeatures.StdAssay)
+    hvf = SeuratObject:::.SelectFeatures(hvf_lst, 
+                                         all.features=intersect(x = slot(sc[[assay]], name = "features")[, layers]), 
+                                         nfeatures = nfeatures)
+    
+    # Combine hvf_info tables
+    hvf_info = dplyr::bind_cols(hvf_info_lst)
+  }
+  
+  # Add to feature metadata
+  hvf_info$var.features = rownames(hvf_info) %in% hvf
+  hvf_info$var.features.rank = match(rownames(hvf_info), hvf)
+  sc[[assay]] = SeuratObject::AddMetaData(sc[[assay]], metadata=hvf_info)
+  
+  # Set variable features
+  SeuratObject::VariableFeatures(sc[[assay]]) = hvf
+  
+  # Log command
+  sc = Seurat::LogSeuratCommand(sc)
+  
+  return(sc)
+}
 
 
 

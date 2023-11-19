@@ -11,11 +11,15 @@ params:
   prev_module_dir: null
   
   # Default assay.
-  default_assay: RNA
+  default_assay: "RNA"
   
   # Which normalization should be used for analysis?
-  # LogNormalize, Scran or SCTransform
-  norm_method: SCTransform
+  # lognorm (Seurat), scran or SCT
+  norm_method: "SCT"
+  
+  # Which method should be used for feature selection?
+  # vst (Seurat) or scran
+  feature_selection: "scran"
   
   # Number of variable features to use
   num_variable_features: 3000
@@ -102,22 +106,22 @@ Seurat::DefaultAssay(sc) = default_assay
 #| label: normalization_rna_normalize
 #| results: asis
 
-if (param("norm_method") == "LogNormalize") {
+if (param("norm_method") == "lognorm") {
   # LogNormalize
   sc = Seurat::NormalizeData(sc, 
                              assay=default_assay, 
                              normalization.method="LogNormalize", 
                              scale.factor=10000)
   cat("We have used LogNormalize.")
-} else if(param("norm_method") == "Scran") {
+} else if(param("norm_method") == "scran") {
   # Scran
-  sc = NormalizeScran(sc, 
+  sc = NormalizeDataScran(sc, 
                       assay=default_assay,
                       layer="counts", 
                       save="data",
                       chunk_size=50000)
   cat("We have used Scran.")
-} else if(param("norm_method") == "SCTransform") {
+} else if(param("norm_method") == "SCT") {
   # SCTransform
   sc = SCTransform(sc, 
                    assay=default_assay,
@@ -131,17 +135,39 @@ if (param("norm_method") == "LogNormalize") {
 }
 ```
 
+We check whether normalisation was successfull.
+
+```{r}
+
+p1 = PlotRLE(sc, assay=default_assay, layer="counts", is_log=FALSE)
+
+if (param("norm_method") == "SCT") {
+  p2 = PlotRLE(sc, assay=paste0(default_assay, "sct"), layer="data", is_log=TRUE)
+} else {
+  p2 = PlotRLE(sc, assay=default_assay, layer="data", is_log=TRUE)
+}
+
+```
+
+
 Then we identify variable features.
 
 ```{r}
 #| label: normalization_rna_variable_features
 
 # Only LogNormalize and Scran (already done within SCTransform)
-if(param("norm_method") != "SCTransform") {
-  sc = Seurat::FindVariableFeatures(sc, 
-                                    assay=default_assay, 
-                                    selection.method="vst", 
-                                    nfeatures=param("num_variable_features"))
+if(param("norm_method") != "SCT") {
+  if (param("feature_selection") == "vst") {
+    sc = Seurat::FindVariableFeatures(sc, 
+                                      assay=default_assay, 
+                                      selection.method="vst", 
+                                      nfeatures=param("num_variable_features"))
+  } else if (param("feature_selection") == "scran") {
+    sc = FindVariableFeaturesScran(sc,
+                                   assay=default_assay,
+                                   nfeatures=param("num_variable_features"),
+                                   combined=TRUE)
+  }
 }
 ```
 
@@ -151,60 +177,20 @@ They look like this:
 #| label: normalization_rna_variable_features_plots
 #| results: asis
 
-orig_idents = SeuratObject::Layers(sc[[default_assay]], "data") %>%
-  gsub(pattern="^data.", replacement="", x=.)
+if (param("norm_method") == "SCT") {
+  selection_method = "sct"
+} else {
+  selection_method = param("feature_selection")
+}
 
-# Make plots per layer (dataset)
-plist = purrr::map(orig_idents, function(n) {
-  # Collect information about highly variable genes
-  if (param("norm_method") == "SCTransform") {
-    assay = paste0(default_assay, "sct")
-    hvf_info = Seurat::SCTResults(sc[[assay]], slot="feature.attributes", model=n)
-    hvf_info = hvf_info[, c("gmean", "variance", "residual_variance")]
-    hvf_info$variable = rownames(hvf_info) %in% Seurat::VariableFeatures(sc[[assay]])
-    hvf_info$rank = match(rownames(hvf_info), Seurat::VariableFeatures(sc[[assay]]))
-  } else {
-    hvf_info = SeuratObject::HVFInfo(sc[[default_assay]],
-                                   method="vst",
-                                   layer=paste("data", n, sep="."),
-                                   status=TRUE)
-  }
-  
-  # Get top ten
-  top_ten = which(hvf_info$rank<=10)
-  top_ten = rownames(hvf_info)[top_ten]
+plist = PlotVariableFeatures(sc, 
+                     method=selection_method,
+                     assay=default_assay,
+                     top=10)
 
-  # Define columns to plot
-  if (colnames(hvf_info)[3] == "dispersion.scaled") {
-    hvf_info = hvf_info[, c(1, 2, ncol(hvf_info)-1, ncol(hvf_info))]
-    xlab = "Average Expression"
-    ylab = "Dispersion"
-  } else if (colnames(hvf_info)[3] == "variance.expected") {
-    hvf_info = hvf_info[, c(1, 4, ncol(hvf_info)-1, ncol(hvf_info))]
-    xlab = "Average Expression"
-    ylab = "Standardized Variance"
-  } else if (colnames(hvf_info)[3] == "residual_variance") {
-    hvf_info = hvf_info[, c(1, 3, ncol(hvf_info)-1, ncol(hvf_info))]
-    xlab = "Geometric Mean of Expression"
-    ylab = "Residual Variance"
-  }
-  
-  xvar = colnames(hvf_info)[1]
-  yvar = colnames(hvf_info)[2]
-  
-  # Make plot
-  p = ggplot(hvf_info, aes(x=!!sym(xvar), y=!!sym(yvar), col=variable)) +
-    geom_point() +
-    scale_x_log10(xlab) +
-    scale_y_continuous(ylab) +
-    scale_color_manual("Variable", values=c("black", "red")) +
-    AddPlotStyle() + 
-    theme(legend.position="none", legend.background=element_rect(fill=alpha("white", 0.0)))
-  p = Seurat::LabelPoints(plot=p, points=top_ten, repel=TRUE, xnudge=0, ynudge=0)
-  return(p)
-})
-
-captions = paste(default_assay, ": Variable features for", orig_idents)
+n = gsub(pattern="varFeatures_", replacement="", x=names(plist))
+captions = GeneratePlotCaptions(names(plist), remove="_\\S+")
+captions = paste(captions, "for", n)
 
 # Generate chunks
 chunk_template = "

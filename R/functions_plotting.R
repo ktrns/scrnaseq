@@ -28,10 +28,10 @@ AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, lege
 #' Helper function to generate plot captions.
 #'
 #' @param plot_names A list of plot names.
-#' @param assay Assay name to remove before matching.
+#' @param remove Part to remove before matching. Can be a string or regex.
 #' @param split If not NULL, split plot names to generate a X vs Y caption.
 #' @return A list of captions.
-GeneratePlotCaptions = function(plot_names, assay=NULL, split=NULL) {
+GeneratePlotCaptions = function(plot_names, remove=NULL, split=NULL) {
   # Split names into two parts if requested
   if (!is.null(split)) {
     plot_names = strsplit(plot_names, split)
@@ -39,10 +39,12 @@ GeneratePlotCaptions = function(plot_names, assay=NULL, split=NULL) {
     plot_names = as.list(plot_names)
   }
   
-  # Remove assay names
-  plot_names = purrr::map(plot_names, function(x) {
-    return(gsub(pattern=paste0("_", assay, "$"), replacement="", x))
-  })
+  # Remove parts
+  if (!is.null(remove)) {
+    plot_names = purrr::map(plot_names, function(x) {
+      return(gsub(pattern=remove, replacement="", x))
+    })
+  }
   
   # Match and generate captions
   captions = purrr::map(plot_names, function(x) {
@@ -60,6 +62,7 @@ GeneratePlotCaptions = function(plot_names, assay=NULL, split=NULL) {
                                  "S.Score" ~ "S phase score",
                                  "G2M.Score" ~ "G2M phase score",
                                  "Phase" ~ "Cell cycle phase",
+                                 "varFeatures" ~ "Variable features",
                                  .default = NULL
     )
     idx = which(is.na(capts))
@@ -256,6 +259,186 @@ PlotBarcodeQCCor = function(sc, qc, filter=NULL) {
   return(plist)
 }
 
+#' Plots the variable features for each layer (dataset).
+#'
+#' @param sc Seurat v5 object.
+#' @param method Method used to find variable features. Can be: 'vst' (Seurat standard), 'sct' (SCTransform) or 'scran' (Scran).
+#' @param assay Assay. If NULL, defaults to default assay of the Seurat object.
+#' @param top The top genes that should be labeled.
+#' @return A list of ggplot2 objects.
+PlotVariableFeatures = function(sc, method, assay=NULL, top=10) {
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  # Checks
+  valid_methods = c("vst", "sct", "scran")
+  assertthat::assert_that(method %in% valid_methods,
+                          msg=FormatMessage("Method is {method} but must be one of: {valid_methods*}."))
+  
+  layers = SeuratObject::Layers(sc[[assay]], "data")
+  assertthat::assert_that(length(layers) > 0,
+                          msg=FormatMessage("Could not find normalized data for assay {assay}."))
+  
+  # Make plots per layer (dataset)
+  orig_idents =  levels(sc$orig.ident)
+  
+  plist = purrr::map(orig_idents, function(n) {
+    # Collect information about highly variable genes
+    if (method == "sct") {
+      assertthat::assert_that(.hasSlot(sc[[assay]], "SCTModel.list"),
+                              msg=FormatMessage("No variable feature information in slot SCTModel.list available for {assay}."))
+      hvf_info = Seurat::SCTResults(sc[[assay]], slot="feature.attributes", model=n)
+      hvf_info = hvf_info[, c("gmean", "variance", "residual_variance")]
+      hvf_info$variable = rownames(hvf_info) %in% Seurat::VariableFeatures(sc[[assay]])
+      hvf_info$rank = match(rownames(hvf_info), Seurat::VariableFeatures(sc[[assay]]))
+    } else if (method == "vst") {
+      hvf_info = SeuratObject::HVFInfo(sc[[assay]],
+                                       method="vst",
+                                       layer=paste("data", n, sep="."),
+                                       status=TRUE)
+      assertthat::assert_that(!is.null(hvf_info),
+                              msg=FormatMessage("No variable feature information available for {assay}."))
+    } else if (method == "scran") {
+      hvf_info = SeuratObject::HVFInfo(sc[[assay]],
+                                       method="scran",
+                                       layer=paste("data", n, sep="."),
+                                       status=TRUE)
+      assertthat::assert_that(!is.null(hvf_info),
+                              msg=FormatMessage("No variable feature information available for {assay}."))
+      
+    }
+    
+    # Get top genes
+    top_genes = which(hvf_info$rank<=top)
+    top_genes = rownames(hvf_info)[top_genes]
+    
+    # Define columns to plot
+    if (method == "scran") {
+      hvf_info = hvf_info[, c(1, 2, ncol(hvf_info)-1, ncol(hvf_info))]
+      xlab = "Average Expression"
+      ylab = "Dispersion"
+    } else if (method == "vst") {
+      hvf_info = hvf_info[, c(1, 4, ncol(hvf_info)-1, ncol(hvf_info))]
+      xlab = "Average Expression"
+      ylab = "Standardized Variance"
+    } else if (method == "sct") {
+      hvf_info = hvf_info[, c(1, 3, ncol(hvf_info)-1, ncol(hvf_info))]
+      xlab = "Geometric Mean of Expression"
+      ylab = "Residual Variance"
+    }
+    
+    xvar = colnames(hvf_info)[1]
+    yvar = colnames(hvf_info)[2]
+    
+    # Make plot
+    p = ggplot(hvf_info, aes(x=!!sym(xvar), y=!!sym(yvar), col=variable)) +
+      geom_point() +
+      scale_x_log10(xlab) +
+      scale_y_continuous(ylab) +
+      scale_color_manual("Variable", values=c("black", "red")) +
+      AddPlotStyle() + 
+      theme(legend.position="none", legend.background=element_rect(fill=alpha("white", 0.0)))
+    p = Seurat::LabelPoints(plot=p, points=top_genes, repel=TRUE, xnudge=0, ynudge=0)
+    return(p)
+  })
+  names(plist) = paste("varFeatures", orig_idents, sep="_")
+  
+  return(plist)
+}
+
+#' Plots the relative log expression features for each layer (dataset).
+#'
+#' @param sc Seurat v5 object.
+#' @param assay Assay. If NULL, defaults to default assay of the Seurat object.
+#' @param layer Type of layer. Can be counts or data but also a specific layer.
+#' @param nbarcodes Number of barcodes to plot.
+#' @param is_log Is the data already in log? If not, will be logged.
+#' @return A ggplot2 object.
+PlotRLE = function(sc, assay=NULL, layer="counts", nbarcodes=500, is_log=FALSE) { 
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  # Checks
+  layers = SeuratObject::Layers(sc[[assay]], layer)
+  assertthat::assert_that(length(layers) > 0,
+                          msg=FormatMessage("Could not find data for layer {{layer}} of assay {assay}."))
+  
+  if (!is(sc[[assay]], "SCTAssay")) {
+    # Standard assays
+    
+    # Sample
+    data = purrr::map(layers, function(l) {
+      dt = SeuratObject::LayerData(sc, assay=assay, layer=l)
+      set.seed(getOption("random_seed"))
+      idx = 1:ncol(dt)
+      smp = sample(idx, min(length(idx), nbarcodes))
+      return(dt[, smp])
+    })
+    
+    # Get identity
+    orig_idents = purrr::map(seq_along(layers), function(i) {
+      return(rep(layers[i], ncol(data[[i]])))
+    }) %>% unlist()
+    orig_idents = gsub(pattern=paste0(layer,"."), replacement="", x=orig_idents)
+    orig_idents = factor(orig_idents, levels=levels(sc$orig.ident))
+    
+    # Merge
+    data = purrr::reduce(data, cbind)
+  } else {
+    # SCT assay
+    
+    # Get data
+    data = SeuratObject::LayerData(sc, assay=assay, layer=layer)
+    
+    # Sample
+    barcode_metadata = sc[[]]
+    barcode_metadata = barcode_metadata[, ]
+    orig_idents = split(colnames(data), barcode_metadata$orig.ident)
+    orig_idents = purrr::map(orig_idents, function(bcs) {
+      set.seed(getOption("random_seed"))
+      bcs = sample(bcs, min(length(bcs), nbarcodes))
+      return(bcs)
+    })
+    
+    # Subset data
+    data = data[, orig_idents %>% purrr::flatten_chr()]
+    data = as(data, "CsparseMatrix")
+    
+    # Get identity
+    orig_idents = purrr::map(names(orig_idents), function(n) {
+      return(rep(n, length(orig_idents[[n]])))
+    }) %>% purrr::flatten_chr()
+    orig_idents = factor(orig_idents, levels=levels(sc$orig.ident))
+  }
+    
+  if (!is_log) {
+    data = log1p(data + 1)
+  }
+  
+  # Calculate feature medians across all barcodes
+  row_medians = CalculateMedians(matrix=data, margin=1, chunk_size=NULL)
+  
+  # Subtract gene median from gene count
+  data = data - row_medians
+  
+  # Calculate RLE stats per cell
+  rle_stats = CalculateBoxplotStats(data, margin=2, chunk_size=NULL)
+  rle_stats$orig.ident = orig_idents
+  rle_stats = rle_stats %>% 
+    dplyr::arrange(orig.ident)
+  rle_stats$x = 1:nrow(rle_stats)
+  
+  
+  # Actual plotting
+  p = ggplot(rle_stats) +
+    geom_segment(aes(x=x, xend=x, y=lower_whisker , yend=upper_whisker, col=orig.ident)) +
+    geom_segment(aes(x=x, xend=x, y=q25-0.01 , yend=q75+0.01), colour="grey20") +
+    geom_point(aes(x=x, y=q50), shape=1) +
+    AddPlotStyle(xlab="Cells", ylab="Relative log expression") + 
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+  
+  return(p)
+}
+
 #' Transform a matrix cells (rows) x htos (cols) into a format that can be understood by feature_grid: cell class, name hto1, value hto1, name hto2, value hto2
 #' 
 #' @param x: A matrix cells (rows) x htos (cols).
@@ -277,45 +460,6 @@ DfAllColumnCombinations = function(x, cell_classification) {
   out$order = NULL # remove column again -> only needed to order data points
   
   return(out)
-}
-
-# Plot Relative log expression per cell 
-PlotRLE = function(x, col, id) { 
-  # x - data
-  # id - cell identity (same order as cells)
-  # col - colours for cell identities
-
-  # Median of a gene across all cells
-  genes.median = sapply(1:nrow(x), function(gene) median(x[gene,], na.rm=TRUE))
-  
-  # Subtract gene median from gene count
-  y = x - genes.median
-  
-  # Get statistics
-  y_stats = boxplot(y, plot=FALSE)
-  y_outlier_x = y_stats$group
-  y_outlier_y = y_stats$out
-  y_outlier = cbind(cell=y_outlier_x, out=y_outlier_y) %>% as.data.frame()
-  y_outlier$id = id[y_outlier$cell]
-  y_stats = y_stats$stats %>% t() %>% as.data.frame()
-  colnames(y_stats) = c("lowerWhisker", "q25", "med", "q75", "upperWhisker")
-  y_stats$cell = 1:nrow(y_stats) # convert x-axis to numeric
-  
-  # Actual plotting
-  p = ggplot(y_stats) +
-    geom_ribbon(aes(x=cell, ymin=q75, ymax=upperWhisker), fill="darkgrey") + 
-    geom_ribbon(aes(x=cell, ymin=med, ymax=q75), fill="lightgrey") + 
-    geom_ribbon(aes(x=cell, ymin=q25, ymax=med), fill="lightgrey") + 
-    geom_ribbon(aes(x=cell, ymin=lowerWhisker, ymax=q25), fill="darkgrey") + 
-    geom_line(aes(x=cell, y=med)) + 
-    geom_point(data=y_outlier, aes(x=cell, y=out, colour=id), size=0.5) + 
-    scale_color_manual(values=col) + 
-    AddStyle(xlab="Cells", ylab="Relative log expression") + 
-    theme(axis.text.x=element_blank(),
-          axis.ticks.x=element_blank())
-  p
-  
-  return(p)
 }
 
 # Re-define Dotplot for non-scaled dotplots
