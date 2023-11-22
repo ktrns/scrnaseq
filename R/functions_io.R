@@ -1173,6 +1173,7 @@ CreateSegmentationImproved = function(coords) {
 #' @return A Seurat FOV object.
 ReadImage_10xXenium = function(image_dir, barcodes=NULL, coordinate_type=c("centroids", "segmentations")) {
   library(data.table)
+  
   # Checks
   assertthat::is.readable(image_dir)
   assertthat::assert_that(file.exists(file.path(image_dir, "cells.csv.gz")),
@@ -1193,7 +1194,8 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL, coordinate_type=c("cent
                                      colClasses=c("cell_id"="character", "x_centroid"="numeric", "y_centroid"="numeric", "cell_area"="numeric", "nucleus_area"="numeric"),
                                      col.names=c("cell", "x", "y", "cell_area", "nucleus_area"), 
                                      key="cell",
-                                     showProgress=FALSE)
+                                     showProgress=FALSE,
+                                     nThread=cores)
   if (!is.null(barcodes)) {
     cell_centroids = cell_centroids[barcodes]
   }
@@ -1210,7 +1212,8 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL, coordinate_type=c("cent
                                         colClasses=c("cell_id"="character", "vertex_x"="numeric", "vertex_y"="numeric"),
                                         col.names=c("cell", "x", "y"),
                                         key="cell",
-                                        showProgress=FALSE)
+                                        showProgress=FALSE,
+                                        nThread=cores)
     if (!is.null(barcodes)) {
       cell_boundaries = cell_boundaries[barcodes]
     }
@@ -1225,7 +1228,8 @@ ReadImage_10xXenium = function(image_dir, barcodes=NULL, coordinate_type=c("cent
                                   colClasses=c("feature_name"="character", "x_location"="numeric", "y_location"="numeric", "qv"="numeric"),
                                   col.names=c("gene", "x", "y", "qv"),
                                   key="qv",
-                                  showProgress=FALSE)
+                                  showProgress=FALSE,
+                                  nThread=cores)
   transcripts = transcripts[qv >= mols.qv.threshold]
   transcripts$qv = NULL
   molecules = SeuratObject::CreateMolecules(transcripts, key='mols_')

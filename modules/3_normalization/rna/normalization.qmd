@@ -106,12 +106,17 @@ Seurat::DefaultAssay(sc) = default_assay
 #| label: normalization_rna_normalize
 #| results: asis
 
+library(progressr)
+handlers("cli")
+
+
 if (param("norm_method") == "lognorm") {
   # LogNormalize
   sc = Seurat::NormalizeData(sc, 
                              assay=default_assay, 
                              normalization.method="LogNormalize", 
-                             scale.factor=10000)
+                             scale.factor=10000,
+                             verbose=TRUE)
   cat("We have used LogNormalize.")
 } else if(param("norm_method") == "scran") {
   # Scran

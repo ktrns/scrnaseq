@@ -251,6 +251,7 @@ for (i in seq(plist)) {
 cat(":::", sep="\n")
 ```
 
+
 ```{r}
 #| label: preprocess_rna_qc_cor_plots
 #| results: asis
@@ -440,29 +441,29 @@ cat(":::", sep="\n")
 ## Sample QC
 
 ```{r}
-sampleqc_data = sc[[]] %>% 
-  dplyr::select(sample_id=orig.ident, 
-                nCount_RNA=nCount_RNA,
-                nFeature_RNA=nFeature_RNA,
-                percent.mt=pMito_RNA)
-sampleqc_data = SampleQC::make_qc_dt(sampleqc_data,
-                     sample_var="sample_id",
-                     qc_names=c("log_counts", "log_feats", "logit_mito"),
-                     annot_vars = NULL)
-
-
-# which QC metrics do we want to use?
-qc_names    = c('log_counts', 'log_feats', 'logit_mito')
-
-# which discrete-valued variables do we want to annotate the samples with?
-annots_disc = NULL
-
-# which continuous-valued variables do we want to annotate the samples with?
-annots_cont = NULL
-
-qc_obj    = calc_pairwise_mmds(sampleqc_data, qc_names, 
-  annots_disc = annots_disc, annots_cont = annots_cont, n_cores = 1)
-table(colData(qc_obj)$group_id)
+# sampleqc_data = sc[[]] %>% 
+#   dplyr::select(sample_id=orig.ident, 
+#                 nCount_RNA=nCount_RNA,
+#                 nFeature_RNA=nFeature_RNA,
+#                 percent.mt=pMito_RNA)
+# sampleqc_data = SampleQC::make_qc_dt(sampleqc_data,
+#                      sample_var="sample_id",
+#                      qc_names=c("log_counts", "log_feats", "logit_mito"),
+#                      annot_vars = NULL)
+# 
+# 
+# # which QC metrics do we want to use?
+# qc_names    = c('log_counts', 'log_feats', 'logit_mito')
+# 
+# # which discrete-valued variables do we want to annotate the samples with?
+# annots_disc = NULL
+# 
+# # which continuous-valued variables do we want to annotate the samples with?
+# annots_cont = NULL
+# 
+# qc_obj    = calc_pairwise_mmds(sampleqc_data, qc_names, 
+#   annots_disc = annots_disc, annots_cont = annots_cont, n_cores = 1)
+# table(colData(qc_obj)$group_id)
 
 ```
 
@@ -723,7 +724,7 @@ if (length(idx) > 0) {
 plist = PlotBarcodeQC(sc, qc=barcode_qc, filter=barcode_filter)
 
 # Prepare captions
-captions = GeneratePlotCaptions(names(plist), assay=default_assay)
+captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay))
 captions = paste(captions, "(filtered)")
 
 # Setup layout and generate chunks
@@ -786,7 +787,7 @@ barcode_qc_cor = purrr::map(barcode_qc_cor, function(barcode_qc) {
 plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter)
 
 # Prepare captions
-captions = GeneratePlotCaptions(names(plist), assay=default_assay, split="__")
+captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay), split="__")
 
 # Generate chunks
 chunk_template = "
@@ -913,7 +914,6 @@ sc = Seurat::NormalizeData(sc, assay=default_assay, normalization.method="LogNor
 # Calculate scores
 sc = CCScoring(sc, genes_s=seurat_s_genes, genes_g2m=seurat_g2m_genes)
 ```
-
 
 ```{r}
 #| label: tbl-preprocess_rna_cell_cycle_summary

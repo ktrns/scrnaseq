@@ -865,7 +865,6 @@ for (i in seq_along(counts_lst)) {
 ############
 # Barcodes #
 ############
-
 # Calculate for each assay
 for (a in Seurat::Assays(sc)) {
 
@@ -874,30 +873,17 @@ for (a in Seurat::Assays(sc)) {
 
   # And each layer (dataset)
   for (l in SeuratObject::Layers(sc[[a]], "counts")) {
-    
     # Get data for layer (sample)
     counts = sc[[a]][l]
     bcs = counts %>% colnames()
     total_counts = sc[[]][bcs, paste0("nCount_", a), drop=TRUE]
 
-    # Split columns into chunks
-    col_indices = 1:ncol(counts)
-    chunk_size = 5000
-    chunks = split(col_indices, ceiling(seq_along(col_indices)/chunk_size)) 
-    
-    # Now calculate a matrix that for each column there is a TRUE when the gene is in the top 50 otherwise FALSE
-    top50_counts = purrr::map(chunks, function(c) {
-      r = rowSums(counts[, c]) > 0
-      cts = as(counts[r, c], "dgCMatrix")
-      n = diff(cts@p)  ## number of non-zeros per column
-      col_lst = split(as.integer(cts@x)*(-1), rep.int(1:ncol(cts), n))  ## columns to list
-      col_lst = lapply(col_lst, function(x) return(sort(x)*(-1)))
-      top50_cts = sapply(col_lst, function(x) return(sum(head(x, 50))))
-      return(top50_cts)
-    }) %>% purrr::flatten_int()
+    # Get counts of the top 50 features per barcode
+    with_progress({
+      top50_counts = SumTopN(counts, n=50, margin=2, cores=1, chunk_size=5000)
+    })
     
     # Zero counts barcodes will not be in top50_counts - add them here
-    top50_counts = ifelse(total_counts==0, 0, top50_counts)
     top50_perc = ifelse(total_counts>0, top50_counts/total_counts*100, NA)
     
     # Then calculate percentage top50
@@ -915,7 +901,6 @@ for (a in Seurat::Assays(sc)) {
 for (a in Seurat::Assays(sc)) {
   # And each layer (dataset)
   for (l in SeuratObject::Layers(sc[[a]], "counts")) {
-
     # Get data for layer (sample)
     counts = sc[[a]][l]
     bcs = counts %>% colnames()
@@ -925,18 +910,10 @@ for (a in Seurat::Assays(sc)) {
     # Calculate feature filters
     num_bcs_expr = rowSums(counts >= 1)
 
-    # Calculate median of counts_perc per gene
-    row_indices = 1:nrow(counts_perc)
-    chunk_size = 1000
-    chunks = split(row_indices, ceiling(seq_along(row_indices)/chunk_size)) 
-    
-    counts_median = purrr::map(chunks, function(c) {
-      counts_perc[c, ] %>% 
-        as("dgCMatrix") %>% 
-        sparseMatrixStats::rowMedians() %>%
-        return()
-    }) %>% purrr::flatten_dbl()
-    counts_median = setNames(counts_median, rownames(counts_perc))
+    # Calculate median percentage of counts per feature
+    with_progress({
+      counts_median = CalculateMedians(counts_perc, margin=1, cores=1, chunk_size=1000)
+    })
     
     # Add to metadata
     n = gsub(x=l, pattern="counts\\.", replacement="")
@@ -1027,7 +1004,7 @@ for (a in Seurat::Assays(sc)) {
   plist = PlotBarcodeQC(sc, qc=barcode_qc)
 
   # Prepare captions
-  captions = GeneratePlotCaptions(names(plist), assay=a)
+  captions = GeneratePlotCaptions(names(plist), remove=paste0("_", a))
   
   # Set up layout and generate chunks
   if (length(orig_idents) <= 10) {
