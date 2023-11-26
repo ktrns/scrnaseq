@@ -400,7 +400,7 @@ PlotRLE = function(sc, assay=NULL, layer="counts", nbarcodes=500, is_log=FALSE) 
     
     # Subset data
     data = data[, orig_idents %>% purrr::flatten_chr()]
-    data = as(data, "CsparseMatrix")
+    data = as(data, "dgCMatrix")
     
     # Get identity
     orig_idents = purrr::map(names(orig_idents), function(n) {

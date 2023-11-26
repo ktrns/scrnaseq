@@ -1,0 +1,249 @@
+---
+title: "Doublet detection with scDblFinder"
+
+author:
+- name: Bfx
+  email: genomecenter@tu-dresden.de
+  url: www.genomecenter.de
+  affiliations:
+    - name: DRESDEN-concept Genome Center
+      address: Fetscherstrasse 105  
+      city: Dresden
+      state: Saxony
+      postal-code: 01307
+      
+title-block-banner: true
+date: today
+
+format:
+  html:
+    theme:
+    - journal
+    embed-resources: true
+    code-fold: true
+    code-summary: Code
+    code-link: true
+    code-block-bg: true
+    df-print: paged
+    toc: true
+    fig-format: png
+    keep-md: false
+    execute:
+      warning: false
+
+# Parameter for scDblFinder workflow 
+params:
+  # Technology
+  # Can be: '10x' (10x), '10x_visium' (10x Visium), '10x_xenium' (10x Xenium), 'parse' (Parse Biosciences) or 'scale' (Scale Bio).
+  technology: "10x"
+  
+  # Path to the dataset: Can be a matrix exchange format directory (10x, 10x Visium, 10x Xenium, Parse Biosciences, ScaleBio) or hdf5 file (10x, 10x Visium, 10x Xenium).
+  path: "../datasets/10x_pbmc_5k_protein/filtered_feature_bc_matrix.h5"
+  
+  # Assay to analyze. Can be 'RNA' or 'ATAC'.
+  assay: "RNA"
+  
+  # If this is a pooled single-cell experiment containing multiple samples:
+  # - Provide the full (unsplit) dataset. For 10x, this can also be the raw data directory.
+  # - Provide a table with barcodes and sample assignments. The sample assignment column can also have the values 'Multiplet', 'Unassigned' or 'Blank'.
+  sample_assignments: null
+  
+  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. 
+  on_disk_counts: true
+  
+  # For large datasets: Path to store matrix directories. Can be absolute or relative to this script. For best performance, use a fast SSD tmp directory.
+  on_disk_counts_path: "."
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# Source general configurations (always)
+source("../R/general_configuration.R")
+
+# Source required R functions
+source("../R/functions_util.R")
+source("../R/functions_io.R")
+source("../R/functions_plotting.R")
+source("../R/functions_analysis.R")
+
+# Load required libraries
+library(Seurat)
+library(scDblFinder)
+
+```
+
+# Expected doublet rates
+
+## 10x
+
+For the standard 3' v3.1 assay, the multiplet rate is approximately 0.8% for every 1,000 cells targeted [(see 10x QA)](https://kb.10xgenomics.com/hc/en-us/articles/360054599512-What-is-the-cell-multiplet-rate-when-using-the-3-CellPlex-Kit-for-Cell-Multiplexing-). For example, the expected cell multiplet rate is:
+
+-   \~0.8% at a targeted cell recovery of 1,000
+-   \~4% at a targeted cell recovery of 5,000
+-   \~8% at a targeted cell recovery of 10,000
+-   \~16% at a targeted cell recovery of 20,000
+-   \~24% at a targeted cell recovery of 30,000
+
+For the high-throughput (HT) 3' v3.1 assay, the cell multiplet rate is approximately 0.4% for every 1,000 cells targeted [(see 10x QA)](https://kb.10xgenomics.com/hc/en-us/articles/4406452468109-Why-is-the-HT-multiplet-rate-lower-than-our-standard-assay-). For example, the expected cell multiplet rate is:
+
+-   \~0.8% at a targeted cell recovery of 2,000
+-   \~2% at a targeted cell recovery of 5,000
+-   \~4% at a targeted cell recovery of 10,000
+-   \~8% at a targeted cell recovery of 20,000
+-   \~24% at a targeted cell recovery of 60,000
+
+For multiplexed samples, multiplet rates are also calculated based on the total number of cells. However, depending on the multiplexing strategy, it is possible to identify most of the doublets ([(see 10x QA)](https://kb.10xgenomics.com/hc/en-us/articles/360056583952-Can-cell-multiplets-be-filtered-out-when-using-the-3-CellPlex-Kit-for-Cell-Multiplexing-):
+
+-   \~50% of multiplets if 2 tags are used
+-   \~75% of multiplets if 4 tags are used
+-   \~88% of multiplets if 8 tags are used
+-   \~92% of multiplets if 12 tags are used
+
+to the tagging strategy per used HTO/CellPlex/probeset barcode. Therefore, here we calculate the overall rate as above but then divide it by the number of HTO/CellPlex/probeset barcodes This is used as an approximation of the expected doublet rate.
+
+# Load data
+
+```{r}
+#| label: load_data
+
+# Read counts
+path = params[["path"]]
+technology = params[["technology"]]
+assay = params[["assay"]]
+
+counts = ReadCounts(path=path, technology=technology, assays=assay)
+counts = counts[[assay]]
+
+# If it is a pooled single-cell experiment, read sample assignments table and subset barcodes
+sample_assignment_file = params[["sample_assignments"]]
+if (!is.null(sample_assignment_file)) {
+  sample_assignments = ReadMetadata(sample_assignment_file)
+  colnames(sample_assignments) = c("Barcode", "Sample")
+  barcodes = sample_assignments[, 1, drop=TRUE]
+  idx = which(colnames(counts) %in% barcodes)
+  counts = counts[, idx]
+} else {
+  sample_assignments = data.frame(Barcode=colnames(counts), Sample=NA)
+}
+
+# Remove barcodes with low counts
+filter_barcodes = Matrix::colSums(counts) >= 300
+counts = counts[, which(filter_barcodes)]
+
+# If requested, write counts as BPcells directory for on-disk access
+on_disk_counts = params[["on_disk_counts"]]
+on_disk_counts_path = params[["on_disk_counts_path"]]
+
+
+if (on_disk_counts) {
+      # Write counts to matrix directory
+      WriteCounts(counts=counts, 
+                  path=file.path(on_disk_counts_path, assay), 
+                  format="matrix_directory", 
+                  overwrite=TRUE)
+      
+      # Then open matrix directory for analysis
+      counts = BPCells::open_matrix_dir(file.path(on_disk_counts_path, assay))
+} else {
+  # Convert to in-memory matrix
+  counts = as(counts, "dgCMatrix")
+}
+```
+
+# Preprocessing
+
+```{r}
+#| label: preprocess_data
+
+# Create Seurat object
+sc = Seurat::CreateSeuratObject(counts, assay=assay)
+
+# Normalize counts
+sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000)
+
+# Find variable features
+sc = Seurat::FindVariableFeatures(sc, selection.method="vst", nfeatures=3000)
+
+# Subset variable features
+sc = subset(sc, features=Seurat::VariableFeatures(sc))
+
+# If more than 50,000 barcodes, use sketching
+sketch_barcodes = 50000
+use_sketching = ncol(sc) > sketch_barcodes
+if (use_sketching) {
+  sc = Seurat::SketchData(sc,
+                          ncells = sketch_barcodes,
+                          method = "LeverageScore",
+                          sketched.assay = "sketch")
+  Seurat::DefaultAssay(sc) = "sketch"
+}
+
+# Scale data
+sc = Seurat::ScaleData(sc)
+
+# Run PCA
+sc = Seurat::RunPCA(sc)
+
+# Find clusters
+sc = Seurat::FindNeighbors(sc, dims=1:30)
+
+# Set resolution parameter of Seurat::FindClusters depending on the number of cells
+if (length(Seurat::Cells(sc)) < 1000) {
+  resolution = 0.5
+} else if (length(Seurat::Cells(sc)) < 10000) {
+  resolution = 0.8
+} else {
+  resolution = 1
+}
+sc = Seurat::FindClusters(sc, resolution=resolution)
+
+# Run UMAP
+sc = Seurat::RunUMAP(sc, dims=1:30, return.model=TRUE)
+
+# If sketching was used, project pca, umap and clustering to the full dataset
+if (use_sketching) {
+  sc = Seurat::ProjectData(sc,
+                           assay=assay,
+                           full.reduction="pca.full",
+                           sketched.assay="sketch",
+                           sketched.reduction="pca",
+                           umap.model="umap",
+                           dims=1:30,
+                           refdata=list(cluster_full = "seurat_clusters"))
+  # now that we have projected the full dataset, switch back to analyzing all cells
+  Seurat::DefaultAssay(sc) = assay
+}
+```
+
+# scDblFinder
+
+```{r}
+#| label: run_scdblfinder
+
+# Known multiplets
+known_multiplets = sample_assignments$Sample %in% "Multiplet"
+if (all(!known_multiplets)) {
+  known_multiplets = NULL
+}
+
+# Cluster information
+cluster = Seurat::Idents(sc)
+
+# Run scDblFinder
+idx = which(rownames(counts) %in% SeuratObject::Features(sc))
+scdblfinder = scDblFinder(sce=as(counts[idx, ], "dgCMatrix"),
+                          clusters=cluster,
+                          knownDoublets=known_multiplets,
+                          knownUse="positive",
+                          dbr=NULL,
+                          dbr.sd=NULL,
+                          nfeatures=SeuratObject::Features(sc),
+                          returnType="table")
+
+```
+
+```{r}
+```

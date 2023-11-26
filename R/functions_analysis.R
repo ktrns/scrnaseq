@@ -4,12 +4,8 @@
 #' @param n Top n barcodes or features. Default is 50.
 #' @param margin Margin. Can be: 1 - rows (top n barcodes per feature), 2 - columns (top n features per barcode). Default is 1.
 #' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
-#' @param cores Number of cores to use. Default is 1.
 #' @return A vector with sums to the top n.
 SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL, cores=1){
-  library(future)
-  library(progressr)
-  
   # Checks
   assertthat::assert_that(margin %in% c("1", "2"),
                           msg=FormatMessage("Margin can only be 1 - rows or 2 - columns."))
@@ -44,14 +40,6 @@ SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL, cores=1){
   }
   
   if (!is.null(chunks)) {
-    # Process sequential or parallel
-    old_plan = future::plan()
-    if (cores > 1) {
-      future::plan(future::multiprocess, workers=cores)
-    } else {
-      future::plan(future::sequential)
-    }
-  
     # Analyse chunks
     msg = paste("Sum up top", n, ifelse(margin==1, "barcodes", "features"))
     progr = progressr::progressor(along=chunks, message=msg)
@@ -75,12 +63,11 @@ SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL, cores=1){
         topn = sapply(row_lst, function(x) return(sum(head(x, n))))
       }
       return(topn)
-    })
+    }, .options = furrr::furrr_options(seed=getOption("random_seed"), globals=c("margin", "n")))
     progr(type='finish')
     topn_counts = purrr::flatten_int(topn_counts)
     topn_counts = ifelse(totals==0, 0, topn_counts)
-    future::plan(old_plan)
-    
+
     if (margin == 2) {
       names(topn_counts) = colnames(matrix)
     } else {
@@ -116,7 +103,6 @@ SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL, cores=1){
 #' @param matrix Sparse (dgCMatrix) or iterable (IterableMatrix) matrix
 #' @param margin Margin for which to calculate median. Can be: 1 - rows, 2 - columns. Default is 1.
 #' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
-#' @param cores Number of cores to use. Default is 1.
 #' @return A named vector with medians.
 CalculateMedians = function(matrix, margin=1, chunk_size=NULL, cores=1){
   # Checks
@@ -146,14 +132,6 @@ CalculateMedians = function(matrix, margin=1, chunk_size=NULL, cores=1){
   }
   
   if (!is.null(chunks)) {
-    # Process sequential or parallel
-    old_plan = future::plan()
-    if (cores > 1) {
-      future::plan(future::multiprocess, workers=cores)
-    } else {
-      future::plan(future::sequential)
-    }
-  
     # Analyse chunks
     msg = paste("Calculate medians per ", ifelse(margin==1, "barcodes", "features"))
     progr = progressr::progressor(along=chunks, message=msg)
@@ -169,9 +147,9 @@ CalculateMedians = function(matrix, margin=1, chunk_size=NULL, cores=1){
         mds = sparseMatrixStats::colMedians(counts)
       }
       return(mds)
-    }) %>% purrr::flatten_dbl()
+    }, .options = furrr::furrr_options(seed=getOption("random_seed"), globals=c("margin"))) %>% 
+      purrr::flatten_dbl()
     progr(type='finish')
-    future::plan(old_plan)
   } else {
     # Convert to sparse matrix
     if (!is(matrix, "dgCMatrix")) {
@@ -194,7 +172,6 @@ CalculateMedians = function(matrix, margin=1, chunk_size=NULL, cores=1){
 #' @param matrix Sparse (dgCMatrix) or iterable (IterableMatrix) matrix
 #' @param margin Margin for which to calculate median. Can be: 1 - rows, 2 - columns. Default is 1.
 #' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
-#' @param cores Number of cores to use. Default is 1.
 #' @return A named vector with medians.
 CalculateBoxplotStats = function(matrix, margin=1, chunk_size=NULL){
   # Checks
@@ -231,14 +208,6 @@ CalculateBoxplotStats = function(matrix, margin=1, chunk_size=NULL){
   }
   
   if (!is.null(chunks)) {
-    # Process sequential or parallel
-    old_plan = future::plan()
-    if (cores > 1) {
-      future::plan(future::multiprocess, workers=cores)
-    } else {
-      future::plan(future::sequential)
-    }
-    
     # Analyse chunks
     msg = paste("Calculate boxplot stats per ", ifelse(margin==1, "barcodes", "features"))
     progr = progressr::progressor(along=chunks, message=msg)
@@ -252,9 +221,8 @@ CalculateBoxplotStats = function(matrix, margin=1, chunk_size=NULL){
         mds = sparseMatrixStats::colQuantiles(mt)
       }
       return(as.data.frame(mds))
-    })
+    }, .options = furrr::furrr_options(seed=getOption("random_seed"), globals=c("margin")))
     progr(type='finish')
-    future::plan(old_plan)
   } else {
     # Convert to sparse matrix
     if (!is(matrix, "dgCMatrix")) matrix = as(matrix, "dgCMatrix")
@@ -353,7 +321,7 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
 #' @param save Name of the normalized layers. Default is "data" meaning new layers will be named data.X, data.Y, ...
 #' @param chunk_size Maximum number of barcodes for which to compute size factors at once. Large counts matrices will be split into chunks to save memory.
 #' @return Seurat v5 object with new layers data.X, data.Y, ...
-NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk_size=50000, cores=1) {
+NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk_size=50000) {
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   
   # Iterate over layers (datasets) and get size factors
@@ -383,14 +351,6 @@ NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk
     
     # Calculate size factors per chunk
     if (!is.null(chunks)) {
-      # Process sequential or parallel
-      old_plan = future::plan()
-      if (cores > 1) {
-        future::plan(future::multiprocess, workers=cores)
-      } else {
-        future::plan(future::sequential)
-      }
-      
       # Analyse chunks
       msg = paste("Calculate size factors for layer", l)
       progr = progressr::progressor(along=chunks, message=msg)
@@ -406,7 +366,7 @@ NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk
         sf = scuttle::pooledSizeFactors(counts, clusters=clusters)
         sf = setNames(sf, colnames(counts))
         return(sf)
-      })
+      }, .options = furrr::furrr_options(seed=getOption("random_seed"), globals=c()))
       size_factors = purrr::flatten(size_factors) %>% unlist()
       progr(type='finish')
       future::plan(old_plan)

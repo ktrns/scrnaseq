@@ -290,7 +290,7 @@ ReadCounts_mtx = function(mtx_directory, mtx_file_name="matrix.mtx.gz", transpos
   if (transpose) {
     counts_data = Matrix::t(counts_data)
   }
-  counts_data = as(counts_data, "CsparseMatrix")
+  counts_data = as(counts_data, "dgCMatrix")
   
   # Read barcodes file
   barcodes_data = readr::read_delim(file=file.path(mtx_directory, barcodes_file_name), col_names=barcodes_column_names, delim=delim, progress=FALSE, show_col_types=FALSE)
@@ -899,7 +899,7 @@ ReadCounts_ScaleBio = function(path, assays) {
 #' @param feature_metadata Table with additional feature metadata. Can also be a list specifying metadata for each assay. First column must contain the feature id. Missing features will be filled with NA.
 #' @param barcode_suffix Suffix to add to the barcodes (default: NULL). When barcodes are renamed, will be applied afterwards.
 #' @return  One sparse counts matrix per assay. Format can be dgCMatrix (general) or IterableMatrix (when reading an anndata.h5ad or h5 file). Additional information on barcodes and features is attached as attributes.
-ReadCounts = function(path, technology, assays, barcode_metadata_file=NULL, feature_metadata_file=NULL, barcode_suffix=NULL) {
+ReadCounts = function(path, technology, assays, barcode_metadata=NULL, feature_metadata=NULL, barcode_suffix=NULL) {
   library(magrittr)
   
   #path = "datasets/10x_pbmc_5k_protein/filtered_feature_bc_matrix/"

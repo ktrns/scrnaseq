@@ -106,10 +106,6 @@ Seurat::DefaultAssay(sc) = default_assay
 #| label: normalization_rna_normalize
 #| results: asis
 
-library(progressr)
-handlers("cli")
-
-
 if (param("norm_method") == "lognorm") {
   # LogNormalize
   sc = Seurat::NormalizeData(sc, 
@@ -120,11 +116,13 @@ if (param("norm_method") == "lognorm") {
   cat("We have used LogNormalize.")
 } else if(param("norm_method") == "scran") {
   # Scran
-  sc = NormalizeDataScran(sc, 
-                      assay=default_assay,
-                      layer="counts", 
-                      save="data",
-                      chunk_size=50000)
+  with_progress({
+    sc = NormalizeDataScran(sc, 
+                            assay=default_assay,
+                            layer="counts", 
+                            save="data",
+                            chunk_size=50000)
+  })
   cat("We have used Scran.")
 } else if(param("norm_method") == "SCT") {
   # SCTransform
@@ -135,6 +133,7 @@ if (param("norm_method") == "lognorm") {
                    variable.features.n=param("num_variable_features"),
                    vars.to.regress=c(),
                    return.only.var.genes=TRUE,
+                   verbose=TRUE,
                    seed.use=getOption("random_seed"))
   cat("We have used SCTransform @Hafemeister_2019.")
 }
@@ -190,12 +189,12 @@ if (param("norm_method") == "SCT") {
 
 plist = PlotVariableFeatures(sc, 
                      method=selection_method,
-                     assay=default_assay,
+                     assay=paste0(default_assay, "sct"),
                      top=10)
 
-n = gsub(pattern="varFeatures_", replacement="", x=names(plist))
+orig_idents = gsub(pattern="varFeatures_", replacement="", x=names(plist))
 captions = GeneratePlotCaptions(names(plist), remove="_\\S+")
-captions = paste(captions, "for", n)
+captions = paste(captions, "for", orig_idents)
 
 # Generate chunks
 chunk_template = "

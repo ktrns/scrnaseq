@@ -109,10 +109,14 @@ library(gt)
 library(Seurat)
 library(BPCells)
 library(ggplot2)
+library(future)
 
 # Get module directory (needed to access files within the module directory)
 module_name = params$module_name
 module_dir = params$module_dir
+
+# Parallisation plan for all functions that support future
+plan(multisession, workers=2)
 ```
 
 ```{r}
@@ -880,7 +884,7 @@ for (a in Seurat::Assays(sc)) {
 
     # Get counts of the top 50 features per barcode
     with_progress({
-      top50_counts = SumTopN(counts, n=50, margin=2, cores=1, chunk_size=5000)
+      top50_counts = SumTopN(counts, n=50, margin=2, chunk_size=5000)
     })
     
     # Zero counts barcodes will not be in top50_counts - add them here
@@ -912,7 +916,7 @@ for (a in Seurat::Assays(sc)) {
 
     # Calculate median percentage of counts per feature
     with_progress({
-      counts_median = CalculateMedians(counts_perc, margin=1, cores=1, chunk_size=1000)
+      counts_median = CalculateMedians(counts_perc, margin=1, chunk_size=1000)
     })
     
     # Add to metadata

@@ -87,10 +87,14 @@ library(magrittr)
 library(gt)
 library(Seurat)
 library(ggplot2)
+library(future)
 
 # Get module name and directory (needed to access files within the module directory)
 module_name = params$module_name
 module_dir = params$module_dir
+
+# Parallisation plan for all functions that support future
+plan(multisession, workers=2)
 ```
 
 ```{r}
@@ -356,7 +360,9 @@ highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), functio
   top_perc = Matrix::t(Matrix::t(top_counts)/total_counts)*100
   
   # Now calculate summary statistics (min, q25, median, mean, q75, max) per feature
-  top_perc_summary = CalculateBoxplotStats(top_perc, margin=1, chunk_size=NULL)
+  with_progress({
+    top_perc_summary = CalculateBoxplotStats(top_perc, margin=1, chunk_size=NULL)
+  })
   top_perc_summary$gene = rownames(top_perc_summary)
   rownames(top_perc_summary) = NULL
   top_perc_summary$orig.ident = gsub(x=l, pattern="^counts\\.", replacement="")
@@ -961,6 +967,35 @@ print(plist[[1]])
 ```
 
 :::
+
+```{r}
+
+# Split sc Seurat object by orig.ident.
+# For each orig.ident, run normalisation, PCA, clustering and UMAP.
+# Use furrr
+sc_list = SplitObject(sc, split.by="orig.ident")
+sc_list = furrr::future_map(sc_list, function(x) {
+  # Normalise
+  x = Seurat::NormalizeData(x, assay=default_assay, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
+  
+  # Run PCA
+  x = Seurat::RunPCA(x, assay=default_assay, verbose=FALSE)
+  
+  # Run clustering
+  x = Seurat::FindNeighbors(x, reduction="pca", dims=1:20, verbose=FALSE)
+  x = Seurat::FindClusters(x, resolution=0.5, verbose=FALSE)
+  
+  # Run UMAP
+  x = Seurat::RunUMAP(x, reduction="pca", dims=1:20, verbose=FALSE)
+  
+  return(x)
+})
+
+#Then run normalisation, PCA, clustering and UMAP for each.
+
+
+```
+
 
 ## Save Seurat object
 
