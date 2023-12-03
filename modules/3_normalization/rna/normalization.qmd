@@ -15,11 +15,11 @@ params:
   
   # Which normalization should be used for analysis?
   # lognorm (Seurat), scran or SCT
-  norm_method: "SCT"
+  norm_method: "lognorm"
   
   # Which method should be used for feature selection?
   # vst (Seurat) or scran
-  feature_selection: "scran"
+  feature_selection: "vst"
   
   # Number of variable features to use
   num_variable_features: 3000
@@ -96,7 +96,7 @@ prev_sc_obj = file.path(prev_module_dir, "sc", "sc.rds")
 if(!file.exists(prev_sc_obj)) {
   stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
 }
-sc = readRDS(prev_sc_obj)
+sc = SeuratObject::LoadSeuratRds(prev_sc_obj)
 default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
 ```
@@ -183,14 +183,19 @@ They look like this:
 
 if (param("norm_method") == "SCT") {
   selection_method = "sct"
-} else {
-  selection_method = param("feature_selection")
-}
-
-plist = PlotVariableFeatures(sc, 
+  plist = PlotVariableFeatures(sc, 
                      method=selection_method,
                      assay=paste0(default_assay, "sct"),
                      top=10)
+} else {
+  selection_method = param("feature_selection")
+  plist = PlotVariableFeatures(sc, 
+                     method=selection_method,
+                     assay=default_assay,
+                     top=10)
+}
+
+
 
 orig_idents = gsub(pattern="varFeatures_", replacement="", x=names(plist))
 captions = GeneratePlotCaptions(names(plist), remove="_\\S+")
@@ -223,4 +228,20 @@ for (i in seq(plist)) {
 }
 cat(":::")
 
+```
+
+## Save Seurat object
+
+```{r}
+#| label: normalization_rna_save_seurat
+#| 
+# Save Seurat object and layer data
+SaveSeuratRds(sc,
+              file=file.path(module_dir, "sc", "sc.rds"))
+
+# Clean tmp directory
+tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
+for(t in tmp_files) {
+  unlink(t, recursive=TRUE)
+}
 ```

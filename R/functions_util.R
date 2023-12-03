@@ -329,9 +329,13 @@ AddFeatureMetadata = function(obj, assay=NULL, metadata) {
 #' @param x Knitr chunk code
 #' @return The last return value of the code
 EvalKnitrChunk = function(x) {
-  x = gsub("`", "#", x)
-  x = parse(text=x)
-  return(eval(x))
+  chunks = unlist(stringr::str_extract_all(string=x, 
+                           pattern=stringr::regex(pattern="```\\s*\\{r\\}.*?\\n```", dotall=TRUE)
+                           ))
+  chunks = gsub("```", "#", chunks)
+  r_code = paste(chunks, collapse="\n")
+  r_code = parse(text=r_code)
+  return(eval(r_code))
 }
 
 #' Prepares the barcode filter.
@@ -390,7 +394,7 @@ PrepareFeatureFilter = function(filter, orig_idents) {
   return(filter)
 }
 
-#' Adds one more lists to the misc slot of the Seurat object.
+#' Adds one or more lists to the misc slot of the Seurat object.
 #' 
 #' @param sc A Seurat sc object.
 #' @param lists A named list with one or more lists (named or unnamed vectors only).
@@ -422,6 +426,48 @@ ScAddLists = function(sc, lists, lists_slot='gene_lists', add_to_list=FALSE, mak
   # Add to Seurat object
   suppressWarnings({Seurat::Misc(sc, slot=lists_slot) = stored_lists})
   return(sc)
+}
+
+#' Get one or more lists from the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param lists One or more list names.
+#' @param lists_slot From which slot of the Seurat misc slot should the lists be pulled. If NULL, pull from the top level of the Seurat misc slot.
+#' @return Lists saved in the misc slot of the Seurat object.
+ScLists = function(sc, lists, lists_slot=NULL) {
+  stored_lists = Seurat::Misc(sc, slot=lists_slot)
+  assertthat::assert_that(!is.null(stored_lists), 
+                          msg=FormatMessage("No lists found in misc slot of Seurat object (list slot: {{lists_slot}})."))
+  assertthat::assert_that(all(lists %in% names(stored_lists)), 
+                          msg=FormatMessage("List(s) {{lists}} not found in misc slot of Seurat object (list slot: {{lists_slot}})."))
+  
+  if (length(lists) > 1) {
+    return(stored_lists[lists])
+  } else {
+    return(stored_lists[[lists]])
+  }
+}
+
+#' Adds colours for one or more categories to the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param colours A named list with one or more lists with colours for categories (named or unnamed vectors only).
+#' @param colours_slot Name of the misc slot which stores the colours. Default is 'colour_lists'.
+#' @param add_to_list When a colour list with this name already exists, add to the colour list instead of overwriting the list. Default is FALSE.
+#' @param make_unique Make colour lists unique (after they were stored in the misc slot). Default is FALSE.
+#' @return A Seurat sc object with updated colour list(s).
+ScAddColours = function(sc, colours, colours_slot='colour_lists', add_to_list=FALSE, make_unique=FALSE) {
+  return(ScAddLists(sc, colours, lists_slot=colours_slot, add_to_list=add_to_list, make_unique=make_unique))
+}
+
+#' Gets colours for one or more categories from the misc slot of the Seurat object.
+#' 
+#' @param sc A Seurat sc object.
+#' @param categories One or more category names.
+#' @param colours_slot Name of the misc slot which stores the colours. Default is 'colour_lists'.
+#' @return Colour lists for categories.
+ScColours = function(sc, categories, colours_slot="colour_lists") {
+  return(ScLists(sc, categories, lists_slot=colours_slot))
 }
 
 ######################
@@ -510,41 +556,30 @@ ScrnaseqSessionInfo = function(path_to_git=".") {
   return(out)
 }
 
-#' Returns a subsample of cells.
+#' Subsamples barcodes of a Seurat v5 object.
 #' 
-#' @param sc A Seurat sc object.
-#' @param n Number of cells to subsample.
+#' @param sc A Seurat v5 object.
+#' @param n Total number of barcodes to subsample. Default is 500.
 #' @param seed Seed for sampling. Default is 1.
-#' @param group Metadata column group to consider for sampling with group_proportional.
-#' @param group_proportional Should the number of cells sampled from each group be proportional (TRUE) or should the number of cells be the same for each group (FALSE)? Only works if group is not NULL.
-#' @return Sampled cell names.
-ScSampleCells = function(sc, n, seed=1, group=NULL, group_proportional=TRUE) {
-  set.seed(seed)
-
-  # Set n
-  if (n > ncol(sc)) n = ncol(sc)
-  
-  # Sample cells
-  cell_names = sc[[]] %>% tibble::rownames_to_column() %>% dplyr::select(dplyr::all_of(c("rowname", group)))
-  colnames(cell_names) = ifelse(is.null(group), "rowname", c("rowname", "group"))
-  
-  if (!is.null(group) && !group_proportional) {
-    num_groups = length(unique(cell_names$group))
-    n_per_group = round(n/num_groups)
-    
-    cell_names_sample = lapply(split(cell_names$rowname, cell_names$group), function(l) {
-      if (length(l) < n_per_group) {
-        return(sample(l, length(l)))
-      } else {
-        return(sample(l, n_per_group))
-      }
-    }) %>% unlist() %>% unname() 
-    
+#' @param group If not NULL, sample the same number of barcodes from each group defined by this barcode metadata column. The number of barcodes per group is then the total number of barcodes divided by the number of groups. Default is NULL.
+#' @return Sampled barcodes.
+SubsampleSC = function(sc, n=500, seed=1, group=NULL) {
+  barcode_metadata = sc[[]]
+  barcodes = rownames(barcode_metadata)
+  if (!is.null(group)) {
+    barcodes = split(barcodes, barcode_metadata[, group, drop=TRUE])
   } else {
-    cell_names_sample = sample(cell_names$rowname, n)
+    barcodes = list(barcodes)
   }
   
-  return(cell_names_sample)
+  n = round(n/length(barcodes))
+  
+  barcodes = purrr::map(barcodes, function(x) {
+    set.seed(seed)
+    return(sample(x, min(n, length(x))))
+  })
+  
+  return(unlist(purrr::flatten(barcodes)))
 }
 
 

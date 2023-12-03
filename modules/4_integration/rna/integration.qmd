@@ -1,0 +1,58 @@
+---
+# Module-specific parameters (that are not already in the profile yaml)
+params:
+  # Name of the module used in configurations
+  module: "integration_rna"
+    
+  # Relative path to the module directory (which contains the qmd file)
+  module_dir: "modules/4_integration/rna"
+
+  # Path to previous module. If null, will be read from the 'chapters' entry in the profile yaml
+  prev_module_dir: null
+  
+  # Default assay.
+  default_assay: "RNA"
+  
+  # Integration method. CCIntegration, Harmony, 
+  
+# Module execution
+execute:
+  # Should this module be frozen and never re-rendered?
+  # - auto: if the code has not changed (default)
+  # - true/false: freeze/re-render
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  freeze: auto
+---
+
+# Integration (RNA)
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# If running code interactively in rstudio, set profile here
+# When rendering with quarto, profile is already set and should not be overwritten
+if (nchar(Sys.getenv("QUARTO_PROFILE")) == 0) {Sys.setenv("QUARTO_PROFILE" = "default")}
+
+# Source general configurations (always)
+source("R/general_configuration.R")
+
+# Source required R functions
+source("R/functions_util.R")
+source("R/functions_io.R")
+source("R/functions_plotting.R")
+source("R/functions_analysis.R")
+
+
+# Load libraries
+library(knitr)
+library(magrittr)
+library(gt)
+library(Seurat)
+library(ggplot2)
+
+# Get module name and directory (needed to access files within the module directory)
+module_name = params$module_name
+module_dir = params$module_dir
+```

@@ -10,18 +10,47 @@
 #' @return None, add as theme.
 AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
   list(
-    ggplot2::theme_light(11) + ggplot2::theme(panel.border = element_blank()), 
-    if (!is.null(title)) ggtitle(title), 
-    if (length(col) > 0) ggplot2::scale_colour_manual(values=col),
-    if (length(fill) > 0)  ggplot2::scale_fill_manual(values=fill),
-    if (!is.null(legend_title)) {
-      labs(color=legend_title, fill=legend_title)
-    } else {
-      theme(legend.title = element_blank()) 
-    },
-    if (!is.null(legend_position)) ggplot2::theme(legend.position=legend_position),
-    if (!is.null(xlab)) xlab(xlab),
-    if (!is.null(ylab)) ylab(ylab)
+    # Basic theme
+    ggplot2::theme_light(11),
+    ggplot2::theme(panel.border = element_blank()),
+    
+    # Title
+    dplyr::case_when(
+      !is.null(title) ~ ggplot2::ggtitle(title),
+      nchar(title) == 0 ~ ggplot2::theme(title=element_blank())
+    ),
+    
+    # Colour
+    dplyr::case_when(
+      !is.null(col) ~ ggplot2::scale_colour_manual(values=col)
+    ),
+    
+    # Fill
+    dplyr::case_when(
+      !is.null(fill) ~ ggplot2::scale_fill_manual(values=fill)
+    ),
+    
+    # Legend title
+    dplyr::case_when(
+      !is.null(legend_title) ~ labs(color=legend_title, fill=legend_title),
+      nchar(legend_title) == 0 ~ ggplot2::theme(legend.title=element_blank())
+    ),
+    
+    # Legend position
+    dplyr::case_when(
+      !is.null(legend_position) ~ ggplot2::theme(legend.position=legend_position)
+    ),
+    
+    # Axis labels
+    dplyr::case_when(
+      !is.null(xlab) ~ ggplot2::xlab(xlab),
+      nchar(xlab) == 0 ~ ggplot2::theme(axis.title.x=element_blank())
+    ),
+    
+    dplyr::case_when(
+      !is.null(ylab) ~ ggplot2::ylab(ylab),
+      nchar(ylab) == 0 ~ ggplot2::theme(axis.title.y=element_blank())
+    )
   )
 }
 
@@ -30,8 +59,9 @@ AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, lege
 #' @param plot_names A list of plot names.
 #' @param remove Part to remove before matching. Can be a string or regex.
 #' @param split If not NULL, split plot names to generate a X vs Y caption.
+#' @param capitalize If TRUE, capitalize the first letter of the caption.
 #' @return A list of captions.
-GeneratePlotCaptions = function(plot_names, remove=NULL, split=NULL) {
+GeneratePlotCaptions = function(plot_names, remove=NULL, split=NULL, capitalize=TRUE) {
   # Split names into two parts if requested
   if (!is.null(split)) {
     plot_names = strsplit(plot_names, split)
@@ -50,19 +80,20 @@ GeneratePlotCaptions = function(plot_names, remove=NULL, split=NULL) {
   captions = purrr::map(plot_names, function(x) {
     # Add captions here
     capts = dplyr::case_match(x,
-                                 "nCount" ~ "Number of counts",
-                                 "nFeature" ~ "Number of features",
-                                 "pCountsTop50" ~ "Percent counts in top50 features",
-                                 "pMito" ~ "Percent counts in mitochondrial genes",
-                                 "pRibosomal" ~ "Percent counts in ribosomal genes",
-                                 "pGlobin" ~ "Percent counts in globin genes",
-                                 "pERCC" ~ "Percent counts in ERCC controls",
-                                 "pXIST" ~ "Percent counts in XIST gene",
-                                 "pChrY" ~ "Percent counts in chrY genes",
+                                 "nCount" ~ "number of counts",
+                                 "nFeature" ~ "number of features",
+                                 "pCountsTop50" ~ "percent counts in top50 features",
+                                 "pMito" ~ "percent counts in mitochondrial genes",
+                                 "pRibosomal" ~ "percent counts in ribosomal genes",
+                                 "pGlobin" ~ "percent counts in globin genes",
+                                 "pERCC" ~ "percent counts in ERCC controls",
+                                 "pXIST" ~ "percent counts in XIST gene",
+                                 "pChrY" ~ "percent counts in chrY genes",
                                  "S.Score" ~ "S phase score",
                                  "G2M.Score" ~ "G2M phase score",
-                                 "Phase" ~ "Cell cycle phase",
-                                 "varFeatures" ~ "Variable features",
+                                 "Phase" ~ "cell cycle phase",
+                                 "varFeatures" ~ "variable features",
+                                 "Expression" ~ "Expression of",
                                  .default = NULL
     )
     idx = which(is.na(capts))
@@ -85,7 +116,16 @@ GeneratePlotCaptions = function(plot_names, remove=NULL, split=NULL) {
     }
     
     # Collapse
-    return(paste(x, collapse=" Vs "))
+    x = paste(x, collapse=" Vs ")
+    
+    # If requested, make first letter upper-case
+    if (capitalize) {
+      s = unlist(strsplit(x, ""))
+      s[1] = toupper(s[1])
+      x = paste(s, collapse="")
+    }
+    
+    return(x)
   }) %>% unlist()
   
   return(captions)
@@ -143,7 +183,8 @@ PlotBarcodeQC = function(sc, qc, filter=NULL) {
   
   plist_numeric = purrr::map(names(plist_numeric), function(n) {
     # Add style
-    p = plist_numeric[[n]] + AddPlotStyle(legend_position="none", xlab="") +
+    p = plist_numeric[[n]] + 
+      AddPlotStyle(legend_position="none", xlab="", fill=ScColours(sc, "orig.ident")) +
       theme(axis.text.x=element_text(angle=45, hjust=1))
     
     # Add filter thresholds
@@ -177,7 +218,7 @@ PlotBarcodeQC = function(sc, qc, filter=NULL) {
       scale_x_discrete("Identity") +
       scale_color_manual(values=c("keep"="black", "filter"="grey")) +
       scale_alpha_manual(values=c("keep"=1, "filter"=0.2)) +
-      AddPlotStyle() +
+      AddPlotStyle(fill=ScColours(sc, "orig.ident")) +
       theme(axis.title.y=element_blank())
     
     return(p)

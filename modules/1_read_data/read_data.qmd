@@ -271,7 +271,6 @@ Once datasets are set
 
 ```{r}
 #| label: read_data_read_counts
-#| timeit: true
 
 # Read counts
 
@@ -356,7 +355,7 @@ for (i in 1:nrow(datasets)) {
       rename_features = rep(rename_features, length(counts_lst[[i]]))
   }
   
-  # Now loop through assays
+  # Now loop through assays and process
   for (j in seq_along(counts_lst[[i]])) {
     assay = attr(counts_lst[[i]][[j]], "assay")
     feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
@@ -415,41 +414,10 @@ for (i in 1:nrow(datasets)) {
     attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
   }
 
-  ##################################################
-  # If requested, write counts to matrix directory #
-  ##################################################
-  
-  # - allows to analyse big datasets
-  # - requires Seurat v5 and BPcells
-  # - else convert to in-memory matrix of type dgCMatrix  
-  
-  on_disk_counts = param("on_disk_counts")
-  
-  for(j in seq_along(counts_lst[[i]])) {
-     # Keep attributes barcode_metadata and feature_metadata
-    barcode_metadata = attr(counts_lst[[i]][[j]], "barcode_metadata")
-    feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
-    assay = attr(counts_lst[[i]][[j]], "assay")
-
-    if (on_disk_counts) {
-      # Write counts to matrix directory
-      WriteCounts(counts=counts_lst[[i]][[j]], 
-                  path=file.path(module_dir, "tmp", paste(experiment, assay, sep=".")), 
-                  format="matrix_directory", 
-                  overwrite=param("on_disk_counts_overwrite"))
-      
-      # Then open matrix directory for analysis
-      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "tmp", paste(experiment, assay, sep=".")))
-    } else {
-      # Convert to in-memory matrix
-      counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
-    }
-    
-    # Add attributes barcode_metadata and feature_metadata, as well as technology and assay
-    attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
-    attr(counts_lst[[i]][[j]], "barcode_metadata") = barcode_metadata
-    attr(counts_lst[[i]][[j]], "technology") = technology
-    attr(counts_lst[[i]][[j]], "assay") = assay
+  ##################
+  # Other metadata #
+  ##################
+  for (j in seq_along(counts_lst[[i]])) {
     attr(counts_lst[[i]][[j]], "sample") = sample
     attr(counts_lst[[i]][[j]], "orig.ident") = experiment
     attr(counts_lst[[i]][[j]], "path") = path
@@ -479,7 +447,7 @@ features_renaming = purrr::map(features_renaming, function(df) {
   return(df)
 })
 
-# Now rename
+# Rename
 for (i in seq(counts_lst)) {
   for (j in seq(counts_lst[[i]])) {
     # Metadata gets lost when renaming
@@ -498,6 +466,52 @@ for (i in seq(counts_lst)) {
     rownames(feature_metadata) = new_names
     
     # Restore metadata
+    attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
+    attr(counts_lst[[i]][[j]], "barcode_metadata") = barcode_metadata
+    attr(counts_lst[[i]][[j]], "technology") = technology
+    attr(counts_lst[[i]][[j]], "assay") = assay
+    attr(counts_lst[[i]][[j]], "sample") = sample
+    attr(counts_lst[[i]][[j]], "orig.ident") = experiment
+    attr(counts_lst[[i]][[j]], "path") = path
+  }
+}
+
+######################################################
+# If requested, write counts to matrix directory     #
+# else convert to in-memory matrix of type dgCMatrix #
+######################################################
+
+# - allows to analyse big datasets
+# - requires Seurat v5 and BPcells
+
+on_disk_counts = param("on_disk_counts")
+
+for (i in seq(counts_lst)) {
+  for(j in seq_along(counts_lst[[i]])) {
+    # Metadata gets lost when saving
+    feature_metadata = attr(counts_lst[[i]][[j]], "feature_metadata")
+    barcode_metadata = attr(counts_lst[[i]][[j]], "barcode_metadata")
+    technology = attr(counts_lst[[i]][[j]], "technology")
+    assay = attr(counts_lst[[i]][[j]], "assay")
+    sample = attr(counts_lst[[i]][[j]], "sample")
+    experiment = attr(counts_lst[[i]][[j]], "orig.ident")
+    path = attr(counts_lst[[i]][[j]], "path")
+  
+    if (on_disk_counts) {
+      # Write counts to matrix directory
+      WriteCounts(counts=counts_lst[[i]][[j]], 
+                  path=file.path(module_dir, "tmp", paste(experiment, assay, sep=".")), 
+                  format="matrix_directory", 
+                  overwrite=param("on_disk_counts_overwrite"))
+      
+      # Then open matrix directory for analysis
+      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "tmp", paste(experiment, assay, sep=".")))
+    } else {
+      # Convert to in-memory matrix
+      counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
+    }
+    
+    # Add attributes barcode_metadata and feature_metadata, as well as technology and assay
     attr(counts_lst[[i]][[j]], "feature_metadata") = feature_metadata
     attr(counts_lst[[i]][[j]], "barcode_metadata") = barcode_metadata
     attr(counts_lst[[i]][[j]], "technology") = technology
@@ -725,7 +739,6 @@ n =  paste("nFeature", default_assay, sep="_")
 i = is.na(sc[[]][, n]) %>% which()
 sc[[]][i, n] = 0
 
-
 ################
 # Other assays #
 ################
@@ -774,6 +787,10 @@ for(a in setdiff(all_assays, default_assay)) {
   
 }
 
+#########
+# Other #
+#########
+
 # Parse plate information if requested
 parse_plate_information = param("parse_plate_information")
 plate_information_regex = param("plate_information_regex")
@@ -799,6 +816,13 @@ if (parse_plate_information) {
 
 # Set default identity
 Seurat::Idents(sc) = "orig.ident"
+
+# Add colours
+sc = ScAddColours(sc, colours=list(
+  orig.ident=setNames(zeileis_28[1:length(levels(sc$orig.ident))], levels(sc$orig.ident)),
+  sample=setNames(zeileis_28[1:length(levels(sc$sample))], levels(sc$sample)),
+  technology=setNames(zeileis_28[1:length(levels(sc$technology))], levels(sc$technology))
+))
 ```
 
 Add images
@@ -1034,18 +1058,16 @@ for (a in Seurat::Assays(sc)) {
 
 ```{r}
 #| label: read_data_save_seurat
-#| timeit: true
 
-# Save Seurat object: SeuratObject::SaveSeuratRds does not work
-saveRDS(sc, file=file.path(module_dir, "sc", "sc.rds"))
-#SeuratObject::SaveSeuratRds(sc,
-#              file=file.path(module_dir, "sc", "sc.rds"),
-#              destdir=file.path(module_dir, "sc"))
+# Save Seurat object and layer data
+with_progress({
+  SaveSeuratRds(sc,
+                file=file.path(module_dir, "sc", "sc.rds"))
+})
 
-# Do not delete since SeuratObject::SaveSeuratRds does not copy the on-disk data directories properly
 # Clean tmp directory
-#tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
-#for(t in tmp_files) {
-#  unlink(t, recursive=TRUE)
-#}
+tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
+for(t in tmp_files) {
+  unlink(t, recursive=TRUE)
+}
 ```
