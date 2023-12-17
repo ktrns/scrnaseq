@@ -470,29 +470,6 @@ ScColours = function(sc, categories, colours_slot="colour_lists") {
   return(ScLists(sc, categories, lists_slot=colours_slot))
 }
 
-#' Saves.
-#' 
-#' @param sc A Seurat sc object.
-#' @param categories One or more category names.
-#' @param colours_slot Name of the misc slot which stores the colours. Default is 'colour_lists'.
-#' @return Colour lists for categories.
-SaveSeuratRds_Mod = function(sc, file, relative=FALSE) {
-  library(SeuratObject)
-  file = file.path(module_dir, "sc", "sc.rds")
-  
-  # Save Seurat object and on-disk data using the SeuratObject function SaveSeuratRds
-  SaveSeuratRds(sc, file=file)
-  
-  # Then make sure that the paths pointing to the layers are correct
-  sc = readRDS(file)
-  paths = basename(sc@tools$SaveSeuratRds$path)
-  if (!relative) paths = file.path(dirname(file), paths)
-  sc@tools$SaveSeuratRds$path = paths
-  
-  # Save Seurat object
-  saveRDS(sc, file=file)
-}
-
 ######################
 ######################
 

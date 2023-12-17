@@ -1486,4 +1486,33 @@ ParsePlateInformation = function(cell_names, pattern='_(\\d+)_([A-Z])(\\d+)$') {
   
   return(plate_information)
 }
+
+#' Saves Seurat object and - if available - associated on-disk layers. Extension of Seurat's SaveSeuratRds.
+#' 
+#' @param sc A Seurat sc object.
+#' @param outdir Output directory for saved Seurat object (sc.rds) and associated on-disk layers. If it does not exist, it will be created.
+#' @param clean If there are already files/directories in outdir, remove them.
+SaveSeuratRds_Custom = function(sc, outdir, clean=FALSE) {
+  library(SeuratObject)
   
+  # If output directory does not exist, create it
+  if (!dir.exists(outdir)) dir.create(outdir, recursive=TRUE)
+    
+  # If output directory is not empty, remove all files/directories
+  if (clean) {
+    files = list.files(path=outdir, full.names=TRUE)
+    if (length(files) > 0) file.remove(files)
+  }
+  
+  # Save Seurat object and on-disk data using the SeuratObject function SaveSeuratRds
+  SaveSeuratRds(sc, file=file.path(outdir, "sc.rds"))
+  
+  # Then make sure that the paths pointing to the layers are correct
+  sc = readRDS(file)
+  paths = basename(sc@tools$SaveSeuratRds$path)
+  if (!relative) paths = file.path(dirname(file), paths)
+  sc@tools$SaveSeuratRds$path = paths
+  
+  # Save Seurat object
+  saveRDS(sc, file=file.path(outdir, "sc.rds"))
+}

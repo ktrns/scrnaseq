@@ -35,19 +35,16 @@ params:
   # Default assay. All cells must have this assay.
   default_assay: RNA
   
-  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. TThis will create a a 'counts' directory within the module directory with one matrix directory per sample and assay.
+  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. Once done, matrix directories will be saved together with the Seurat object in the module directory.
   on_disk_counts: true
   
-  # For large datasets: Overwrite existing matrix directories. The counts files will still be read though.
-  on_disk_counts_overwrite: true
+  # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
+  on_disk_use_tmp: false
   
   # Downsample data to at most n barcodes per sample
-  #   null to deactivate
   downsample_barcodes_n: null
   
-  # Downsample all samples equally according to the smallest sample
-  #   true/false
-  #   Overwritten by downsample_cells_n
+  # Downsample all samples equally according to the smallest sample. Overwritten by downsample_cells_n.
   downsample_barcodes_equally: false
   
   # Downsample data to at most n features per assay
@@ -125,11 +122,15 @@ plan(multisession, workers=2)
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
 
-# Module directory 'tmp' contains all intermediate files only used for this module
-dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
-
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+
+# If
+on_disk_use_tmp = param("on_disk_use_tmp")
+if (on_disk_use_tmp) {
+  dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+}
+
 ```
 
 ## Datasets
@@ -499,9 +500,8 @@ for (i in seq(counts_lst)) {
   
     if (on_disk_counts) {
       # Write counts to matrix directory
-      WriteCounts(counts=counts_lst[[i]][[j]], 
+      WriteCounts_MatrixDir(counts=counts_lst[[i]][[j]], 
                   path=file.path(module_dir, "tmp", paste(experiment, assay, "counts", sep=".")), 
-                  format="matrix_directory", 
                   overwrite=param("on_disk_counts_overwrite"))
       
       # Then open matrix directory for analysis
@@ -1061,8 +1061,9 @@ for (a in Seurat::Assays(sc)) {
 
 # Save Seurat object and layer data
 with_progress({
-  SaveSeuratRds_Mod(sc,
-                file=file.path(module_dir, "sc", "sc.rds"))
+  SaveSeuratRds_Custom(sc,
+                outdir=file.path(module_dir, "sc"),
+                clean=TRUE)
 })
 
 # Clean tmp directory
