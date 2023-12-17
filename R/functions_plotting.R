@@ -9,49 +9,57 @@
 #' @param ylab The title of the y-axis.
 #' @return None, add as theme.
 AddPlotStyle = function(title=NULL, col=NULL, fill=NULL, legend_title=NULL, legend_position=NULL, xlab=NULL, ylab=NULL) {
-  list(
+  style = list(
     # Basic theme
     ggplot2::theme_light(11),
-    ggplot2::theme(panel.border = element_blank()),
-    
-    # Title
-    dplyr::case_when(
-      !is.null(title) ~ ggplot2::ggtitle(title),
-      nchar(title) == 0 ~ ggplot2::theme(title=element_blank())
-    ),
-    
-    # Colour
-    dplyr::case_when(
-      !is.null(col) ~ ggplot2::scale_colour_manual(values=col)
-    ),
-    
-    # Fill
-    dplyr::case_when(
-      !is.null(fill) ~ ggplot2::scale_fill_manual(values=fill)
-    ),
-    
-    # Legend title
-    dplyr::case_when(
-      !is.null(legend_title) ~ labs(color=legend_title, fill=legend_title),
-      nchar(legend_title) == 0 ~ ggplot2::theme(legend.title=element_blank())
-    ),
-    
-    # Legend position
-    dplyr::case_when(
-      !is.null(legend_position) ~ ggplot2::theme(legend.position=legend_position)
-    ),
-    
-    # Axis labels
-    dplyr::case_when(
-      !is.null(xlab) ~ ggplot2::xlab(xlab),
-      nchar(xlab) == 0 ~ ggplot2::theme(axis.title.x=element_blank())
-    ),
-    
-    dplyr::case_when(
-      !is.null(ylab) ~ ggplot2::ylab(ylab),
-      nchar(ylab) == 0 ~ ggplot2::theme(axis.title.y=element_blank())
-    )
+    ggplot2::theme(panel.border = element_blank())
   )
+  
+  # Title
+  if (!is.null(title)) {
+    if (nchar(title) > 0) {
+      style = c(style, list(ggplot2::ggtitle(title)))
+    } else {
+      style = c(style, list(ggplot2::theme(title=element_blank())))
+    }
+  }
+  
+  # Colour
+  if (!is.null(col)) style = c(style, list(ggplot2::scale_colour_manual(values=col)))
+  
+  # Fill
+  if (!is.null(fill)) style = c(style, list(ggplot2::scale_fill_manual(values=fill)))
+    
+  # Legend title
+  if (!is.null(legend_title)) {
+    if (nchar(legend_title) > 0) {
+      style = c(style, list(labs(color=legend_title, fill=legend_title)))
+    } else {
+      style = c(style, list(ggplot2::theme(legend.title=element_blank())))
+    }
+  }
+  
+  # Legend position
+  if (!is.null(legend_position)) style = c(style, list(ggplot2::theme(legend.position=legend_position)))
+  
+  # Axis labels
+  if (!is.null(xlab)) {
+    if (nchar(xlab) > 0) {
+      style = c(style, list(ggplot2::xlab(xlab)))
+    } else {
+      style = c(style, list(ggplot2::theme(axis.title.x=element_blank())))
+    }
+  }
+  
+  if (!is.null(ylab)) {
+    if (nchar(ylab) > 0) {
+      style = c(style, list(ggplot2::ylab(ylab)))
+    } else {
+      style = c(style, list(ggplot2::theme(axis.title.y=element_blank())))
+    }
+  }
+  
+  return(style)
 }
 
 #' Helper function to generate plot captions.
@@ -279,7 +287,7 @@ PlotBarcodeQCCor = function(sc, qc, filter=NULL) {
     
     # Plot QC feature f1 vs f2
     p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=ncol(sc)>=getOption("raster.threshold"))
-    p = p + AddPlotStyle()
+    p = p + AddPlotStyle(col=ScColours(sc, "orig.ident"))
     
     # Add filter thresholds for f1
     qc_threshold_segments = purrr::pmap(qc_thresholds[[f1]], function(qc_feature, ident, threshold, value) {
@@ -473,7 +481,7 @@ PlotRLE = function(sc, assay=NULL, layer="counts", nbarcodes=500, is_log=FALSE) 
     geom_segment(aes(x=x, xend=x, y=lower_whisker , yend=upper_whisker, col=orig.ident)) +
     geom_segment(aes(x=x, xend=x, y=q25-0.01 , yend=q75+0.01), colour="grey20") +
     geom_point(aes(x=x, y=q50), shape=1) +
-    AddPlotStyle(xlab="Cells", ylab="Relative log expression") + 
+    AddPlotStyle(xlab="Cells", ylab="Relative log expression", col=ScColours(sc, "orig.ident")) + 
     theme(axis.text.x=element_blank(),
           axis.ticks.x=element_blank())
   

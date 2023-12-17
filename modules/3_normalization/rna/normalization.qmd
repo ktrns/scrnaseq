@@ -24,6 +24,8 @@ params:
   # Number of variable features to use
   num_variable_features: 3000
   
+  on_disk_counts_overwrite: true
+  
 # Module execution
 execute:
   # Should this module be frozen and never re-rendered?
@@ -60,10 +62,14 @@ library(magrittr)
 library(gt)
 library(Seurat)
 library(ggplot2)
+library(future)
 
 # Get module name and directory (needed to access files within the module directory)
 module_name = params$module_name
 module_dir = params$module_dir
+
+# Parallisation plan for all functions that support future
+plan(multisession, workers=4)
 ```
 
 ```{r}
@@ -142,15 +148,22 @@ if (param("norm_method") == "lognorm") {
 We check whether normalisation was successfull.
 
 ```{r}
+#| label: normalization_rna_rle
+#| fig-cap:
+#|  - Relative log expression plot 1
+#|  - Relative log expression plot 2
+#| fig-asp: 0.7
+#| warning: false
 
 p1 = PlotRLE(sc, assay=default_assay, layer="counts", is_log=FALSE)
+print(p1)
 
 if (param("norm_method") == "SCT") {
   p2 = PlotRLE(sc, assay=paste0(default_assay, "sct"), layer="data", is_log=TRUE)
 } else {
   p2 = PlotRLE(sc, assay=default_assay, layer="data", is_log=TRUE)
 }
-
+print(p2)
 ```
 
 
@@ -234,10 +247,24 @@ cat(":::")
 
 ```{r}
 #| label: normalization_rna_save_seurat
-#| 
+
+# Convert queued operations into real data
+layers = SeuratObject::Layers(sc, assay=default_assay, search="^data.")
+for(i in seq_along(layers)) {
+  n = paste(gsub("^data\\.", "", layers[i]), default_assay, "data", sep=".")
+  matrix_dir = BPCells::write_matrix_dir(mat=SeuratObject::LayerData(sc, assay=default_assay, layer=layers[i]),
+                            dir=file.path(module_dir, "tmp", n),
+                            overwrite=param("on_disk_counts_overwrite"))
+  SeuratObject::LayerData(sc, assay=default_assay, layer=layers[i]) = matrix_dir
+}
+
+
 # Save Seurat object and layer data
-SaveSeuratRds(sc,
+with_progress({
+  SaveSeuratRds_Mod(sc,
               file=file.path(module_dir, "sc", "sc.rds"))
+})
+
 
 # Clean tmp directory
 tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)

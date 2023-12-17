@@ -13,8 +13,28 @@ params:
   # Default assay.
   default_assay: "RNA"
   
-  # Integration method. CCIntegration, Harmony, 
+  # One or more integration method(s) to use. 
+  # The following methods are available: null (just merge), CCIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
+  integration_method: CCIntegration
   
+  # Use sketch-based integration if total number of barcodes is more than
+  num_barcodes_for_sketching: 50000
+    
+  # Parameters for CCIntegration
+  CCIntegration: null
+  
+  # Parameters for RPCAIntegration
+  RPCAIntegration: null
+  
+  # Parameters for HarmonyIntegration
+  HarmonyIntegration: null
+  
+  # Parameters for FastMNNIntegration
+  FastMNNIntegration: null
+  
+  # Parameters for scVIIntegration.
+  scVIIntegration: null
+    
 # Module execution
 execute:
   # Should this module be frozen and never re-rendered?
@@ -50,9 +70,77 @@ library(knitr)
 library(magrittr)
 library(gt)
 library(Seurat)
+library(SeuratWrappers)
 library(ggplot2)
+library(future)
 
 # Get module name and directory (needed to access files within the module directory)
 module_name = params$module_name
 module_dir = params$module_dir
+
+# Parallisation plan for all functions that support future
+plan(multisession, workers=4)
+```
+
+
+```{r}
+#| label: integration_rna_preparation
+
+###############
+# Directories #
+###############
+
+# Module directory 'results' contains all output that should be provided together with the final report of the project
+dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
+
+# Module directory 'tmp' contains all intermediate files only used for this module
+dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+
+# Module directory 'sc' contains the final Seurat object
+dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+
+#################
+# Seurat object #
+#################
+
+# Read in seurat object
+if (!is.null(param("prev_module_dir"))) {
+  prev_module_dir = param("prev_module_dir")
+} else {
+  prev_module_dir = PreviousModuleDir(module_dir)
+}
+prev_sc_obj = file.path(prev_module_dir, "sc", "sc.rds")
+if(!file.exists(prev_sc_obj)) {
+  stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
+}
+sc = SeuratObject::LoadSeuratRds(prev_sc_obj)
+default_assay = param("default_assay")
+Seurat::DefaultAssay(sc) = default_assay
+
+# Do we need to do integration
+integration_method = param("integration_method")
+integration_needed = !is.null(integration_method) & length(SeuratObject::Layers(sc, assay="RNA", search="data")) > 1
+
+
+##########################
+# Methods and parameters #
+##########################
+
+
+```
+
+```{r}
+#| label: integration_rna_not_needed
+#| eval: !expr integration_needed==FALSE
+#| include: !expr integration_needed==FALSE
+
+cat("Need not")
+```
+
+```{r}
+#| label: integration_rna_needed
+#| eval: !expr integration_needed==TRUE
+#| include: !expr integration_needed==TRUE
+
+cat("Need")
 ```

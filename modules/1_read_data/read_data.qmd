@@ -164,7 +164,7 @@ datasets = ReadDatasetsTable(datasets_file)
 #datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
 #datasets$barcode_metadata_files[1] = NA
 #datasets$rename_features[1] = "ENSEMBL"
-
+ 
 #datasets$technology[2] = "parse"
 #datasets$assays[2] = "RNA"
 #datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
@@ -500,12 +500,12 @@ for (i in seq(counts_lst)) {
     if (on_disk_counts) {
       # Write counts to matrix directory
       WriteCounts(counts=counts_lst[[i]][[j]], 
-                  path=file.path(module_dir, "tmp", paste(experiment, assay, sep=".")), 
+                  path=file.path(module_dir, "tmp", paste(experiment, assay, "counts", sep=".")), 
                   format="matrix_directory", 
                   overwrite=param("on_disk_counts_overwrite"))
       
       # Then open matrix directory for analysis
-      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "tmp", paste(experiment, assay, sep=".")))
+      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "tmp", paste(experiment, assay, "counts", sep=".")))
     } else {
       # Convert to in-memory matrix
       counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
@@ -1061,7 +1061,7 @@ for (a in Seurat::Assays(sc)) {
 
 # Save Seurat object and layer data
 with_progress({
-  SaveSeuratRds(sc,
+  SaveSeuratRds_Mod(sc,
                 file=file.path(module_dir, "sc", "sc.rds"))
 })
 

@@ -5,7 +5,7 @@
 #' @param margin Margin. Can be: 1 - rows (top n barcodes per feature), 2 - columns (top n features per barcode). Default is 1.
 #' @param chunk_size Iterable matrices will be converted into sparse matrics. To avoid storing the entire matrix in memory, only process this number of rows/columns at once. Default is no chunks.
 #' @return A vector with sums to the top n.
-SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL, cores=1){
+SumTopN = function(matrix, n=50, margin=1, chunk_size=NULL){
   # Checks
   assertthat::assert_that(margin %in% c("1", "2"),
                           msg=FormatMessage("Margin can only be 1 - rows or 2 - columns."))
@@ -279,26 +279,26 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
   # (since CellCycleScoring and AddModuleScore still cannot work with layers)
   sc_split = suppressMessages(Seurat::SplitObject(sc, split.by="orig.ident"))
     
-  cell_cycle_scores = purrr::map_dfr(names(sc_split), function(n) {
+  cell_cycle_scores = furrr::future_map_dfr(sc_split, function(s) {
     # Check that the genes exist
-    genes_s_exists = genes_s %in% rownames(sc_split[[n]][[assay]])
-    genes_g2m_exists = genes_g2m %in% rownames(sc_split[[n]][[assay]])
+    genes_s_exists = genes_s %in% rownames(s[[assay]])
+    genes_g2m_exists = genes_g2m %in% rownames(s[[assay]])
     
     
     if (sum(genes_s_exists) >= 20 & sum(genes_g2m_exists) >= 20) {
-      sc_split[[n]] = Seurat::CellCycleScoring(sc_split[[n]],
+      s = Seurat::CellCycleScoring(s,
                                                s.features=genes_s[genes_s_exists],
                                                g2m.features=genes_g2m[genes_g2m_exists],
                                                assay=assay,
                                                verbose=FALSE)
-      cc_scores = sc_split[[n]][[c("Phase", "S.Score", "G2M.Score")]]
+      cc_scores = s[[c("Phase", "S.Score", "G2M.Score")]]
       cc_scores[["CC.Difference"]] = cc_scores[["S.Score"]] - cc_scores[["G2M.Score"]]
     } else {
       cc_scores = data.frame(Phase=character(), S.Score=numeric(), G2M.Score=numeric(), CC.Difference=numeric())
     }
     cc_scores[["Phase"]] = factor(cc_scores[["Phase"]], levels=c("G1", "G2M", "S"))
     return(cc_scores)
-  })
+  }, .options = furrr::furrr_options(seed=getOption("random_seed")))
     
   # Add to barcode metadata
   sc = Seurat::AddMetaData(sc, cell_cycle_scores)
@@ -333,8 +333,6 @@ NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk
   
   for (i in seq_along(layers)) {
     l = layers[i]
-    
-    chunks = split(barcodes, ceiling(seq_along(barcodes)/chunk_size))
     
     # Define chunks
     chunks = NULL

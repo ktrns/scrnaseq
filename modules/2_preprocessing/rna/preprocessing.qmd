@@ -147,6 +147,7 @@ sc = Seurat::SketchData(sc,
                        sketched.assay=paste0(default_assay, "Sketch"))
 
 # Run a "quick" single-cell analysis on the sketch assay
+sc = Seurat::NormalizeData(sc, assay=paste0(default_assay, "Sketch"), normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"), selection.method="vst")
 sc = Seurat::ScaleData(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"))
 sc = Seurat::RunPCA(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"))
@@ -961,7 +962,7 @@ cat(":::", sep="\n")
 
 
 ```{r}
-#| label: preprocess_rna_qc_cor_plots
+#| label: preprocess_rna_postqc_cor_plots
 #| results: asis
 
 orig_idents = levels(sc$orig.ident)
@@ -1234,17 +1235,6 @@ gt(cell_cycle_summary_tbl, rowname_col="orig.ident")
 
 plist = PlotBarcodeQCCor(sc, qc=list(c("S.Score", "G2M.Score")))
 print(plist[[1]])
-
-p = DimPlot(sc, group.by = "seurat_clusters", combine = F)
-
-ScColours = function(sc, category, values=NULL) {
-  if (is.null(values)) {
-    values = sc[[category]]
-  } else {
-    
-  }
-}
-
 ```
 
 `r knitr::asis_output(paste0("::: {layout-ncol=", ifelse(length(orig_idents) <= 10, 2, 1), "}"))`
@@ -1274,11 +1264,20 @@ print(plist[[1]])
 
 ```{r}
 #| label: preprocess_rna_save_seurat
-#| 
+
+# Dump the layers with the normalized data for now (will be done in another module)
+layers = SeuratObject::Layers(sc, assay=default_assay, search="^data.")
+for(i in seq_along(layers)) {
+  SeuratObject::LayerData(sc[[default_assay]], layer=layers[i]) = NULL
+}
+
+# Dump the Sketch assay for now
+sc[[paste0(default_assay, "Sketch")]] = NULL
+
 # Save Seurat object and layer data
 with_progress({
-  SaveSeuratRds(sc,
-                file=file.path(module_dir, "sc", "sc.rds"))
+  SaveSeuratRds_Mod(sc,
+              file=file.path(module_dir, "sc", "sc.rds"))
 })
 
 # Clean tmp directory
@@ -1287,3 +1286,77 @@ for(t in tmp_files) {
   unlink(t, recursive=TRUE)
 }
 ```
+
+```{r}
+    file <- file.path(module_dir, "sc", "sc.rds")
+object = sc
+    file <- normalizePath(path = file, winslash = "/", mustWork = FALSE)
+    move = TRUE
+    
+    assays <- .FilterObjects(object = object, classes.keep = "StdAssay")
+    cache <- vector(mode = "list", length = length(x = assays))
+    names(x = cache) <- assays
+    destdir <- dirname(path = file)
+    for (assay in assays) {
+      assay = "RNA"
+        df <- lapply(X = Layers(object = object[[assay]]), FUN = function(lyr) {
+            ldat <- LayerData(object = object[[assay]], layer = lyr)
+            path <- .FilePath(x = ldat)
+            path <- Filter(f = nzchar, x = path)
+            if (!length(x = path)) {
+                path <- NULL
+            }
+            if (is.null(x = path)) {
+                return(NULL)
+            }
+            return(data.frame(layer = lyr, path = path, class = paste(class(x = ldat), 
+                collapse = ","), pkg = .ClassPkg(object = ldat), 
+                fxn = .DiskLoad(x = ldat) %||% identity))
+        })
+        df <- do.call(what = "rbind", args = df)
+        
+        if (isTRUE(x = move)) {
+            for (i in seq_len(length.out = nrow(x = df))) {
+                pth <- df$path[i]
+                df[i, "path"] <- as.character(x = .FileMove(path = pth, 
+                  new_path = destdir))
+            }
+        }
+        if (isTRUE(x = relative)) {
+            p(message = paste("Adjusting paths to be relative to", 
+                sQuote(x = dirname(path = file), q = FALSE)), 
+                class = "sticky", amount = 0)
+            df$path <- as.character(x = fs::path_rel(path = df$path, 
+                start = dirname(path = file)))
+        }
+        df$assay <- assay
+        cache[[assay]] <- df
+        if (nrow(x = df) == length(x = Layers(object = object[[assay]]))) {
+  
+            adata <- S4ToList(object = object[[assay]])
+            adata$layers <- list()
+            adata$default <- 0L
+            adata$cells <- LogMap(y = colnames(x = object[[assay]]))
+            adata$features <- LogMap(y = rownames(x = object[[assay]]))
+            object[[assay]] <- ListToS4(x = adata)
+        }
+        else {
+            p(message = paste("Clearing", nrow(x = df), "layers from", 
+                assay), class = "sticky", amount = 0)
+            for (layer in df$layer) {
+                LayerData(object = object[[assay]], layer = layer) <- NULL
+            }
+        }
+        p()
+    }
+    cache <- do.call(what = "rbind", args = cache)
+    if (!is.null(x = cache) && nrow(x = cache)) {
+        p(message = "Saving on-disk cache to object", class = "sticky", 
+            amount = 0)
+        row.names(x = cache) <- NULL
+        Tool(object = object) <- cache
+    }
+    saveRDS(object = object, file = file, ...)
+    return(invisible(x = file))
+```
+

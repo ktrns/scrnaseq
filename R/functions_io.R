@@ -1035,23 +1035,20 @@ ReadCounts = function(path, technology, assays, barcode_metadata=NULL, feature_m
   return(counts_lst)
 }
 
-#' Write counts data to disk.
+#' Write counts data to disk in BPCells matrix directory format.
 #' 
 #' @param counts A counts matrix. Format can be a standard matrix, a sparse matrix, AnnDataMatrixH5 (when reading anndata.h5ad) or MatrixSubset (when reading hdf5).
-#' @param path Where to write counts on disk. Depending on the format this will be a single file or a directory.
-#' @param format Output format. Can be: 'matrix_market'  (directory with barcodes.tsv.gz, features.tsv.gz and matrix.txt.gz) or 'matrix_directory' format (directory for on-disk operations using the BPCells package)
+#' @param path Where to write counts on disk.
 #' @param overwrite Overwrite existing output paths. Default is FALSE.
-#' @param metadata If TRUE write barcode and feature metadata. Default is FALSE.
-WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
-  #counts = counts_lst[[i]][[j]]
-  #path=file.path(module_dir, sample, assay) 
-  #format="matrix_directory"
-  #overwrite=TRUE
+#' @return An IterableMatrix pointing to the BPCells matrix directory.
+WriteCounts_MatrixDir = function(counts, path, overwrite=FALSE) {
+  library(BPCells)
   
-  # Checks
-  valid_formats = c("matrix_market", "matrix_directory")
-  assertthat::assert_that(format %in% valid_formats,
-                          msg=FormatMessage("Format is {format} but must be one of: {valid_formats*}."))
+  # If path exists and overwrite is FALSE, just open the matrix directory
+  if (dir.exists(path) & overwrite==FALSE) {
+    counts = BPCells::open_matrix_dir(path)
+    return(counts)
+  }
   
   # Check that the counts object has the correct format
   if (is(counts, "IterableMatrix")) {
@@ -1070,46 +1067,51 @@ WriteCounts = function(counts, path, format, overwrite=FALSE, metadata=FALSE) {
     counts = as(as.matrix(counts), "dgCMatrix")
   }
   
-  # Now write to disk
-  if (format == "matrix_directory") {
-    # Save in matrix directory
-    library(BPCells)
-    
-    # Sparse matrices in dgCMatrix format must be converted to BPCells internal format for better efficiency
-    if (is(counts, "dgCMatrix")) {
-      counts = as(counts, "IterableMatrix")
-    }
-    
-    # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
-    vals = as(counts[1:min(1000, nrow(counts)), 1:min(1000, ncol(counts))], "dgCMatrix")
-    if (all(vals >= 0) & all(vals == round(vals))) {
-        counts = BPCells::convert_matrix_type(counts, type="uint32_t")
-    }
-    
-    if (!dir.exists(path) | overwrite==TRUE) {
-      # If path does not exists or overwrite set to TRUE: write data to matrix dir
-      counts = BPCells::write_matrix_dir(mat=counts, dir=path, overwrite=overwrite)
-    }
-  } else {
-    # Save in matrix market format
-    if (overwrite) {
-      d = file.path(path)
-      dir.create(d, showWarnings=FALSE)
-      
-      mh = file.path(d, "matrix.mtx")
-      Matrix::writeMM(counts, file=mh)
-      R.utils::gzip(mh, overwrite=TRUE)
-      
-      bh = gzfile(file.path(d, "barcodes.tsv.gz"), open="wb")
-      write(colnames(counts), file=bh)
-      close(bh)
-      
-      fh = gzfile(file.path(d, "features.tsv.gz"), open="wb")
-      write.table(assay_feature_meta_data_df, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\t")
-      close(fh)
-    }
+  # Sparse matrices in dgCMatrix format must be converted to BPCells internal format for better efficiency
+  if (is(counts, "dgCMatrix")) {
+    counts = as(counts, "IterableMatrix")
   }
   
+  # Test if we have non-negative integers, then convert matrix from double to integer to save disk space (default is double)
+  vals = as(counts[1:min(1000, nrow(counts)), 1:min(1000, ncol(counts))], "dgCMatrix")
+  if (all(vals >= 0) & all(vals == round(vals))) {
+    counts = BPCells::convert_matrix_type(counts, type="uint32_t")
+  }
+  
+  # Write to directory
+  counts = BPCells::write_matrix_dir(mat=counts, dir=path, overwrite=overwrite)
+  
+  # Return IterableMatrix pointing to this directory
+  return(counts)
+}
+
+#' Write counts data to disk in matrix market format.
+#' 
+#' @param counts A counts matrix. Format can be a standard matrix, a sparse matrix, AnnDataMatrixH5 (when reading anndata.h5ad) or MatrixSubset (when reading hdf5).
+#' @param path Where to write counts on disk.
+#' @param overwrite Overwrite existing output paths. Default is FALSE.
+#' @param metadata If TRUE write barcode and feature metadata. Default is FALSE.
+WriteCounts_MatrixMarket = function(counts, path, overwrite=FALSE, metadata=FALSE) {
+  if (!dir.exists(path) | overwrite==TRUE) {
+    if (!is(counts, "dgCMatrix")) {
+      counts = as(counts, "dgCMatrix")
+    }
+    
+    d = file.path(path)
+    dir.create(d, showWarnings=FALSE)
+    
+    mh = file.path(d, "matrix.mtx")
+    Matrix::writeMM(counts, file=mh)
+    R.utils::gzip(mh, overwrite=TRUE)
+    
+    bh = gzfile(file.path(d, "barcodes.tsv.gz"), open="wb")
+    write(colnames(counts), file=bh)
+    close(bh)
+    
+    fh = gzfile(file.path(d, "features.tsv.gz"), open="wb")
+    write.table(assay_feature_meta_data_df, file=fh, row.names=FALSE, col.names=FALSE, quote=FALSE, sep="\t")
+    close(fh)
+  }
 }
 
 #' Reads image data produced by 10x Visium.
