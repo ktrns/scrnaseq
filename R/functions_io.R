@@ -1492,7 +1492,8 @@ ParsePlateInformation = function(cell_names, pattern='_(\\d+)_([A-Z])(\\d+)$') {
 #' @param sc A Seurat sc object.
 #' @param outdir Output directory for saved Seurat object (sc.rds) and associated on-disk layers. If it does not exist, it will be created.
 #' @param clean If there are already files/directories in outdir, remove them.
-SaveSeuratRds_Custom = function(sc, outdir, clean=FALSE) {
+#' @param relative Make paths to on-disk layers relative.
+SaveSeuratRds_Custom = function(sc, outdir, clean=FALSE, relative=FALSE) {
   library(SeuratObject)
   
   # If output directory does not exist, create it
@@ -1501,18 +1502,82 @@ SaveSeuratRds_Custom = function(sc, outdir, clean=FALSE) {
   # If output directory is not empty, remove all files/directories
   if (clean) {
     files = list.files(path=outdir, full.names=TRUE)
-    if (length(files) > 0) file.remove(files)
+    if (length(files) > 0) unlink(files, recursive=TRUE)
   }
   
   # Save Seurat object and on-disk data using the SeuratObject function SaveSeuratRds
   SaveSeuratRds(sc, file=file.path(outdir, "sc.rds"))
   
   # Then make sure that the paths pointing to the layers are correct
-  sc = readRDS(file)
+  sc = readRDS(file.path(outdir, "sc.rds"))
   paths = basename(sc@tools$SaveSeuratRds$path)
-  if (!relative) paths = file.path(dirname(file), paths)
+  if (!relative) paths = file.path(outdir, paths)
   sc@tools$SaveSeuratRds$path = paths
   
   # Save Seurat object
   saveRDS(sc, file=file.path(outdir, "sc.rds"))
+}
+
+
+#' Copies on-disk layers of a Seurat object to a new directory.
+#' 
+#' @param sc A Seurat sc object.
+#' @param dir New directory for on-disk layers.
+#' @param assays For which assays should on-disk layers be copied. If NULL, copy all.
+#' @param layer For which layers should on-disk layers be copied. If NULL, copy all. Can also be a pattern.
+UpdateMatrixDirs = function (sc, dir, assays=NULL, layer=NULL) {
+  # New directory for on-disk matrices
+  dir = normalizePath(path=dir, winslash="/", mustWork=FALSE)
+  if (is.null(assays)) assays = SeuratObject::Assays(sc)
+  
+  # Stores information about on-disk matrices
+  cache = SeuratObject::Tool(sc, slot="SaveSeuratRds")
+  
+  # Iterate over assays
+  progr = progressr::progressor(along=assays)
+  progr(message=paste("Copying on-disk matrices to directory", dir), class="sticky", amount=0)
+  
+  for (a in assays) {
+    progr(message = paste("Searching through assay", a), class="sticky", amount=0)
+    
+    if (!is.null(layer)) {
+      layers = SeuratObject::Layers(sc, assay=a, layers=layer)
+    } else {
+      layers = SeuratObject::Layers(sc, assay=a)
+    }
+    
+    # Iterate over layers
+    for(i in seq_along(layers)) {
+      # Get IterableMatrix for layer
+      data = SeuratObject::LayerData(sc, assay=a, layer=layers[i])
+      
+      # Get old path
+      path = SeuratObject::.FilePath(x=data)
+      path = Filter(f=nzchar, x=path)
+      if (is.null(path)) next
+      
+      # Move on-disk matrix directory to new path
+      progr(message = paste("Moving layer", layers[i], "to", dir), class="sticky", amount=0)
+      new_path = as.character(SeuratObject::.FileMove(path=path, new_path=dir))
+      
+      # Reload matrix directory with new path into Seurat object
+      fnx = SeuratObject::.DiskLoad(data)
+      fnx = eval(expr = str2lang(fnx))
+      SeuratObject::LayerData(sc, assay=a, layer=layers[i]) = fnx(new_path)
+      
+      # Update information about on-disk matrices
+      if (!is.null(cache)) {
+        idx = which(cache$assay == a & cache$layer == layers[i])
+        cache$path[idx] = new_path
+      }
+    }
+  }
+  progr(type='finish')
+  
+  # Store information about on-disk matrices
+  if (!is.null(cache)) {
+    sc@tools$SaveSeuratRds = cache
+  }
+  
+  return(sc)
 }

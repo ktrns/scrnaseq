@@ -13,6 +13,12 @@ params:
   # Default assay.
   default_assay: "RNA"
   
+  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. Once done, matrix directories will be saved together with the Seurat object in the module directory.
+  on_disk_counts: true
+  
+  # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
+  on_disk_use_tmp: true
+  
   # Which barcode QC should be shown. Can be any barcode metadata column. 
   # If the assay is not part of the name, will use the default assay (nFeature => nFeature_RNA).
   barcode_qc:
@@ -128,6 +134,19 @@ if(!file.exists(prev_sc_obj)) {
   stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
 }
 sc = SeuratObject::LoadSeuratRds(prev_sc_obj)
+
+# Move on-disk layers to faster temp location if requested
+on_disk_counts = param("on_disk_counts")
+on_disk_use_tmp = param("on_disk_use_tmp")
+
+if (on_disk_counts & on_disk_use_tmp) {
+  on_disk_path = tempdir()
+  with_progress({
+    sc = UpdateMatrixDirs(sc, dir=on_disk_path)
+  })
+}
+
+# Set default assay
 default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
 
@@ -1276,8 +1295,9 @@ sc[[paste0(default_assay, "Sketch")]] = NULL
 
 # Save Seurat object and layer data
 with_progress({
-  SaveSeuratRds_Mod(sc,
-              file=file.path(module_dir, "sc", "sc.rds"))
+  SaveSeuratRds_Custom(sc,
+              outdir=file.path(module_dir, "sc"),
+              clean=TRUE)
 })
 
 # Clean tmp directory

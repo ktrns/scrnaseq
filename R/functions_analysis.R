@@ -278,7 +278,7 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
   # In this case, we need to split the Seurat object 
   # (since CellCycleScoring and AddModuleScore still cannot work with layers)
   sc_split = suppressMessages(Seurat::SplitObject(sc, split.by="orig.ident"))
-    
+  
   cell_cycle_scores = furrr::future_map_dfr(sc_split, function(s) {
     # Check that the genes exist
     genes_s_exists = genes_s %in% rownames(s[[assay]])
@@ -299,7 +299,7 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
     cc_scores[["Phase"]] = factor(cc_scores[["Phase"]], levels=c("G1", "G2M", "S"))
     return(cc_scores)
   }, .options = furrr::furrr_options(seed=getOption("random_seed")))
-    
+
   # Add to barcode metadata
   sc = Seurat::AddMetaData(sc, cell_cycle_scores)
   
@@ -367,7 +367,6 @@ NormalizeDataScran = function(sc, assay=NULL, layer="counts", save="data", chunk
       }, .options = furrr::furrr_options(seed=getOption("random_seed"), globals=c()))
       size_factors = purrr::flatten(size_factors) %>% unlist()
       progr(type='finish')
-      future::plan(old_plan)
     } else {
       # Convert to dgCMatrix and create
       counts = SeuratObject::LayerData(sc[[assay]], layer=l, fast=NA)

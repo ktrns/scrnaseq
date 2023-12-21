@@ -39,7 +39,7 @@ params:
   on_disk_counts: true
   
   # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
-  on_disk_use_tmp: false
+  on_disk_use_tmp: true
   
   # Downsample data to at most n barcodes per sample
   downsample_barcodes_n: null
@@ -113,7 +113,7 @@ module_name = params$module_name
 module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
-plan(multisession, workers=2)
+plan(multisession, workers=4)
 ```
 
 ```{r}
@@ -124,13 +124,6 @@ dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
 
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
-
-# If
-on_disk_use_tmp = param("on_disk_use_tmp")
-if (on_disk_use_tmp) {
-  dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
-}
-
 ```
 
 ## Datasets
@@ -158,20 +151,20 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
-#datasets = datasets[1:2,]
-#datasets$technology[1] = "parse"
-#datasets$assays[1] = "RNA"
-#datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
-#datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
-#datasets$barcode_metadata_files[1] = NA
-#datasets$rename_features[1] = "ENSEMBL"
+datasets = datasets[1:2,]
+datasets$technology[1] = "parse"
+datasets$assays[1] = "RNA"
+datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+datasets$barcode_metadata_files[1] = NA
+datasets$rename_features[1] = "ENSEMBL"
  
-#datasets$technology[2] = "parse"
-#datasets$assays[2] = "RNA"
-#datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
-#datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
-#datasets$barcode_metadata_files[2] = NA
-#datasets$rename_features[2] = "ENSEMBL"
+datasets$technology[2] = "parse"
+datasets$assays[2] = "RNA"
+datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+datasets$barcode_metadata_files[2] = NA
+datasets$rename_features[2] = "ENSEMBL"
 
 
 
@@ -486,6 +479,12 @@ for (i in seq(counts_lst)) {
 # - requires Seurat v5 and BPcells
 
 on_disk_counts = param("on_disk_counts")
+on_disk_use_tmp = param("on_disk_use_tmp")
+if (on_disk_use_tmp) {
+  on_disk_path = tempdir()
+} else {
+  on_disk_path = file.path(module_dir, "sc")
+}
 
 for (i in seq(counts_lst)) {
   for(j in seq_along(counts_lst[[i]])) {
@@ -500,12 +499,11 @@ for (i in seq(counts_lst)) {
   
     if (on_disk_counts) {
       # Write counts to matrix directory
-      WriteCounts_MatrixDir(counts=counts_lst[[i]][[j]], 
-                  path=file.path(module_dir, "tmp", paste(experiment, assay, "counts", sep=".")), 
-                  overwrite=param("on_disk_counts_overwrite"))
-      
       # Then open matrix directory for analysis
-      counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(module_dir, "tmp", paste(experiment, assay, "counts", sep=".")))
+      #counts_lst[[i]][[j]] = BPCells::open_matrix_dir(file.path(on_disk_path, paste(assay, "counts", experiment, sep=".")))
+      counts_lst[[i]][[j]] = WriteCounts_MatrixDir(counts=counts_lst[[i]][[j]],
+                                                   path=file.path(on_disk_path, paste(assay, "counts", experiment, sep=".")),
+                                                   overwrite=TRUE)
     } else {
       # Convert to in-memory matrix
       counts_lst[[i]][[j]] = as(counts_lst[[i]][[j]], "dgCMatrix")
