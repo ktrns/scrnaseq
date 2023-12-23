@@ -39,7 +39,7 @@ params:
   on_disk_counts: true
   
   # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
-  on_disk_use_tmp: true
+  on_disk_use_tmp: false
   
   # Downsample data to at most n barcodes per sample
   downsample_barcodes_n: null
@@ -113,7 +113,7 @@ module_name = params$module_name
 module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
-plan(multisession, workers=4)
+plan(multisession, workers=4, gc=TRUE)
 ```
 
 ```{r}
@@ -121,10 +121,52 @@ plan(multisession, workers=4)
 
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "results"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "sc"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
+
+
 ```
+
+## Datasets
+
+Raw data from single-cell experiments needs to be converted into count matrices. For example, for scRNA-seq, such a count matrix contains expression values per cell and gene. More generally spoken, a count matrix contains measurements per barcode (e.g. cell, nuclei or spot) and feature (e.g. gene, protein or ATAC peak) where barcodes correspond to columns and features correspond to rows (but vice versa is also possible).
+
+::: columns
+::: {.column width="70%"}
+| Gene    | Cell1 | Cell2 | Cell3 | Cell4 | ... |
+|---------|:-----:|:-----:|:-----:|:-----:|:---:|
+| SAMD11  |   1   |  10   |   0   |   0   | ... |
+| NOC2L   |   0   |   2   |   2   |   1   | ... |
+| PLEKHN1 |  23   |   2   |   7   |   1   | ... |
+| HES4    |   0   |   0   |   0   |   0   | ... |
+| AGRN    |  12   |  34   |  23   |  12   | ... |
+| ...     |  ...  |  ...  |  ...  |  ...  | ... |
+
+: Example of a counts matrix for scRNA-seq data
+:::
+:::
+
+How to construct such a count matrix depends on the experimental protocol used for the single-cell experiment. Here we roughly outline the steps needed for the protocols for officially supported -  Smartseq2, Smartseq3, 10x, 10x Visium, 10x Xenium, Parse Biosciences and Scale Bio - and describe their relevant output files.
+
+::: panel-tabset
+##### 10x
+
+##### 10x Visium
+
+##### 10x Xenium
+
+##### Smartseq2/3
+
+##### Parse Biosciences
+
+##### Scale Bio
+
+:::
 
 ## Datasets
 
@@ -151,20 +193,20 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
-datasets = datasets[1:2,]
-datasets$technology[1] = "parse"
-datasets$assays[1] = "RNA"
-datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
-datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
-datasets$barcode_metadata_files[1] = NA
-datasets$rename_features[1] = "ENSEMBL"
- 
-datasets$technology[2] = "parse"
-datasets$assays[2] = "RNA"
-datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
-datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
-datasets$barcode_metadata_files[2] = NA
-datasets$rename_features[2] = "ENSEMBL"
+# datasets = datasets[1:2,]
+# datasets$technology[1] = "parse"
+# datasets$assays[1] = "RNA"
+# datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+# datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+# datasets$barcode_metadata_files[1] = NA
+# datasets$rename_features[1] = "ENSEMBL"
+#  
+# datasets$technology[2] = "parse"
+# datasets$assays[2] = "RNA"
+# datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+# datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+# datasets$barcode_metadata_files[2] = NA
+# datasets$rename_features[2] = "ENSEMBL"
 
 
 
@@ -483,7 +525,7 @@ on_disk_use_tmp = param("on_disk_use_tmp")
 if (on_disk_use_tmp) {
   on_disk_path = tempdir()
 } else {
-  on_disk_path = file.path(module_dir, "sc")
+  on_disk_path = file.path(module_dir, "tmp")
 }
 
 for (i in seq(counts_lst)) {
@@ -660,7 +702,6 @@ Create object
 
 ```{r}
 #| label: read_data_seurat_object
-#| timeit: true
 
 # List all assays in all datasets
 all_assays = purrr::map_depth(counts_lst, 2, attr, "assay") %>% 
@@ -827,7 +868,6 @@ Add images
 
 ```{r}
 #| label: read_data_read_images
-#| timeit: true
 
 # Add images (10x Visium and 10x Xenium only)
 for (i in seq_along(counts_lst)) {
@@ -1060,13 +1100,6 @@ for (a in Seurat::Assays(sc)) {
 # Save Seurat object and layer data
 with_progress({
   SaveSeuratRds_Custom(sc,
-                outdir=file.path(module_dir, "sc"),
-                clean=TRUE)
+                outdir=file.path(module_dir, "sc"))
 })
-
-# Clean tmp directory
-tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
-for(t in tmp_files) {
-  unlink(t, recursive=TRUE)
-}
 ```

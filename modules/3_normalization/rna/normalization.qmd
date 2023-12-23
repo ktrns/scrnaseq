@@ -17,11 +17,11 @@ params:
   on_disk_counts: true
   
   # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
-  on_disk_use_tmp: true
+  on_disk_use_tmp: false
   
   # Which normalization should be used for analysis?
   # lognorm (Seurat), scran or SCT
-  norm_method: "lognorm"
+  normalisation_method: "lognorm"
   
   # Which method should be used for feature selection?
   # vst (Seurat) or scran
@@ -29,8 +29,6 @@ params:
   
   # Number of variable features to use
   num_variable_features: 3000
-  
-  on_disk_counts_overwrite: true
   
 # Module execution
 execute:
@@ -75,7 +73,7 @@ module_name = params$module_name
 module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
-plan(multisession, workers=4)
+plan(multisession, workers=4, gc=TRUE)
 ```
 
 ```{r}
@@ -87,12 +85,13 @@ plan(multisession, workers=4)
 
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
-
-# Module directory 'tmp' contains all intermediate files only used for this module
-dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "results"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "sc"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 #################
 # Seurat object #
@@ -133,32 +132,33 @@ Seurat::DefaultAssay(sc) = default_assay
 #| label: normalization_rna_normalize
 #| results: asis
 
-if (param("norm_method") == "lognorm") {
+if (param("normalisation_method") == "lognorm") {
   # Apply log normalisation
   sc = Seurat::NormalizeData(sc, 
-                             assay=default_assay, 
                              normalization.method="LogNormalize", 
                              scale.factor=10000,
                              verbose=TRUE)
+  layers = SeuratObject::Layers(sc, search="^counts\\.") %>% 
+    gsub(pattern="counts", replacement="data", x=.)
+  
   cat("We have used LogNormalize.")
   
-} else if(param("norm_method") == "scran") {
+} else if(param("normalisation_method") == "scran") {
   # Scran
   with_progress({
     sc = NormalizeDataScran(sc, 
-                            assay=default_assay,
                             layer="counts", 
                             save="data",
                             chunk_size=50000)
   })
+  layers = SeuratObject::Layers(sc, search="^counts\\.") %>% 
+    gsub(pattern="counts", replacement="data", x=.)
+
   cat("We have used Scran.")
   
-} else if(param("norm_method") == "SCT") {
+} else if(param("normalisation_method") == "SCT") {
   # SCTransform
-  options(future.globals.onReference = "error")
-
   sc = SCTransform(sc, 
-                   assay=default_assay,
                    new.assay.name=paste0(default_assay, "sct"),
                    vst.flavor="v2",
                    variable.features.n=param("num_variable_features"),
@@ -167,21 +167,26 @@ if (param("norm_method") == "lognorm") {
                    verbose=TRUE,
                    seed.use=getOption("random_seed"),
                    conserve.memory=length(Cells(sc)) >= 100000)
+  Seurat::DefaultAssay(sc) = paste0(default_assay, "sct")
+  layers = c()
+
   cat("We have used SCTransform @Hafemeister_2019.")
 }
 
-# Convert queued operations into real data
-layers = SeuratObject::Layers(sc, assay=default_assay, search="^counts.") %>% 
-  gsub(pattern="counts", replacement="data", x=.)
-for(i in seq_along(layers)) {
-  # Get IterableMatrix object
-  data = SeuratObject::LayerData(sc, assay=default_assay, layer=layers[i])
-  # Write data to disk
-  matrix_dir = WriteCounts_MatrixDir(counts=data,
-                                     path=file.path(on_disk_path, paste(default_assay, layers[i], sep=".")),
-                                     overwrite=TRUE)
-  # Load into Seurat object
-  SeuratObject::LayerData(sc, assay=default_assay, layer=layers[i]) = matrix_dir
+# Convert queued operations into real data and write normalized data to disk
+# Not supported for SCTransform
+if (on_disk_counts & param("normalisation_method") != "SCT") {
+  for(i in seq_along(layers)) {
+    # Get IterableMatrix object
+    data = SeuratObject::LayerData(sc, layer=layers[i])
+    
+    # Write data to disk
+    matrix_dir = WriteCounts_MatrixDir(counts=data,
+                                       path=file.path(on_disk_path, paste(Seurat::DefaultAssay(sc), layers[i], sep=".")),
+                                       overwrite=TRUE)
+    # Load into Seurat object
+    SeuratObject::LayerData(sc, layer=layers[i]) = matrix_dir
+  }
 }
 ```
 
@@ -198,7 +203,7 @@ We check whether normalisation was successfull.
 p1 = PlotRLE(sc, assay=default_assay, layer="counts", is_log=FALSE)
 print(p1)
 
-if (param("norm_method") == "SCT") {
+if (param("normalisation_method") == "SCT") {
   p2 = PlotRLE(sc, assay=paste0(default_assay, "sct"), layer="data", is_log=TRUE)
 } else {
   p2 = PlotRLE(sc, assay=default_assay, layer="data", is_log=TRUE)
@@ -213,7 +218,7 @@ Then we identify variable features.
 #| label: normalization_rna_variable_features
 
 # Only LogNormalize and Scran (already done within SCTransform)
-if(param("norm_method") != "SCT") {
+if(param("normalisation_method") != "SCT") {
   if (param("feature_selection") == "vst") {
     sc = Seurat::FindVariableFeatures(sc, 
                                       assay=default_assay, 
@@ -234,7 +239,7 @@ They look like this:
 #| label: normalization_rna_variable_features_plots
 #| results: asis
 
-if (param("norm_method") == "SCT") {
+if (param("normalisation_method") == "SCT") {
   selection_method = "sct"
   plist = PlotVariableFeatures(sc, 
                      method=selection_method,
@@ -291,14 +296,7 @@ cat(":::")
 # Save Seurat object and layer data
 with_progress({
   SaveSeuratRds_Custom(sc,
-              outdir=file.path(module_dir, "sc"),
-              clean=TRUE)
+              outdir=file.path(module_dir, "sc"))
 })
 
-
-# Clean tmp directory
-tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
-for(t in tmp_files) {
-  unlink(t, recursive=TRUE)
-}
 ```

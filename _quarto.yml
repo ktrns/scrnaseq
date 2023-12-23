@@ -6,6 +6,7 @@ project:
     - R/collect_module_results.R
 
 bibliography: "misc/references.bib"
+csl: "misc/nature.csl"
 
 #################
 # Knitr options #

@@ -17,7 +17,7 @@ params:
   on_disk_counts: true
   
   # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
-  on_disk_use_tmp: true
+  on_disk_use_tmp: false
   
   # Which barcode QC should be shown. Can be any barcode metadata column. 
   # If the assay is not part of the name, will use the default assay (nFeature => nFeature_RNA).
@@ -69,6 +69,9 @@ execute:
 
 In this chapter, we read in counts data as "features x barcodes" matrices. If provided, we read in additional metadata for features and barcodes. For spatial data, we additionally read in the image data. All data is imported into an Seurat object. Basic summary stats are calculated and shown. Finally, the Seurat object is saved for further processing in the next chapters.
 
+
+
+
 ```{r}
 #| label: setup
 #| message: false
@@ -100,7 +103,7 @@ module_name = params$module_name
 module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
-plan(multisession, workers=2)
+plan(multisession, workers=4, gc=TRUE)
 ```
 
 ```{r}
@@ -112,12 +115,13 @@ plan(multisession, workers=2)
 
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
-
-# Module directory 'tmp' contains all intermediate files only used for this module
-dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "results"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "sc"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 #################
 # Seurat object #
@@ -155,37 +159,38 @@ Seurat::DefaultAssay(sc) = default_assay
 ###############################################
 
 # Apply a basic normalization and find variable features 
-sc = Seurat::NormalizeData(sc, assay=default_assay, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
-sc = Seurat::FindVariableFeatures(sc, assay=default_assay, verbose=FALSE, selection.method="vst")
+sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
+sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, selection.method="vst")
 
-# Make a subset/sketch of the default assay in Seurat
-# Note: assay is saved in memory
-sc = Seurat::SketchData(sc, 
-                       assay=default_assay, 
-                       ncells=min(5000, length(Seurat::Cells(sc))),
+# If more than 5000 barcodes, sketch a subset of 5000 barcodes
+# Note: assay is saved in memory (not on-disk)
+if (length(Seurat::Cells(sc)) > 5000) {
+  sc = Seurat::SketchData(sc, 
+                       ncells=5000,
                        sketched.assay=paste0(default_assay, "Sketch"))
+  SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+}
 
-# Run a "quick" single-cell analysis on the sketch assay
-sc = Seurat::NormalizeData(sc, assay=paste0(default_assay, "Sketch"), normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
-sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"), selection.method="vst")
-sc = Seurat::ScaleData(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"))
-sc = Seurat::RunPCA(sc, verbose=FALSE, assay=paste0(default_assay, "Sketch"))
+# Run a "quick" single-cell analysis
+sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
+sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, selection.method="vst")
+sc = Seurat::ScaleData(sc, verbose=FALSE)
+sc = Seurat::RunPCA(sc, verbose=FALSE)
 default_reduction = "pca"
 
-num_datasets = length(SeuratObject::Layers(sc, assay=paste0(default_assay, "Sketch"), search="data."))
+num_datasets = length(SeuratObject::Layers(sc, search="^data\\."))
 if (num_datasets > 1) {
   sc = Seurat::IntegrateLayers(sc, 
                                method=Seurat::CCAIntegration, 
                                orig.reduction="pca",
                                new.reduction="integrated.cca", 
-                               assay=paste0(default_assay, "Sketch"),
                                verbose=FALSE)
   default_reduction = "integrated.cca"
 }
 
-sc = Seurat::FindNeighbors(sc, reduction=default_reduction, dims=1:10, assay=paste0(default_assay, "Sketch"))
+sc = Seurat::FindNeighbors(sc, reduction=default_reduction, dims=1:10)
 sc = Seurat::FindClusters(sc, resolution=0.5, verbose=FALSE)
-sc = Seurat::RunUMAP(sc, dims=1:10, reduction=default_reduction, assay=paste0(default_assay, "Sketch"))
+sc = Seurat::RunUMAP(sc, dims=1:10, reduction=default_reduction)
 
 
 # Done
@@ -205,19 +210,19 @@ feature_metadata = sc[[default_assay]][[]]
 
 # Calculate percentage of counts in mitochondrial genes
 mt_features = grep(pattern="^MT-", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
-sc[[]][paste("pMito", default_assay, sep="_")] = Seurat::PercentageFeatureSet(sc, assay=default_assay, features=mt_features)
+sc[[]][paste("pMito", default_assay, sep="_")] = Seurat::PercentageFeatureSet(sc, features=mt_features)
 
 # Calculate percentage of counts in ribosomal genes
 ribo_features = grep(pattern="^RP[SL]", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
-sc[[paste("pRibosomal", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, assay=default_assay, features=ribo_features)
+sc[[paste("pRibosomal", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, features=ribo_features)
 
 # Calculate percentage of counts in globin genes
 globin_features = grep("^HB[ABDGEMQZ]", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
-sc[[paste("pGlobin", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, assay=default_assay, features=globin_features)
+sc[[paste("pGlobin", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, features=globin_features)
 
 # Calculate percentage of counts in globin genes
 ercc_features = grep("^ERCC-", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
-sc[[paste("pERCC", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, assay=default_assay, features=ercc_features)
+sc[[paste("pERCC", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, features=ercc_features)
 
 # Calculate number of counts in XIST
 xist_feature = grep("^XIST", x=rownames(feature_metadata), value=TRUE, ignore.case=TRUE)
@@ -227,7 +232,7 @@ sc[[paste("pXIST", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, 
 sc[[paste("pChrY", default_assay, sep="_")]] = 0
 if ("ensembl_chr" %in% colnames(feature_metadata)) {
   chrY_features = which(feature_metadata$ensembl_chr %in% c("chrY", "Y"))
-  sc[[paste("pChrY", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, assay=default_assay, features=chrY_features)
+  sc[[paste("pChrY", default_assay, sep="_")]] = Seurat::PercentageFeatureSet(sc, features=chrY_features)
 }
 ```
 
@@ -416,7 +421,7 @@ captions1 = GeneratePlotCaptions(names(plist1), remove=paste0("_", default_assay
 captions1 = paste("UMAP coloured by", captions1)
 
 # Make ridge plots
-plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE, assay=default_assay)
+plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE)
 plist2 = purrr::map(plist2, function(p) {
   p$data = p$data %>% dplyr::filter(!is.na(ident))
   p = p + AddPlotStyle() + theme(legend.position="none")
@@ -1011,6 +1016,8 @@ captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay),
 
 # Generate chunks
 chunk_template = "
+##### {{i}}
+
 \`\`\`{r}
 #| label: fig-preprocessing_rna_postqc_{{type1}}_vs_{{type2}}
 #| fig-asp: 0.7
@@ -1076,7 +1083,7 @@ captions1 = GeneratePlotCaptions(names(plist1), remove=paste0("_", default_assay
 captions1 = paste("UMAP coloured by", captions1)
 
 # Make ridge plots
-plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE, assay=default_assay)
+plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE)
 plist2 = purrr::map(plist2, function(p) {
   p$data = p$data %>% dplyr::filter(!is.na(ident))
   p = p + AddPlotStyle() + theme(legend.position="none")
@@ -1093,7 +1100,7 @@ chunk_template = "
 ::: {layout-ncol=2}
 
 \`\`\`{r}
-#| label: fig-preprocessing_rna_qc_umap_{{type}}
+#| label: fig-preprocessing_rna_postqc_umap_{{type}}
 #| fig-asp: 0.7
 #| fig-cap: '{{caption1}}'
 #| echo: false
@@ -1103,7 +1110,7 @@ print(plist1[[{{i}}]])
 \`\`\`
 
 \`\`\`{r}
-#| label: fig-preprocessing_rna_qc_ridge_{{type}}
+#| label: fig-preprocessing_rna_postqc_ridge_{{type}}
 #| fig-asp: 0.7
 #| fig-cap: '{{caption2}}'
 #| echo: false
@@ -1285,7 +1292,7 @@ print(plist[[1]])
 #| label: preprocess_rna_save_seurat
 
 # Dump the layers with the normalized data for now (will be done in another module)
-layers = SeuratObject::Layers(sc, assay=default_assay, search="^data.")
+layers = SeuratObject::Layers(sc, search="^data\\.")
 for(i in seq_along(layers)) {
   SeuratObject::LayerData(sc[[default_assay]], layer=layers[i]) = NULL
 }
@@ -1293,18 +1300,17 @@ for(i in seq_along(layers)) {
 # Dump the Sketch assay for now
 sc[[paste0(default_assay, "Sketch")]] = NULL
 
+# Dump the dimensionality reductions for now
+sc[["pca"]] = NULL
+sc[["umap"]] = NULL
+if ("integrated.cca" %in% SeuratObject::Reductions(sc)) sc[["integrated.cca"]] = NULL
+
+
 # Save Seurat object and layer data
 with_progress({
   SaveSeuratRds_Custom(sc,
-              outdir=file.path(module_dir, "sc"),
-              clean=TRUE)
+              outdir=file.path(module_dir, "sc"))
 })
-
-# Clean tmp directory
-tmp_files = list.files(file.path(module_dir, "tmp"), full.names=TRUE)
-for(t in tmp_files) {
-  unlink(t, recursive=TRUE)
-}
 ```
 
 

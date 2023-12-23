@@ -13,6 +13,16 @@ params:
   # Default assay.
   default_assay: "RNA"
   
+  # For large datasets: Do not keep counts in memory but store on disk in matrix directories. Computations will access only the relevant parts of the data. Once done, matrix directories will be saved together with the Seurat object in the module directory.
+  on_disk_counts: true
+  
+  # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
+  on_disk_use_tmp: false
+  
+  # Which normalization should be used for analysis?
+  # lognorm (Seurat), scran or SCT
+  normalisation_method: "lognorm"
+  
   # One or more integration method(s) to use. 
   # The following methods are available: null (just merge), CCIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
   integration_method: CCIntegration
@@ -79,7 +89,7 @@ module_name = params$module_name
 module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
-plan(multisession, workers=4)
+plan(multisession, workers=4, gc=TRUE)
 ```
 
 
@@ -92,12 +102,13 @@ plan(multisession, workers=4)
 
 # Module directory 'results' contains all output that should be provided together with the final report of the project
 dir.create(file.path(module_dir, "results"), showWarnings=FALSE)
-
-# Module directory 'tmp' contains all intermediate files only used for this module
-dir.create(file.path(module_dir, "tmp"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "results"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 # Module directory 'sc' contains the final Seurat object
 dir.create(file.path(module_dir, "sc"), showWarnings=FALSE)
+files = list.files(path=file.path(module_dir, "sc"), full.names=TRUE)
+if (length(files) > 0) unlink(files, recursive=TRUE)
 
 #################
 # Seurat object #
@@ -114,33 +125,52 @@ if(!file.exists(prev_sc_obj)) {
   stop(FormatMessage("Could not find a sc.rds file in {{prev_module_dir}}. Was the respective module already run?"))
 }
 sc = SeuratObject::LoadSeuratRds(prev_sc_obj)
+
+# Move on-disk layers to faster temp location if requested
+on_disk_counts = param("on_disk_counts")
+on_disk_use_tmp = param("on_disk_use_tmp")
+
+if (on_disk_counts & on_disk_use_tmp) {
+  on_disk_path = tempdir()
+  with_progress({
+    sc = UpdateMatrixDirs(sc, dir=on_disk_path)
+  })
+} else {
+  on_disk_path = file.path(module_dir, "sc")
+}
+
+# Set default assay standard or SCT
 default_assay = param("default_assay")
-Seurat::DefaultAssay(sc) = default_assay
+if (param("normalisation_method") == "SCT") {
+  Seurat::DefaultAssay(sc) = paste0(param("default_assay"), "sct")
+} else {
+  Seurat::DefaultAssay(sc) = default_assay
+}
 
 # Do we need to do integration
 integration_method = param("integration_method")
-integration_needed = !is.null(integration_method) & length(SeuratObject::Layers(sc, assay="RNA", search="data")) > 1
+integration_needed = !is.null(integration_method) & 
+  length(SeuratObject::Layers(sc, assay=default_assay, search="^counts\\.")) > 1
 
-
-##########################
-# Methods and parameters #
-##########################
-
-
+integration_needed = FALSE
 ```
 
 ```{r}
 #| label: integration_rna_not_needed
 #| eval: !expr integration_needed==FALSE
+#| echo: false
 #| include: !expr integration_needed==FALSE
+#| results: asis
 
-cat("Need not")
+# Print note
+glue::glue("\n::: {{.callout-note}}\nNo integration needed!\n:::\n") %>% 
+  knitr::asis_output()
+
+# Exit and render
+knitr::knit_exit()
 ```
 
 ```{r}
-#| label: integration_rna_needed
-#| eval: !expr integration_needed==TRUE
-#| include: !expr integration_needed==TRUE
 
-cat("Need")
 ```
+

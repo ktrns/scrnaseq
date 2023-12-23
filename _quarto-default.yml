@@ -4,13 +4,13 @@ project:
   
 book:
   title: "Single-cell analysis results"
-  subtitle: "Sub"
+  subtitle: "bfx1234"
   chapters:
   - index.qmd
-  - modules/1_read_data/read_data.qmd
-  - modules/2_preprocessing/rna/preprocessing.qmd
-  - modules/3_normalization/rna/normalization.qmd
-  - modules/4_integration/rna/integration.qmd
+  #- modules/1_read_data/read_data.qmd
+  #- modules/2_preprocessing/rna/preprocessing.qmd
+  #- modules/3_normalization/rna/normalization.qmd
+  #- modules/4_integration/rna/integration.qmd
   - references.qmd
   
 execute: 
