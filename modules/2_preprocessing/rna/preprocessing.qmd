@@ -1239,6 +1239,8 @@ sc = ScAddLists(sc, lists=list(CC_S_phase=seurat_s_genes, CC_G2M_phase=seurat_g2
 sc = CCScoring(sc, genes_s=seurat_s_genes, genes_g2m=seurat_g2m_genes)
 ```
 
+### Overall
+
 ```{r}
 #| label: tbl-preprocess_rna_cell_cycle_summary
 #| tbl-cap: "Cell cycle summary"
@@ -1285,6 +1287,72 @@ print(plist[[1]])
 ```
 
 :::
+
+### Detailed
+
+```{r}
+#| label: preprocess_rna_cell_cycle_umap_plots
+#| results: asis
+
+orig_idents = levels(sc$orig.ident)
+barcode_metadata = sc[[]]
+
+# Make umap plots
+plist1 = Seurat::DimPlot(sc, group.by=c("Phase"), combine=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
+plist1 = purrr::map(plist1, function(p) {
+  p$data$ident = barcode_metadata[rownames(p$data), "seurat_clusters"]
+  p = p + 
+    AddPlotStyle()
+  p = Seurat::LabelClusters(p, id="ident", fontface="bold", size=5, colour="darkred")
+  return(p)
+})
+names(plist1) = c("Phase")
+
+plist2 = Seurat::FeaturePlot(sc, features=c("S.Score", "G2M.Score"), combine=FALSE, raster=ncol(sc)>=getOption("raster.threshold"))
+plist2 = purrr::map(plist2, function(p) {
+  p$data$ident = barcode_metadata[rownames(p$data), "seurat_clusters"]
+  p = p + 
+    AddPlotStyle() + 
+    theme(legend.position="none") + 
+    viridis::scale_colour_viridis(trans="log10")
+  p = Seurat::LabelClusters(p, id="ident", fontface="bold", size=5, colour="darkred")
+  return(p)
+})
+names(plist2) = c("S.Score", "G2M.Score")
+
+plist = c(plist1, plist2)
+cell_cycle_qc = names(plist)
+captions = paste("UMAP coloured by", c("cell cycle phase", "S score", "G2M score"))
+
+# Set up layout and generate chunks
+chunk_template = "
+##### {{type}}
+
+\`\`\`{r}
+#| label: fig-preprocessing_rna_cell_cycle_umap_{{type}}
+#| fig-asp: 0.7
+#| fig-cap: '{{caption}}'
+#| echo: false
+#| warning: false
+
+print(plist[[{{i}}]])
+\`\`\`
+"
+
+cat("::: panel-tabset", sep="\n")
+
+for (i in seq(cell_cycle_qc)) {
+  chunk_filled =  knitr::knit_expand(text=chunk_template, type=cell_cycle_qc[i], i=i, caption=captions[i])
+  if(interactive()) {
+    EvalKnitrChunk(chunk_filled)
+  } else {
+    chunk_filled = knitr::knit_child(text=chunk_filled, envir=environment(), quiet=TRUE)
+    cat(chunk_filled, sep='\n')
+  }
+}
+
+cat(":::", sep="\n")
+```
 
 ## Save Seurat object
 

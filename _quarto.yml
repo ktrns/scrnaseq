@@ -44,8 +44,8 @@ format:
     keep-md: false
     execute:
       echo: true
-      warning: true
-      message: true
+      warning: false
+      message: false
     knitr:
       opts_chunk: 
         dev: ragg_png

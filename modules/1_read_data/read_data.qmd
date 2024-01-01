@@ -73,6 +73,10 @@ execute:
   # - true/false: freeze/re-render
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
   freeze: auto
+  
+# Date last rendered
+date: last-modified
+footer: "Last rendered: {{< meta date >}}"
 ---
 
 # Read data
@@ -83,8 +87,6 @@ In this chapter, we read in counts data as "features x barcodes" matrices. If pr
 
 ```{r}
 #| label: setup
-#| message: false
-#| warning: false
 
 # If running code interactively in rstudio, set profile here
 # When rendering with quarto, profile is already set and should not be overwritten
