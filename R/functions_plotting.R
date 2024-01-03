@@ -323,7 +323,7 @@ PlotVariableFeatures = function(sc, method, assay=NULL, top=10) {
   assertthat::assert_that(method %in% valid_methods,
                           msg=FormatMessage("Method is {method} but must be one of: {valid_methods*}."))
   
-  layers = SeuratObject::Layers(sc[[assay]], "data")
+  layers = SeuratObject::Layers(sc[[assay]], "^data")
   assertthat::assert_that(length(layers) > 0,
                           msg=FormatMessage("Could not find normalized data for assay {assay}."))
   

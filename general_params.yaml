@@ -1,5 +1,0 @@
-default:
-  toast: "b"
-  ham:
-  - "a"
-  - "b"

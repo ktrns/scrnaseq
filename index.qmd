@@ -10,7 +10,8 @@ execute:
   # - auto: if the code has not changed (default)
   # - true/false: freeze/re-render
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
-  freeze: auto
+  # Set to false for this page since it can always be rendered
+  freeze: false
 ---
 
 ## Introduction {.unnumbered}
@@ -46,7 +47,7 @@ This main page ...
 
 #### Description {.unnumbered}
 
-For this tutorial, we will be analyzing two datasets of Peripheral Blood Mononuclear Cells (PBMC) freely available from 10X Genomics. 
+For this tutorial, we will be analyzing two datasets of Peripheral Blood Mononuclear Cells (PBMC) freely available from 10X Genomics.
 
 -   two datasets, 1k and 5k cells
 

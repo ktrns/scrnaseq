@@ -17,21 +17,32 @@ params:
   on_disk_counts: true
   
   # For large datasets: Copy matrix directories to a temporary directory for computations. This will improve performance if the temporary directory  has a better performance than normal disks (e.g. SSD). Once done, matrix directories will be copied back to the module directory. The temporary directory will be deleted once the R session exists.
-  on_disk_use_tmp: false
+  on_disk_use_tmp: true
   
   # Which normalization should be used for analysis?
   # lognorm (Seurat), scran or SCT
   normalisation_method: "lognorm"
   
-  # One or more integration method(s) to use. 
-  # The following methods are available: null (just merge), CCIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
-  integration_method: CCIntegration
+  # Which method should be used for feature selection?
+  # vst (Seurat), scran or SCT
+  feature_selection_method: "vst"
   
+  # Number of variable features to use
+  num_variable_features: 3000
+  
+  # One or more integration method(s) to use. 
+  # The following methods are available: null (just merge), CCAIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
+  integration_method:
+  - "CCAIntegration"
+
   # Use sketch-based integration if total number of barcodes is more than
+  min_barcodes_for_sketching: 50000
+  
+  # Number of barcodes in sketch
   num_barcodes_for_sketching: 50000
     
-  # Parameters for CCIntegration
-  CCIntegration: null
+  # Parameters for CCAIntegration
+  CCAIntegration: null
   
   # Parameters for RPCAIntegration
   RPCAIntegration: null
@@ -51,7 +62,7 @@ execute:
   # - auto: if the code has not changed (default)
   # - true/false: freeze/re-render
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
-  freeze: auto
+  freeze: "auto"
 ---
 
 # Integration (RNA)
@@ -91,7 +102,6 @@ module_dir = params$module_dir
 # Parallisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
 ```
-
 
 ```{r}
 #| label: integration_rna_preparation
@@ -146,31 +156,73 @@ if (param("normalisation_method") == "SCT") {
 } else {
   Seurat::DefaultAssay(sc) = default_assay
 }
-
-# Do we need to do integration
-integration_method = param("integration_method")
-integration_needed = !is.null(integration_method) & 
-  length(SeuratObject::Layers(sc, assay=default_assay, search="^counts\\.")) > 1
-
-integration_needed = FALSE
 ```
+
+We may not need integration ...
 
 ```{r}
-#| label: integration_rna_not_needed
-#| eval: !expr integration_needed==FALSE
-#| echo: false
-#| include: !expr integration_needed==FALSE
-#| results: asis
+#| label: integration_rna_integration
 
-# Print note
-glue::glue("\n::: {{.callout-note}}\nNo integration needed!\n:::\n") %>% 
-  knitr::asis_output()
+min_barcodes_for_sketching = param("min_barcodes_for_sketching")
+num_barcodes_for_sketching = param("num_barcodes_for_sketching")
+normalisation_method = param("normalisation_method")
+feature_selection_method = param("feature_selection_method")
+num_variable_features = param("num_variable_features")
+  
+num_datasets = length(SeuratObject::Layers(sc, assay=default_assay, search="^counts"))
+num_barcodes = length(SeuratObject::Cells(sc[[default_assay]]))
 
-# Exit and render
-knitr::knit_exit()
+# Integration not requested or not needed - just join layers
+
+if (length(integration_method) > 0) {
+  # Integration requested and neccessary
+
+  # Do we need to do sketching?
+  if (num_barcodes > min_barcodes_for_sketching) {
+    # Create a sketch of the data
+    sc = Seurat::SketchData(sc, 
+                       ncells=num_barcodes_for_sketching,
+                       sketched.assay=paste0(default_assay, "Sketch"))
+    SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+    
+    # SCTransform normalisation needs to be repeated for the sketch?
+    if(normalisation_method == "SCT") {
+      sc = SCTransform(sc, 
+                   new.assay.name=SeuratObject::DefaultAssay(sc),
+                   vst.flavor="v2",
+                   variable.features.n=num_variable_features,
+                   vars.to.regress=c(),
+                   return.only.var.genes=TRUE,
+                   verbose=TRUE,
+                   seed.use=getOption("random_seed"))
+      SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+    }
+    
+    # Find variable features for sketch
+    # Runs methods 'vst' or 'scran', method 'SCT' was already done when running SCTransform
+    if(feature_selection_method != "SCT") {
+      sc = FindVariableFeaturesWrapper(sc,
+                                       feature_selection_method=feature_selection_method,
+                                       num_variable_features=num_variable_features)
+    }
+  }
+  
+  # Now scale data and run PCA
+  sc = Seurat::ScaleData(sc)
+  sc = Seurat::RunPCA(sc, seed.use=getOption("random_seed"))
+  
+  # Integrate
+} else if (length(integration_method) == 0) {
+  # Integration not requested (just merge)
+  sc = SeuratObject::JoinLayers(sc)
+  glue::glue("\n::: {{.callout-note}}\nSamples are merged. No integration needed!\n:::\n") %>% 
+    knitr::asis_output()
+  
+} else if (num_datasets == 1) {
+  # Integration not neccessary
+  glue::glue("\n::: {{.callout-note}}\nOnly one sample. No integration needed!\n:::\n") %>% 
+    knitr::asis_output()
+}
 ```
 
-```{r}
-
-```
 

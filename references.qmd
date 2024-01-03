@@ -1,3 +1,14 @@
+---
+# Module execution
+execute:
+  # Should this module be frozen and never re-rendered?
+  # - auto: if the code has not changed (default)
+  # - true/false: freeze/re-render
+  # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
+  # Set to false for this page since it can always be rendered
+  freeze: false
+---
+
 # References {.unnumbered}
 
 ::: {#refs}

@@ -1,23 +1,41 @@
+###########
+# Project #
+###########
+
 project:
-  type: book
+  type: "book"
   output-dir: "default_book"
-  
+
 book:
   title: "Single-cell analysis results"
   subtitle: "bfx1234"
   chapters:
-  - index.qmd
-  - modules/1_read_data/read_data.qmd
-  - modules/2_preprocessing/rna/preprocessing.qmd
-  - modules/3_normalization/rna/normalization.qmd
-  #- modules/4_integration/rna/integration.qmd
-  - references.qmd
+  - "index.qmd"
+  - "modules/1_read_data/read_data.qmd"
+  - "modules/2_preprocessing/rna/preprocessing.qmd"
+  - "modules/3_normalization/rna/normalization.qmd"
+  - "modules/4_integration/rna/integration.qmd"
+  - "references.qmd"
+
+####################
+# Execute defaults #
+####################
 
 execute: 
-  freeze: auto
+  freeze: "auto"
+  echo: true
+  message: true
+  warning: true
+
+##########
+# Params #
+##########
 
 params:
   general:
+    # Verbose
+    verbose: true
+    
     # Project ID
     project_id: "pbmc"
     

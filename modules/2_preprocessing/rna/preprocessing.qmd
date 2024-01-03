@@ -70,8 +70,6 @@ execute:
 In this chapter, we read in counts data as "features x barcodes" matrices. If provided, we read in additional metadata for features and barcodes. For spatial data, we additionally read in the image data. All data is imported into an Seurat object. Basic summary stats are calculated and shown. Finally, the Seurat object is saved for further processing in the next chapters.
 
 
-
-
 ```{r}
 #| label: setup
 #| message: false
@@ -102,7 +100,7 @@ library(future)
 module_name = params$module_name
 module_dir = params$module_dir
 
-# Parallisation plan for all functions that support future
+# Parallelisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
 ```
 
@@ -175,10 +173,10 @@ if (length(Seurat::Cells(sc)) > 5000) {
 sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
 sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, selection.method="vst")
 sc = Seurat::ScaleData(sc, verbose=FALSE)
-sc = Seurat::RunPCA(sc, verbose=FALSE)
+sc = Seurat::RunPCA(sc, verbose=FALSE, seed.use=getOption("random_seed"))
 default_reduction = "pca"
 
-num_datasets = length(SeuratObject::Layers(sc, search="^data\\."))
+num_datasets = length(SeuratObject::Layers(sc, search="^counts"))
 if (num_datasets > 1) {
   sc = Seurat::IntegrateLayers(sc, 
                                method=Seurat::CCAIntegration, 
@@ -247,7 +245,7 @@ orig_idents = levels(sc$orig.ident)
 feature_filter = PrepareFeatureFilter(param("feature_filter"), orig_idents)
 
 # Calculate number of barcodes above threshold for each layer (dataset)
-for (l in SeuratObject::Layers(sc, "counts")) {
+for (l in SeuratObject::Layers(sc, "^counts")) {
   n = gsub(x=l, pattern="counts\\.", replacement="")
 
   # Get data for layer (sample) and count
@@ -421,7 +419,7 @@ captions1 = GeneratePlotCaptions(names(plist1), remove=paste0("_", default_assay
 captions1 = paste("UMAP coloured by", captions1)
 
 # Make ridge plots
-plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE)
+plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE, cols=ScColours(sc, "seurat_clusters"))
 plist2 = purrr::map(plist2, function(p) {
   p$data = p$data %>% dplyr::filter(!is.na(ident))
   p = p + AddPlotStyle() + theme(legend.position="none")
@@ -491,7 +489,7 @@ feature_metadata = sc[[default_assay]][[]]
 ###########
 
 # Get top 20 genes overall
-highestExpr = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), function(l) {
+highestExpr = purrr::map_dfr(SeuratObject::Layers(sc, "^counts"), function(l) {
   n = gsub(x=l, pattern="counts\\.", replacement="")
 
   # Get genes with highest median percentage
@@ -511,7 +509,7 @@ highestExpr$rank = match(highestExpr$gene, top_genes)
 highestExpr$gene = factor(highestExpr$gene, levels=top_genes)
 
 # Collect summary statistics for top 20 genes for each layer (dataset)
-highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "counts"), function(l) {
+highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "^counts"), function(l) {
   n = gsub(x=l, pattern="counts\\.", replacement="")
 
   # Get genes with highest median percentage
@@ -738,8 +736,9 @@ Cells and genes are filtered based on the following thresholds:
 #| label: tbl-preprocess_rna_barcode_filters
 #| tbl-cap: !expr paste("Filters applied to barcodes based on assay", default_assay)
 
-# Print barcode filters
 orig_idents = levels(sc$orig.ident)
+
+# Print barcode filters
 barcode_filter = PrepareBarcodeFilter(param("barcode_filter"), orig_idents)
 barcode_filter_tbl = purrr::map_dfr(names(barcode_filter), function(s) {
   tbl = purrr::map(barcode_filter[[s]], function(f) {
@@ -1083,7 +1082,7 @@ captions1 = GeneratePlotCaptions(names(plist1), remove=paste0("_", default_assay
 captions1 = paste("UMAP coloured by", captions1)
 
 # Make ridge plots
-plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE)
+plist2 = Seurat::RidgePlot(sc, features=barcode_qc, group.by="seurat_clusters", combine=FALSE, cols=ScColours(sc, "seurat_clusters"))
 plist2 = purrr::map(plist2, function(p) {
   p$data = p$data %>% dplyr::filter(!is.na(ident))
   p = p + AddPlotStyle() + theme(legend.position="none")
@@ -1360,7 +1359,7 @@ cat(":::", sep="\n")
 #| label: preprocess_rna_save_seurat
 
 # Dump the layers with the normalized data for now (will be done in another module)
-layers = SeuratObject::Layers(sc, search="^data\\.")
+layers = SeuratObject::Layers(sc, search="^data")
 for(i in seq_along(layers)) {
   SeuratObject::LayerData(sc[[default_assay]], layer=layers[i]) = NULL
 }
@@ -1373,6 +1372,8 @@ sc[["pca"]] = NULL
 sc[["umap"]] = NULL
 if ("integrated.cca" %in% SeuratObject::Reductions(sc)) sc[["integrated.cca"]] = NULL
 
+# Dump the clustering for now
+sc$seurat_clusters = NULL
 
 # Save Seurat object and layer data
 with_progress({

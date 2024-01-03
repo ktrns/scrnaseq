@@ -408,7 +408,7 @@ FindVariableFeaturesScran = function(sc, assay=NULL, nfeatures=2000, combined=TR
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   
   # Checks
-  layers = SeuratObject::Layers(sc[[assay]], "data")
+  layers = SeuratObject::Layers(sc[[assay]], "^data")
   assertthat::assert_that(length(layers) > 0,
                           msg=FormatMessage("Could not find normalized data for assay {assay}."))
   
@@ -508,10 +508,97 @@ FindVariableFeaturesScran = function(sc, assay=NULL, nfeatures=2000, combined=TR
   return(sc)
 }
 
+#' Wrapper for finding highly variable features.
+#' 
+#' @param sc Seurat v5 object.
+#' @param feature_selection_method Method for identifying highly variable features. Can be: vst, scran.
+#' @param num_variable_features Number of features to identify. Default is 2000.
+#' @param assay Assay to analyze. If NULL, will be default assay of the Seurat object.
+#' @return Seurat v5 object with highly variable features for assay.
+FindVariableFeaturesWrapper = function(sc, feature_selection_method, num_variable_features=2000, assay=NULL) {
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  
+  # Check
+  valid_feature_selection_methods = c("vst", "scran")
+  assertthat::assert_that(feature_selection_method %in% valid_feature_selection_methods,
+                          msg=FormatMessage("Variable features method must must be one of: {valid_integration_methods*}."))
+  
+  # Find variable features
+  if (feature_selection_method == "vst") {
+    sc = Seurat::FindVariableFeatures(sc, 
+                                      assay=assay, 
+                                      selection.method="vst", 
+                                      nfeatures=num_variable_features)
+  } else if (feature_selection_method == "scran") {
+    sc = FindVariableFeaturesScran(sc,
+                                   assay=assay,
+                                   nfeatures=num_variable_features,
+                                   combined=TRUE)
+  }
+  
+  return(sc)
+}
 
+#' Wrapper for integrating the layers of an assay.
+#' 
+#' @param sc Seurat v5 object.
+#' @param integration_method Method for identifying highly variable features. Can be: CCAIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
+#' @param assay Assay to analyze. If NULL, will be default assay of the Seurat object.
+#' @param orig_reduct Original reduction to be used for integration. Default is 'pca'. If NULL, will be default reduction.
+#' @param new_reduct Name of the new (integrated) reduction. Default is 'pca'. If NULL, will be based on the name of the integration method.
+#' @param new_reduct_suffix Additional suffix to append to the name of the new (integrated) reduction. Can be NULL.
+#' @param verbose Be verbose.
+#' @return Seurat v5 object with a new (integrated) reduction.
+FindVariableFeaturesWrapper = function(sc, integration_method, assay=NULL, orig_reduct='pca', new_reduct=NULL, new_reduct_suffix=NULL, verbose=FALSE, ...) {
+  if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
+  if (is.null(orig_reduct)) orig_reduct = SeuratObject::DefaultDimReduc(sc)
 
-
-
+  # Checks
+  valid_integration_methods = c("CCAIntegration", "RPCAIntegration", "HarmonyIntegration", "FastMNNIntegration", "scVIIntegration")
+  assertthat::assert_that(integration_method %in% valid_integration_methods,
+                          msg=FormatMessage("Variable features method must must be one of: {valid_integration_methods*}."))
+  
+  assertthat::assert_that(orig_reduct %in% SeuratObject::Reductions(sc),
+                          msg=FormatMessage("Original reduction {orig_reduct} is not part of the Seurat object."))
+  
+  # New reduction name
+  if (is.null(new_reduct)) {
+    new_reduct = dplyr::case_match(integration_method,
+                                   "CCAIntegration" ~ "cca",
+                                   "RPCAIntegration" ~ "rpca",
+                                   "HarmonyIntegration" ~ "harmony",
+                                   "FastMNNIntegration" ~ "mnn",
+                                   "scVIIntegration" ~ "scvii")
+    new_reduct = paste0("integrated.", new_reduct)
+  }
+  
+  if (!is.null(new_reduct_suffix)) {
+    new_reduct = paste0(new_reduct, new_reduct_suffix)
+  }
+  
+  # Integrate layers
+  sc = Seurat::IntegrateLayers(sc, 
+                                method=integration_method,
+                                orig.reduction=orig_reduct,
+                                new.reduction=new_reduct,
+                                verbose=verbose,
+                               ...)
+  
+  # Post-process
+  if (integration_method == "CCAIntegration") {
+    
+  } else if (integration_method == "RPCAIntegration") {
+    
+  } else if (integration_method == "HarmonyIntegration") {
+    
+  } else if (integration_method == "FastMNNIntegration") {
+    
+  } else if (integration_method == "scVIIntegration") {
+    
+  }
+  
+  return(sc)
+}
 
 
 #' Calculate enrichment of cells per sample per cluster.

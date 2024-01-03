@@ -24,8 +24,8 @@ params:
   normalisation_method: "lognorm"
   
   # Which method should be used for feature selection?
-  # vst (Seurat) or scran
-  feature_selection: "vst"
+  # vst (Seurat), scran or SCT
+  feature_selection_method: "vst"
   
   # Number of variable features to use
   num_variable_features: 3000
@@ -72,7 +72,7 @@ library(future)
 module_name = params$module_name
 module_dir = params$module_dir
 
-# Parallisation plan for all functions that support future
+# Parallelisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
 ```
 
@@ -127,23 +127,27 @@ default_assay = param("default_assay")
 Seurat::DefaultAssay(sc) = default_assay
 ```
 
+## Normalisation
 
 ```{r}
 #| label: normalization_rna_normalize
 #| results: asis
 
-if (param("normalisation_method") == "lognorm") {
+normalisation_method = param("normalisation_method")
+
+# Do normalisation
+if (normalisation_method == "lognorm") {
   # Apply log normalisation
   sc = Seurat::NormalizeData(sc, 
                              normalization.method="LogNormalize", 
                              scale.factor=10000,
                              verbose=TRUE)
-  layers = SeuratObject::Layers(sc, search="^counts\\.") %>% 
+  layers = SeuratObject::Layers(sc, search="^counts") %>% 
     gsub(pattern="counts", replacement="data", x=.)
   
   cat("We have used LogNormalize.")
   
-} else if(param("normalisation_method") == "scran") {
+} else if(normalisation_method == "scran") {
   # Scran
   with_progress({
     sc = NormalizeDataScran(sc, 
@@ -151,12 +155,12 @@ if (param("normalisation_method") == "lognorm") {
                             save="data",
                             chunk_size=50000)
   })
-  layers = SeuratObject::Layers(sc, search="^counts\\.") %>% 
+  layers = SeuratObject::Layers(sc, search="^counts") %>% 
     gsub(pattern="counts", replacement="data", x=.)
 
   cat("We have used Scran.")
   
-} else if(param("normalisation_method") == "SCT") {
+} else if(normalisation_method == "SCT") {
   # SCTransform
   sc = SCTransform(sc, 
                    new.assay.name=paste0(default_assay, "sct"),
@@ -175,7 +179,7 @@ if (param("normalisation_method") == "lognorm") {
 
 # Convert queued operations into real data and write normalized data to disk
 # Not supported for SCTransform
-if (on_disk_counts & param("normalisation_method") != "SCT") {
+if (on_disk_counts & normalisation_method != "SCT") {
   for(i in seq_along(layers)) {
     # Get IterableMatrix object
     data = SeuratObject::LayerData(sc, layer=layers[i])
@@ -200,36 +204,36 @@ We check whether normalisation was successfull.
 #| fig-asp: 0.7
 #| warning: false
 
-p1 = PlotRLE(sc, assay=default_assay, layer="counts", is_log=FALSE)
+normalisation_method = param("normalisation_method")
+
+# Do relative log expression plots
+p1 = PlotRLE(sc, assay=default_assay, layer="^counts", is_log=FALSE)
 print(p1)
 
-if (param("normalisation_method") == "SCT") {
-  p2 = PlotRLE(sc, assay=paste0(default_assay, "sct"), layer="data", is_log=TRUE)
+if (normalisation_method == "SCT") {
+  p2 = PlotRLE(sc, assay=paste0(default_assay, "sct"), layer="^data", is_log=TRUE)
 } else {
-  p2 = PlotRLE(sc, assay=default_assay, layer="data", is_log=TRUE)
+  p2 = PlotRLE(sc, assay=default_assay, layer="^data", is_log=TRUE)
 }
 print(p2)
 ```
 
+## Variable features
 
 Then we identify variable features.
 
 ```{r}
 #| label: normalization_rna_variable_features
 
-# Only LogNormalize and Scran (already done within SCTransform)
-if(param("normalisation_method") != "SCT") {
-  if (param("feature_selection") == "vst") {
-    sc = Seurat::FindVariableFeatures(sc, 
-                                      assay=default_assay, 
-                                      selection.method="vst", 
-                                      nfeatures=param("num_variable_features"))
-  } else if (param("feature_selection") == "scran") {
-    sc = FindVariableFeaturesScran(sc,
-                                   assay=default_assay,
-                                   nfeatures=param("num_variable_features"),
-                                   combined=TRUE)
-  }
+feature_selection_method = param("feature_selection_method")
+num_variable_features = param("num_variable_features")
+
+# Identify variable features
+# Runs methods 'vst' or 'scran', method 'SCT' was already done when running SCTransform
+if(feature_selection_method != "SCT") {
+  sc = FindVariableFeaturesWrapper(sc, 
+                                   feature_selection_method=feature_selection_method,
+                                   num_variable_features=num_variable_features)
 }
 ```
 
@@ -239,16 +243,18 @@ They look like this:
 #| label: normalization_rna_variable_features_plots
 #| results: asis
 
-if (param("normalisation_method") == "SCT") {
-  selection_method = "sct"
+normalisation_method = param("normalisation_method")
+feature_selection_method = param("feature_selection_method")
+
+# Plot variable features
+if (normalisation_method == "SCT") {
   plist = PlotVariableFeatures(sc, 
-                     method=selection_method,
+                     method="sct",
                      assay=paste0(default_assay, "sct"),
                      top=10)
 } else {
-  selection_method = param("feature_selection")
   plist = PlotVariableFeatures(sc, 
-                     method=selection_method,
+                     method=feature_selection_method,
                      assay=default_assay,
                      top=10)
 }

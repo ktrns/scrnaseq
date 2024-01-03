@@ -73,10 +73,6 @@ execute:
   # - true/false: freeze/re-render
   # Does not apply in interactive mode or when explicitly rendering this document via in rstudio
   freeze: auto
-  
-# Date last rendered
-date: last-modified
-footer: "Last rendered: {{< meta date >}}"
 ---
 
 # Read data
@@ -114,7 +110,7 @@ library(future)
 module_name = params$module_name
 module_dir = params$module_dir
 
-# Parallisation plan for all functions that support future
+# Parallelisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
 ```
 
@@ -723,10 +719,10 @@ names(assay_counts_lst) = purrr::map(assay_counts_lst, attr, "orig.ident") %>% u
 
 # Create Seurat default assay object
 assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
-if (length(assay_counts_lst) == 1) {
-  n = names(assay_counts_lst)
-  assay_obj = split(assay_obj, rep(n, ncol(assay_obj)))
-}
+#if (length(assay_counts_lst) == 1) {
+#  n = names(assay_counts_lst)
+#  assay_obj = split(assay_obj, rep(n, ncol(assay_obj)))
+#}
 rownames(assay_obj@meta.data) = rownames(assay_obj)
 
 # Collect feature metadata for default assay datasets
@@ -793,10 +789,10 @@ for(a in setdiff(all_assays, default_assay)) {
 
   # Create Seurat default assay object
   assay_obj = SeuratObject::CreateAssay5Object(counts=assay_counts_lst)
-  if (length(assay_counts_lst) == 1) {
-    n = names(assay_counts_lst)
-    assay_obj = split(assay_obj, rep(n, ncol(assay_obj)))
-  }
+  #if (length(assay_counts_lst) == 1) {
+  #  n = names(assay_counts_lst)
+  #  assay_obj = split(assay_obj, rep(n, ncol(assay_obj)))
+  #}
   rownames(assay_obj@meta.data) = rownames(assay_obj)
 
   # Collect feature metadata for default assay datasets
@@ -857,13 +853,20 @@ if (parse_plate_information) {
 
 # Set default identity
 Seurat::Idents(sc) = "orig.ident"
+```
+
+
+```{r}
+#| label: read_data_set_colours
 
 # Add colours
 sc = ScAddColours(sc, colours=list(
   orig.ident=setNames(zeileis_28[1:length(levels(sc$orig.ident))], levels(sc$orig.ident)),
   sample=setNames(zeileis_28[1:length(levels(sc$sample))], levels(sc$sample)),
-  technology=setNames(zeileis_28[1:length(levels(sc$technology))], levels(sc$technology))
+  technology=setNames(zeileis_28[1:length(levels(sc$technology))], levels(sc$technology)),
+  seurat_clusters=setNames(godsnot_102[1:length(godsnot_102)], 1:length(godsnot_102))
 ))
+
 ```
 
 Add images
@@ -940,7 +943,7 @@ for (a in Seurat::Assays(sc)) {
   sc[[m]] = 0
 
   # And each layer (dataset)
-  for (l in SeuratObject::Layers(sc[[a]], "counts")) {
+  for (l in SeuratObject::Layers(sc[[a]], "^counts")) {
     # Get data for layer (sample)
     counts = sc[[a]][l]
     bcs = counts %>% colnames()
@@ -968,7 +971,7 @@ for (a in Seurat::Assays(sc)) {
 # Calculate for each assay
 for (a in Seurat::Assays(sc)) {
   # And each layer (dataset)
-  for (l in SeuratObject::Layers(sc[[a]], "counts")) {
+  for (l in SeuratObject::Layers(sc[[a]], "^counts")) {
     # Get data for layer (sample)
     counts = sc[[a]][l]
     bcs = counts %>% colnames()

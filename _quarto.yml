@@ -1,12 +1,23 @@
+###########
+# Project #
+###########
+
 project:
-  type: default
+  type: "default"
   output-dir: "_book"
-  execute-dir: project
+  execute-dir: "project"
   post-render: 
-    - R/collect_module_results.R
+    - "R/collect_module_results.R"
 
 bibliography: "misc/references.bib"
 csl: "misc/nature.csl"
+
+###########
+# Profile #
+###########
+
+profile: 
+  default: "default"
 
 #################
 # Knitr options #
@@ -16,72 +27,86 @@ knitr:
     fig-width: 6
     dpi: 96
     fig.retina: 2
-    results: hold
+    results: "hold"
     timeit: null
-    tidy: styler
+    tidy: "styler"
     tidy-opts:
       strict: false
-  opts_knit:
-    dev: !expr 'c("ragg_png", "cairo_pdf")'
 
 ##################
 # Format options #
 ##################
+
 format:
   html:
     theme:
-    - sandstone
+    - "sandstone"
     embed-resources: false
     code-fold: true
-    code-summary: Code
+    code-summary: "Code"
     code-link: true
     code-block-bg: true
-    css: css/style.css
-    df-print: kable
+    css: "css/style.css"
+    df-print: "kable"
     toc: true
     toc-depth: 2
-    fig-format: png
+    fig-format: "png"
     keep-md: false
-    execute:
-      echo: true
-      warning: false
-      message: false
+    #execute:
+    #  echo: false
+    #  message: false
+    #  warning: false
     knitr:
       opts_chunk: 
-        dev: ragg_png
+        dev:
+        - "ragg_png"
+        - "cairo_pdf"
   # pdf:
-  #   documentclass: scrreprt
+  #   documentclass: "scrreprt"
+  #   code-block-bg: true
+  #   df-print: "kable"
   #   toc: true
   #   toc-depth: 2
   #   lof: true
   #   lot: true
-  #   fig-format: pdf
+  #   fig-format: "pdf"
   #   keep-tex: false
-  #   df-print: kable
-  #   execute:
-  #     echo: false
-  #     warning: false
+  #   #execute:
+  #   #  echo: false
+  #   #  message: false
+  #   #  warning: false
   #   knitr:
-  #     opts_chunk:
-  #       dev: pdf
-  #   code-block-bg: true
+  #     opts_chunk: 
+  #       dev:
+  #       - "cairo_pdf"
+  #       - "ragg_png"
   #   include-in-header:
   #     text: |
   #       \usepackage{fvextra}
   #       \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
   # docx:
-  #   reference-doc: misc/template.docx
+  #   reference-doc: "misc/template.docx"
   #   page-width: 8.3
+  #   code-block-bg: true
+  #   df-print: "kable"
   #   toc: true
   #   toc-depth: 2
-  #   fig-format: png
-  #   df-print: kable
-  #   execute:
-  #     echo: false
-  #     warning: false
+  #   fig-format: "png"
+  #   #execute:
+  #   #  echo: false
+  #   #  message: false
+  #   #  warning: false
   #   knitr:
-  #     opts_chunk:
-  #       dev: ragg_png
+  #     opts_chunk: 
+  #       dev:
+  #       - "ragg_png"
+  #       - "cairo_pdf"
 
-profile: 
-  default: default
+#########
+# Other #
+#########
+
+# Date
+date: "now"
+date-modified: "last-modified"
+date-format: "DD-MM-YYYY HH:mm:ss"
