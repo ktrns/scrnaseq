@@ -102,6 +102,8 @@ module_dir = params$module_dir
 
 # Parallelisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
+
+verbose=FALSE
 ```
 
 ```{r}
@@ -145,7 +147,7 @@ if (on_disk_counts & on_disk_use_tmp) {
   on_disk_path = tempdir()
   with_progress({
     sc = UpdateMatrixDirs(sc, dir=on_disk_path)
-  })
+  }, enable=verbose)
 }
 
 # Set default assay
@@ -157,39 +159,60 @@ Seurat::DefaultAssay(sc) = default_assay
 ###############################################
 
 # Apply a basic normalization and find variable features 
-sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
-sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, selection.method="vst")
+sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=verbose)
+sc = Seurat::FindVariableFeatures(sc, verbose=verbose, selection.method="vst")
 
 # If more than 5000 barcodes, sketch a subset of 5000 barcodes
 # Note: assay is saved in memory (not on-disk)
-if (length(Seurat::Cells(sc)) > 5000) {
+use_sketching = length(Seurat::Cells(sc)) > 5000
+if (use_sketching) {
+  sketched_assay_name = paste(default_assay, "Sketch", sep=".")
   sc = Seurat::SketchData(sc, 
                        ncells=5000,
-                       sketched.assay=paste0(default_assay, "Sketch"))
-  SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+                       sketched.assay=sketched_assay_name,
+                       verbose=verbose)
+  SeuratObject::Key(sc[[sketched_assay_name]]) = paste0(default_assay, "Sketch", "_") %>% 
+    gsub(pattern="\\.", replacement="", x=.) %>%
+    tolower()
+  SeuratObject::DefaultAssay(sc) = sketched_assay_name
 }
 
 # Run a "quick" single-cell analysis
-sc = Seurat::NormalizeData(sc, normalization.method="LogNormalize", scale.factor=10000, verbose=FALSE)
-sc = Seurat::FindVariableFeatures(sc, verbose=FALSE, selection.method="vst")
-sc = Seurat::ScaleData(sc, verbose=FALSE)
-sc = Seurat::RunPCA(sc, verbose=FALSE, seed.use=getOption("random_seed"))
-default_reduction = "pca"
+sc = Seurat::NormalizeData(sc, 
+                           normalization.method="LogNormalize", 
+                           verbose=verbose)
+sc = Seurat::FindVariableFeatures(sc,
+                                  selection.method="vst",
+                                  verbose=verbose)
+sc = Seurat::ScaleData(sc, 
+                       verbose=verbose)
+sc = Seurat::RunPCA(sc,
+                    seed.use=getOption("random_seed"),
+                    verbose=verbose)
 
+default_reduction = "pca"
 num_datasets = length(SeuratObject::Layers(sc, search="^counts"))
+
 if (num_datasets > 1) {
   sc = Seurat::IntegrateLayers(sc, 
-                               method=Seurat::CCAIntegration, 
+                               method="CCAIntegration", 
                                orig.reduction="pca",
                                new.reduction="integrated.cca", 
-                               verbose=FALSE)
+                               verbose=verbose)
   default_reduction = "integrated.cca"
 }
 
-sc = Seurat::FindNeighbors(sc, reduction=default_reduction, dims=1:10)
-sc = Seurat::FindClusters(sc, resolution=0.5, verbose=FALSE)
-sc = Seurat::RunUMAP(sc, dims=1:10, reduction=default_reduction)
-
+sc = Seurat::FindNeighbors(sc, 
+                           reduction=default_reduction, 
+                           dims=1:10,
+                           verbose=verbose)
+sc = Seurat::FindClusters(sc, 
+                          resolution=0.5, 
+                          verbose=verbose)
+sc = Seurat::RunUMAP(sc, 
+                     dims=1:10, 
+                     reduction=default_reduction,
+                     verbose=verbose)
 
 # Done
 Seurat::DefaultAssay(sc) = default_assay
@@ -345,7 +368,7 @@ barcode_qc_cor = purrr::map(barcode_qc_cor, function(barcode_qc) {
 })
 
 # Make plots
-plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter)
+plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter, raster=ncol(sc)>=getOption("raster.threshold"))
 
 # Prepare captions
 captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay), split="__")
@@ -525,7 +548,7 @@ highestExpr_summary = purrr::map_dfr(SeuratObject::Layers(sc, "^counts"), functi
   # Now calculate summary statistics (min, q25, median, mean, q75, max) per feature
   with_progress({
     top_perc_summary = CalculateBoxplotStats(top_perc, margin=1, chunk_size=NULL)
-  })
+  }, enable=verbose)
   top_perc_summary$gene = rownames(top_perc_summary)
   rownames(top_perc_summary) = NULL
   top_perc_summary$orig.ident = gsub(x=l, pattern="^counts\\.", replacement="")
@@ -700,7 +723,8 @@ When working with human or animal samples, you should ideally constrain you expe
 #| warning: false
 
 plist = PlotBarcodeQCCor(sc, qc=list(c(paste("pXIST", default_assay, sep="_"), 
-                                       paste("pChrY", default_assay, sep="_"))))
+                                       paste("pChrY", default_assay, sep="_"))),
+                         raster=ncol(sc)>=getOption("raster.threshold"))
 print(plist[[1]])
 ```
 
@@ -1008,7 +1032,7 @@ barcode_qc_cor = purrr::map(barcode_qc_cor, function(barcode_qc) {
 })
 
 # Make plots
-plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter)
+plist = PlotBarcodeQCCor(sc, qc=barcode_qc_cor, filter=barcode_filter, raster=ncol(sc)>=getOption("raster.threshold"))
 
 # Prepare captions
 captions = GeneratePlotCaptions(names(plist), remove=paste0("_", default_assay), split="__")
@@ -1235,7 +1259,7 @@ sc = ScAddLists(sc, lists=list(CC_S_phase=seurat_s_genes, CC_G2M_phase=seurat_g2
 ###############################
 
 # Calculate scores
-sc = CCScoring(sc, genes_s=seurat_s_genes, genes_g2m=seurat_g2m_genes)
+sc = CCScoring(sc, genes_s=seurat_s_genes, genes_g2m=seurat_g2m_genes, verbose=verbose)
 ```
 
 ### Overall
@@ -1260,7 +1284,7 @@ gt(cell_cycle_summary_tbl, rowname_col="orig.ident")
 #| fig-asp: 0.7
 #| warning: false
 
-plist = PlotBarcodeQCCor(sc, qc=list(c("S.Score", "G2M.Score")))
+plist = PlotBarcodeQCCor(sc, qc=list(c("S.Score", "G2M.Score")), raster=ncol(sc)>=getOption("raster.threshold"))
 print(plist[[1]])
 ```
 
@@ -1358,16 +1382,18 @@ cat(":::", sep="\n")
 ```{r}
 #| label: preprocess_rna_save_seurat
 
-# Dump the layers with the normalized data for now (will be done in another module)
+# Dump the layers with the normalized data
 layers = SeuratObject::Layers(sc, search="^data")
 for(i in seq_along(layers)) {
   SeuratObject::LayerData(sc[[default_assay]], layer=layers[i]) = NULL
 }
 
-# Dump the Sketch assay for now
-sc[[paste0(default_assay, "Sketch")]] = NULL
+# Dump the Sketch assay
+sketched_assay_name = paste(default_assay, "Sketch", sep=".")
+sc[[sketched_assay_name]] = NULL
+sc$leverage.score = NULL
 
-# Dump the dimensionality reductions for now
+# Dump the dimensionality reductions
 sc[["pca"]] = NULL
 sc[["umap"]] = NULL
 if ("integrated.cca" %in% SeuratObject::Reductions(sc)) sc[["integrated.cca"]] = NULL
@@ -1379,8 +1405,13 @@ sc$seurat_clusters = NULL
 with_progress({
   SaveSeuratRds_Custom(sc,
               outdir=file.path(module_dir, "sc"))
-})
+}, enable=verbose)
 ```
 
+```{r}
+#| label: preprocess_rna_finish
 
+# Stop multisession workers
+plan(sequential)
+```
 

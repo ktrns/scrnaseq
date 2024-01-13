@@ -1,0 +1,75 @@
+## Setup
+
+First get the code from the git repository.
+
+``` bash
+# Clone git
+git clone https://github.com/ktrns/scrnaseq.git
+
+# Checkout branch version2
+cd scrnaseq
+git checkout version2
+
+# Make sure up-to-date
+git pull
+```
+
+Then start RStudio and associate a new project with this repository at *File* -\> *New* *Project* -\> *Existing* *Directory* and browse to the path of the git repository.
+
+The RStudio project helps with organizing the files but does not change the git repository itself. Morever, it allows for user-specific settings (see *Tools* -\> *Project* *Options*). All RStudio project settings are ignored by git.
+
+## Directory structure
+
+Here is a first overview of the directories and files:
+
+-   `scrnaseq.Rproj`: RStudio project settings. User-specific. Ignored by git.
+
+-   `scripts`: Contains R and quarto scripts which belong to scrnaseq and use parts it code. However, they are stand-alone/independent, not part of the main workflow and typically run from the command line.
+
+-   `references.qmd`: Quarto document for printing the bibliography of all references used in scrnaseq.
+
+-   `README.md`: Github repository starting page. Currently outdated.
+
+-   `R`: Contains files with user-defined R functions. Note that they still contain a number of old and not used functions.
+
+    -   `general_configuration.R`: Contains general settings that are always sourced first.
+
+    -   `functions_util.R`: Utility functions for general purposes.
+
+    -   `functions_plotting.R`: Functions to generate common plots.
+
+    -   `functions_io.R`: Functions for reading and writing data.
+
+    -   `functions_degs.R`: Functions for DEG analysis. Outdated and not used.
+
+    -   `functions_analysis.R`: Functions for the analysis of data.
+
+    -   `collect_module_results.R`: R script. It is run at the end of the workflow and collects all results that should be published to the user.
+
+-   `modules`: A workflow consists of different parts (e.g. pre-processing or normalization) that are called modules. Please see the section *Modules* for more information.
+
+-   `misc`: Contains various files that cannot be put in another directory.
+
+    -   `template.docx`: Template for publishing a workflow as Word document.
+
+    -   `references.bib`: Literature information in BibTex format for citing papers.
+
+    -   `nature.csl`: Citation style format (currently Nature).
+
+-   `LICENSE`: License
+
+-   `index.qmd`: Starting page for each report. Supposed to contain information about the biological project/experiment, its questions and TODOs. Also supposed to contain FAQs, Abouts, How to cite etc.
+
+-   `docs`: Further documentation to be shown on the github page (Wiki).
+
+-   `datasets`: Supposed to contain the datasets to analyse (please put them here). Already contains a number of test datasets (that need to be downloaded first).
+
+-   `css`: Contains CSS style sheets for HTML.
+
+-   `.gitignore`: Ignore file for git. Set up such that at first all files are ignored and then exceptions are made for the relevant files. This helps with all the temporary files created by R and quarto.
+
+-   `_quarto.yml`: Quarto configurations that are always used (knitr options, formats). Always loaded first and then overwritten by additional configurations.
+
+-   `_quarto-default.yml`: Quarto configuration file for a specific workflow also called profile with the name *default*. This could be for example a workflow for scRNA-seq data. Most importantly, the file contains the modules needed to run for this workflow and its required parameters. This allows to have different workflows for different purposes.
+
+## Modules

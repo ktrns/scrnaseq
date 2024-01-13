@@ -20,11 +20,11 @@ params:
   on_disk_use_tmp: true
   
   # Which normalization should be used for analysis?
-  # lognorm (Seurat), scran or SCT
+  # lognorm (Seurat), scran or sct
   normalisation_method: "lognorm"
   
   # Which method should be used for feature selection?
-  # vst (Seurat), scran or SCT
+  # vst (Seurat), scran or sct
   feature_selection_method: "vst"
   
   # Number of variable features to use
@@ -32,8 +32,8 @@ params:
   
   # One or more integration method(s) to use. 
   # The following methods are available: null (just merge), CCAIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
-  integration_method:
-  - "CCAIntegration"
+  integration_methods:
+  - "FastMNNIntegration"
 
   # Use sketch-based integration if total number of barcodes is more than
   min_barcodes_for_sketching: 50000
@@ -101,6 +101,9 @@ module_dir = params$module_dir
 
 # Parallisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
+
+# Be verbose
+verbose=FALSE
 ```
 
 ```{r}
@@ -144,15 +147,15 @@ if (on_disk_counts & on_disk_use_tmp) {
   on_disk_path = tempdir()
   with_progress({
     sc = UpdateMatrixDirs(sc, dir=on_disk_path)
-  })
+  }, enable=verbose)
 } else {
   on_disk_path = file.path(module_dir, "sc")
 }
 
-# Set default assay standard or SCT
+# Set default assay standard
 default_assay = param("default_assay")
-if (param("normalisation_method") == "SCT") {
-  Seurat::DefaultAssay(sc) = paste0(param("default_assay"), "sct")
+if (param("normalisation_method") == "sct") {
+  Seurat::DefaultAssay(sc) = paste0(param("default_assay"), "Sct")
 } else {
   Seurat::DefaultAssay(sc) = default_assay
 }
@@ -163,66 +166,142 @@ We may not need integration ...
 ```{r}
 #| label: integration_rna_integration
 
+integration_methods = param("integration_methods")
 min_barcodes_for_sketching = param("min_barcodes_for_sketching")
 num_barcodes_for_sketching = param("num_barcodes_for_sketching")
+integration_methods_params = purrr::map(integration_methods, function(method) {
+  par_lst = param(method)
+  
+  # Parse into argument name and value. Interpret values (still strings) as R code.
+  if (!is.null(par_lst)) {
+    par_lst = stringr::str_split(par_lst, pattern="=", n=2)
+    nms = purrr::map(par_lst, 1)
+    vls = purrr::map(par_lst, 2)
+    vls = purrr::map(vls, function(v) return(eval(parse(text=v))))
+    par_lst = setNames(vls, nms)
+  }
+  return(par_lst)
+})
+names(integration_methods_params) = integration_methods
+
 normalisation_method = param("normalisation_method")
 feature_selection_method = param("feature_selection_method")
 num_variable_features = param("num_variable_features")
-  
-num_datasets = length(SeuratObject::Layers(sc, assay=default_assay, search="^counts"))
-num_barcodes = length(SeuratObject::Cells(sc[[default_assay]]))
 
 # Integration not requested or not needed - just join layers
+num_datasets = length(SeuratObject::Layers(sc, assay=default_assay, search="^counts"))
+num_barcodes = length(SeuratObject::Cells(sc[[default_assay]]))
+use_sketching = num_barcodes > min_barcodes_for_sketching
 
-if (length(integration_method) > 0) {
+if (length(integration_methods) > 0) {
   # Integration requested and neccessary
 
   # Do we need to do sketching?
-  if (num_barcodes > min_barcodes_for_sketching) {
+  if (use_sketching) {
     # Create a sketch of the data
+    sketched_assay_name = paste(default_assay, "Sketch", sep=".")
     sc = Seurat::SketchData(sc, 
                        ncells=num_barcodes_for_sketching,
-                       sketched.assay=paste0(default_assay, "Sketch"))
-    SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+                       sketched.assay=sketched_assay_name)
+    SeuratObject::Key(sc[[sketched_assay_name]]) = paste0(default_assay, "Sketch", "_") %>% 
+      gsub(pattern="\\.", replacement="", x=.) %>%
+      tolower()
+    SeuratObject::DefaultAssay(sc) = sketched_assay_name
     
-    # SCTransform normalisation needs to be repeated for the sketch?
-    if(normalisation_method == "SCT") {
+    # SCTransform normalization needs to be repeated for the sketch?
+    if(normalisation_method == "sct") {
+      sct_assay_name = paste(SeuratObject::DefaultAssay(sc), "Sct", sep=".")
       sc = SCTransform(sc, 
-                   new.assay.name=SeuratObject::DefaultAssay(sc),
+                   new.assay.name=sct_assay_name,
                    vst.flavor="v2",
                    variable.features.n=num_variable_features,
                    vars.to.regress=c(),
                    return.only.var.genes=TRUE,
                    verbose=TRUE,
                    seed.use=getOption("random_seed"))
-      SeuratObject::DefaultAssay(sc) = paste0(default_assay, "Sketch")
+      SeuratObject::Key(sc[[sct_assay_name]]) = paste0(default_assay, "Sketch", "Sct", "_") %>% 
+        gsub(pattern="\\.", replacement="", x=.) %>%
+        tolower()
+      SeuratObject::DefaultAssay(sc) = sct_assay_name
     }
     
     # Find variable features for sketch
-    # Runs methods 'vst' or 'scran', method 'SCT' was already done when running SCTransform
-    if(feature_selection_method != "SCT") {
+    # Runs methods 'vst' or 'scran', method 'sct' was already done when running SCTransform
+    if(feature_selection_method != "sct") {
       sc = FindVariableFeaturesWrapper(sc,
                                        feature_selection_method=feature_selection_method,
-                                       num_variable_features=num_variable_features)
+                                       num_variable_features=num_variable_features,
+                                       verbose=verbose)
     }
   }
   
   # Now scale data and run PCA
-  sc = Seurat::ScaleData(sc)
-  sc = Seurat::RunPCA(sc, seed.use=getOption("random_seed"))
+  sc = Seurat::ScaleData(sc, 
+                         verbose=verbose)
+  sc = Seurat::RunPCA(sc,
+                      seed.use=getOption("random_seed"), 
+                      verbose=verbose)
   
   # Integrate
-} else if (length(integration_method) == 0) {
+  for(method in integration_methods) {
+    
+    # New reduction name
+    new_reduct = dplyr::case_match(method,
+                                   "CCAIntegration" ~ "cca",
+                                   "RPCAIntegration" ~ "rpca",
+                                   "HarmonyIntegration" ~ "harmony",
+                                   "FastMNNIntegration" ~ "mnn",
+                                   "scVIIntegration" ~ "scvii")
+    new_reduct = paste("integrated", new_reduct, sep=".")
+    
+    # Additional method-specific arguments passed by config
+    additional_args = integration_methods_params[[method]]
+    
+    # Call wrapper
+    sc = IntegrateLayersWrapper(sc=sc,
+                                integration_method=method,
+                                orig_reduct="pca",
+                                new_reduct=new_reduct,
+                                additional_args=additional_args,
+                                verbose=verbose)
+    
+    # If sketching was used, project integrated dimensionality reduction of sketch to full dataset
+    if (use_sketching) {
+      sc = Seurat::ProjectIntegration(sc,
+                                      sketched.assay=SeuratObject::DefaultAssay(sc), 
+                                      assay=default_assay,
+                                      reduction=new_reduct,
+                                      reduction.name=paste(new_reduct, "full", sep="."),
+                                      reduction.key=paste0(new_reduct, "full", "_") %>% 
+                                        gsub(pattern="\\.", replacement="", x=.) %>%
+                                        tolower(),
+                                      seed=getOption("random_seed"),
+                                      verbose=verbose)
+    }
+  }
+  
+  # Message
+  
+  # Reset default assay if sketching was used
+  if (use_sketching) {
+    SeuratObject::DefaultAssay(sc) = default_assay
+  }
+} else if (length(integration_methods) == 0) {
   # Integration not requested (just merge)
-  sc = SeuratObject::JoinLayers(sc)
   glue::glue("\n::: {{.callout-note}}\nSamples are merged. No integration needed!\n:::\n") %>% 
     knitr::asis_output()
   
 } else if (num_datasets == 1) {
-  # Integration not neccessary
+  # Integration not necessary
   glue::glue("\n::: {{.callout-note}}\nOnly one sample. No integration needed!\n:::\n") %>% 
     knitr::asis_output()
 }
 ```
 
+
+```{r}
+#| label: integration_rna_join_layers
+sc = SeuratObject::JoinLayers(sc)
+
+```
 

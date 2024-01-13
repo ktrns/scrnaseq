@@ -112,6 +112,9 @@ module_dir = params$module_dir
 
 # Parallelisation plan for all functions that support future
 plan(multisession, workers=4, gc=TRUE)
+
+# Be verbose
+verbose=FALSE
 ```
 
 ```{r}
@@ -191,20 +194,20 @@ The table of datasets used in this analysis is shown below:
 datasets_file = param("datasets_file")
 datasets = ReadDatasetsTable(datasets_file)
 
-# datasets = datasets[1:2,]
-# datasets$technology[1] = "parse"
-# datasets$assays[1] = "RNA"
-# datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
-# datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
-# datasets$barcode_metadata_files[1] = NA
-# datasets$rename_features[1] = "ENSEMBL"
-#  
-# datasets$technology[2] = "parse"
-# datasets$assays[2] = "RNA"
-# datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
-# datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
-# datasets$barcode_metadata_files[2] = NA
-# datasets$rename_features[2] = "ENSEMBL"
+#datasets = datasets[1:2,]
+#datasets$technology[1] = "parse"
+#datasets$assays[1] = "RNA"
+#datasets$path[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/DGE_filtered/"
+#datasets$metrics_file[1] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC001/report/analysis_summary.csv"
+#datasets$barcode_metadata_files[1] = NA
+#datasets$rename_features[1] = "ENSEMBL"
+
+#datasets$technology[2] = "parse"
+#datasets$assays[2] = "RNA"
+#datasets$path[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/DGE_filtered/"
+#datasets$metrics_file[2] = "/projects/seq-work/analysis/annee/bfx2302/splitpipe/gex_combined/BC005/report/analysis_summary.csv"
+#datasets$barcode_metadata_files[2] = NA
+#datasets$rename_features[2] = "ENSEMBL"
 
 
 
@@ -952,7 +955,7 @@ for (a in Seurat::Assays(sc)) {
     # Get counts of the top 50 features per barcode
     with_progress({
       top50_counts = SumTopN(counts, n=50, margin=2, chunk_size=5000)
-    })
+    }, enable=verbose)
     
     # Zero counts barcodes will not be in top50_counts - add them here
     top50_perc = ifelse(total_counts>0, top50_counts/total_counts*100, NA)
@@ -984,7 +987,7 @@ for (a in Seurat::Assays(sc)) {
     # Calculate median percentage of counts per feature
     with_progress({
       counts_median = CalculateMedians(counts_perc, margin=1, chunk_size=1000)
-    })
+    }, enable=verbose)
     
     # Add to metadata
     n = gsub(x=l, pattern="counts\\.", replacement="")
@@ -1106,5 +1109,13 @@ for (a in Seurat::Assays(sc)) {
 with_progress({
   SaveSeuratRds_Custom(sc,
                 outdir=file.path(module_dir, "sc"))
-})
+}, enable=verbose)
 ```
+
+```{r}
+#| label: read_data_finish
+
+# Stop multisession workers
+plan(sequential)
+```
+

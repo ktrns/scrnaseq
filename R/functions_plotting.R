@@ -246,10 +246,10 @@ PlotBarcodeQC = function(sc, qc, filter=NULL) {
 #' @param qc Pairs of barcode metadata columns to plot.
 #' @param filter A nested list where the first level is the barcode metadata column and the second levels 
 #' contains filters per dataset. Filters for numeric columns must numeric vectors with min and max. Filter
-#' for character/factor columns must be character vectors with the values that should be kept. 
-#' level contains the filter values 
+#' for character/factor columns must be character vectors with the values that should be kept.
+#' @param raster Whether to raster the points.
 #' @return A list of ggplot2 objects.
-PlotBarcodeQCCor = function(sc, qc, filter=NULL) {
+PlotBarcodeQCCor = function(sc, qc, filter=NULL, raster=FALSE) {
   barcode_metadata = sc[[]]
   
   # Check QC type (only numeric allowed)
@@ -286,7 +286,7 @@ PlotBarcodeQCCor = function(sc, qc, filter=NULL) {
     f2 = c[2]
     
     # Plot QC feature f1 vs f2
-    p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=ncol(sc)>=getOption("raster.threshold"))
+    p = Seurat::FeatureScatter(sc, feature1=f1, feature2=f2, shuffle=TRUE, seed=getOption("random_seed"), raster=raster)
     p = p + AddPlotStyle(col=ScColours(sc, "orig.ident"))
     
     # Add filter thresholds for f1

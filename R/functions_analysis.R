@@ -270,8 +270,9 @@ CalculateBoxplotStats = function(matrix, margin=1, chunk_size=NULL){
 #' @param genes_s Vector of gene names characteristic for S-phase
 #' @param genes_g2m Vector of gene names characteristic for G2M-phase
 #' @param assay Assay to use
+#' @param verbose Be verbose
 #' @return Updated Seurat object with cell cycle phase as well as scores.
-CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
+CCScoring = function(sc, genes_s, genes_g2m, assay=NULL, verbose=TRUE){
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   
   # For each layer (dataset)
@@ -290,7 +291,7 @@ CCScoring = function(sc, genes_s, genes_g2m, assay=NULL){
                                                s.features=genes_s[genes_s_exists],
                                                g2m.features=genes_g2m[genes_g2m_exists],
                                                assay=assay,
-                                               verbose=FALSE)
+                                               verbose=verbose)
       cc_scores = s[[c("Phase", "S.Score", "G2M.Score")]]
       cc_scores[["CC.Difference"]] = cc_scores[["S.Score"]] - cc_scores[["G2M.Score"]]
     } else {
@@ -514,21 +515,23 @@ FindVariableFeaturesScran = function(sc, assay=NULL, nfeatures=2000, combined=TR
 #' @param feature_selection_method Method for identifying highly variable features. Can be: vst, scran.
 #' @param num_variable_features Number of features to identify. Default is 2000.
 #' @param assay Assay to analyze. If NULL, will be default assay of the Seurat object.
+#' @param verbose Be verbose.
 #' @return Seurat v5 object with highly variable features for assay.
-FindVariableFeaturesWrapper = function(sc, feature_selection_method, num_variable_features=2000, assay=NULL) {
+FindVariableFeaturesWrapper = function(sc, feature_selection_method, num_variable_features=2000, assay=NULL, verbose=TRUE) {
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   
   # Check
   valid_feature_selection_methods = c("vst", "scran")
   assertthat::assert_that(feature_selection_method %in% valid_feature_selection_methods,
-                          msg=FormatMessage("Variable features method must must be one of: {valid_integration_methods*}."))
+                          msg=FormatMessage("Variable features method must must be one of: {valid_feature_selection_methods*}."))
   
   # Find variable features
   if (feature_selection_method == "vst") {
     sc = Seurat::FindVariableFeatures(sc, 
                                       assay=assay, 
                                       selection.method="vst", 
-                                      nfeatures=num_variable_features)
+                                      nfeatures=num_variable_features,
+                                      verbose=verbose)
   } else if (feature_selection_method == "scran") {
     sc = FindVariableFeaturesScran(sc,
                                    assay=assay,
@@ -539,7 +542,7 @@ FindVariableFeaturesWrapper = function(sc, feature_selection_method, num_variabl
   return(sc)
 }
 
-#' Wrapper for integrating the layers of an assay.
+#' Wrapper for integrating the layers of an assay. Does not touch the data but converts an original reduction into an integrated reduction based on the data.
 #' 
 #' @param sc Seurat v5 object.
 #' @param integration_method Method for identifying highly variable features. Can be: CCAIntegration, RPCAIntegration, HarmonyIntegration, FastMNNIntegration, scVIIntegration.
@@ -547,9 +550,10 @@ FindVariableFeaturesWrapper = function(sc, feature_selection_method, num_variabl
 #' @param orig_reduct Original reduction to be used for integration. Default is 'pca'. If NULL, will be default reduction.
 #' @param new_reduct Name of the new (integrated) reduction. Default is 'pca'. If NULL, will be based on the name of the integration method.
 #' @param new_reduct_suffix Additional suffix to append to the name of the new (integrated) reduction. Can be NULL.
+#' @param additional_args List of additional arguments to be passed to the integration method.
 #' @param verbose Be verbose.
 #' @return Seurat v5 object with a new (integrated) reduction.
-FindVariableFeaturesWrapper = function(sc, integration_method, assay=NULL, orig_reduct='pca', new_reduct=NULL, new_reduct_suffix=NULL, verbose=FALSE, ...) {
+IntegrateLayersWrapper = function(sc, integration_method, assay=NULL, orig_reduct='pca', new_reduct=NULL, new_reduct_suffix=NULL, additional_args=NULL, verbose=FALSE) {
   if (is.null(assay)) assay = Seurat::DefaultAssay(sc)
   if (is.null(orig_reduct)) orig_reduct = SeuratObject::DefaultDimReduc(sc)
 
@@ -576,13 +580,27 @@ FindVariableFeaturesWrapper = function(sc, integration_method, assay=NULL, orig_
     new_reduct = paste0(new_reduct, new_reduct_suffix)
   }
   
-  # Integrate layers
-  sc = Seurat::IntegrateLayers(sc, 
-                                method=integration_method,
-                                orig.reduction=orig_reduct,
-                                new.reduction=new_reduct,
-                                verbose=verbose,
-                               ...)
+  # Add method-specific additional arguments that are always required (set only if they are not already set)
+  if (integration_method == "CCAIntegration") {
+    if (!"normalization.method" %in% names(additional_args)) additional_args[["normalization.method"]] = ifelse(grepl(pattern="Sct", x=assay), "SCT", "LogNormalize")
+  } else if (integration_method == "FastMNNIntegration") {
+    if (!"reconstructed.assay" %in% names(additional_args)) additional_args[["reconstructed.assay"]] = paste(assay, "Mnn", sep=".")
+  } else if (integration_method == "scVIIntegration") {
+    # Conda environment for scVI
+    if (!"conda_env" %in% names(additional_args)) additional_args[["conda_env"]] = "base"
+  }
+  
+  # Call integration method
+  sc = purrr::exec(Seurat::IntegrateLayers,
+                   !!!c(list(sc, 
+                             method=integration_method,
+                             orig.reduction=orig_reduct,
+                             assay=assay,
+                             new.reduction=new_reduct,
+                             verbose=verbose),
+                        additional_args)
+                   )
+  
   
   # Post-process
   if (integration_method == "CCAIntegration") {
