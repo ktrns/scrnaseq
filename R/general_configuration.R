@@ -8,9 +8,6 @@ options(stringsAsFactors=FALSE)
 # Get rid of info of dplyr when grouping: `summarise()` regrouping output by 'species' (override with `.groups` argument)
 options(dplyr.summarise.inform=FALSE)
 
-# The default number of cores
-options(mc.cores=8)
-
 # The total size of all global objects that need to be exported for the future expression for parallel computations
 options(future.globals.maxSize=+Inf)
 

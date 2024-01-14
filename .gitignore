@@ -16,15 +16,28 @@ scrnaseq.Rproj
 /test_datasets
 !/datasets/**/download.R
 !/datasets/pbmc_datasets.xlsx
+!/datasets/pbmc_atac.xlsx
+!/datasets/10x_visium_human_brain_cancer.xlsx
+!/datasets/10x_xenium_mouse_brain.xlsx
 
 # Ignore files and directories produced in workflow directories (except qmd files)
+# To add new modules, comment these lines, create directory and quarto file
+# Then run 'git add' and uncomment these lines again
 /modules/**
 /modules/*/
 !/modules/**/*.qmd
 
+# Ignore files and directories produced in docs directory (except qmd files)
+/docs/**
+/docs/*/
+!/docs/*.qmd
+
+
 # Ignore files and directories produced at the project level
-/index.html
-/index_files
+/*.html
+/*.md
+/*_files
+
 
 # Ignore quarto local files that should not be cached
 environment.local
